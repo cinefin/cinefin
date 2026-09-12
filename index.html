@@ -1,1 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cineplex — run film nights at home</title>
+<meta name="description" content="Cineplex turns your movie collection into a real night at the pictures. Open source self hosted software" />
+<link rel="icon" type="image/png" href="assets/logo.png" />
+<link rel="stylesheet" href="fonts.css" />
+<style>
+  :root {
+    --paper: #f7f6f2;
+    --card: #ffffff;
+    --tint: #eef1ee;
+    --ink: #23282b;
+    --body-text: #43494e;
+    --soft: #6b7378;
+    --border: #e2e2dc;
+    --border-strong: #cfd0c8;
+    --accent: #2e6f4e;
+    --accent-deep: #24583e;
+    --accent-tint: #e2ede6;
+    --slab: #1d2422;
+    --slab-text: #c8d2cc;
+    --heading: 'Bricolage Grotesque', sans-serif;
+    --body: 'Atkinson Hyperlegible', sans-serif;
+    --mono: 'Fragment Mono', monospace;
+  }
 
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--paper);
+    color: var(--body-text);
+    font-family: var(--body);
+    font-size: 1.06rem;
+    line-height: 1.65;
+  }
+
+  .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
+
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-deep); }
+
+  /* ── Nav ───────────────────────────────────────────────────────────── */
+  nav {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 1.2rem 0;
+  }
+  nav img { height: 1.7rem; width: auto; }
+  nav .name { font-family: var(--heading); font-weight: 800; font-size: 1.25rem; color: var(--ink); }
+  nav .links { margin-left: auto; display: flex; gap: 1.6rem; align-items: center; }
+  nav .links a { color: var(--soft); text-decoration: none; font-size: 0.95rem; }
+  nav .links a:hover { color: var(--ink); }
+
+  /* ── Hero ──────────────────────────────────────────────────────────── */
+  .hero { padding: 4.5rem 0 3rem; text-align: center; }
+  .hero h1 {
+    font-family: var(--heading); font-weight: 800;
+    font-size: clamp(2.5rem, 6.4vw, 4.1rem);
+    line-height: 1.05; letter-spacing: -0.02em;
+    color: var(--ink);
+    max-width: 54rem; margin: 0 auto;
+  }
+  .hero h1 .green { color: var(--accent); }
+  .hero p.sub {
+    max-width: 47rem; margin: 1.5rem auto 0;
+    font-size: 1.18rem; line-height: 1.6;
+  }
+  .hero .status {
+    display: inline-block; margin-top: 2rem;
+    font-size: 0.92rem; color: var(--soft);
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0.45rem 1.1rem;
+  }
+  .hero .status b { color: var(--ink); font-weight: 700; }
+  .hero .facts { margin-top: 0.9rem; font-size: 0.9rem; color: var(--soft); }
+
+  .hero-shot { margin: 3rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
+  .hero-shot img {
+    display: block; width: 100%; height: auto;
+    border-radius: 12px;
+    border: 1px solid var(--border-strong);
+    box-shadow:
+      0 1px 2px rgba(30, 35, 40, 0.06),
+      0 12px 28px rgba(30, 35, 40, 0.14),
+      0 32px 64px rgba(30, 35, 40, 0.12);
+  }
+
+  /* ── Sections ──────────────────────────────────────────────────────── */
+  section { padding: 4.2rem 0; }
+  section.tinted { background: var(--tint); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  h2 {
+    font-family: var(--heading); font-weight: 800;
+    font-size: clamp(1.7rem, 3.6vw, 2.3rem);
+    letter-spacing: -0.015em; line-height: 1.15;
+    color: var(--ink); margin-bottom: 0.7rem;
+  }
+  .section-sub { max-width: 40rem; font-size: 1.06rem; }
+
+  /* Feature checklist */
+  .checklist {
+    margin-top: 2.2rem;
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 0.9rem 2.2rem;
+    list-style: none;
+  }
+  .checklist li {
+    display: flex; align-items: flex-start; gap: 0.65rem;
+    font-size: 1.02rem; color: var(--body-text);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.85rem 1rem;
+  }
+  .checklist b { color: var(--ink); font-weight: 700; }
+  .checklist .tick {
+    flex: none; width: 1.25rem; height: 1.25rem; margin-top: 0.15rem;
+    border-radius: 50%;
+    background: var(--accent-tint); color: var(--accent-deep);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-weight: 700;
+  }
+  /* Roadmap items: a hollow circle instead of a tick. */
+  .checklist .tick.open { background: transparent; border: 2px solid var(--border-strong); }
+  @media (max-width: 56rem) { .checklist { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 34rem) { .checklist { grid-template-columns: 1fr; } }
+
+  /* Steps */
+  .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-top: 2.4rem; }
+  .steps .step {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.4rem 1.3rem 1.5rem;
+  }
+  .steps .n {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.9rem; height: 1.9rem; border-radius: 50%;
+    background: var(--accent-tint); color: var(--accent-deep);
+    font-family: var(--heading); font-weight: 800; font-size: 0.95rem;
+  }
+  .steps h3 { font-family: var(--heading); font-weight: 600; font-size: 1.12rem; color: var(--ink); margin: 0.8rem 0 0.4rem; }
+  .steps p { font-size: 0.95rem; line-height: 1.55; }
+  @media (max-width: 56rem) { .steps { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 34rem) { .steps { grid-template-columns: 1fr; } }
+
+  /* Screenshots */
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin-top: 2.4rem; }
+  .shots figure.wide { grid-column: 1 / -1; }
+  .shots img {
+    display: block; width: 100%; height: auto;
+    border-radius: 10px; border: 1px solid var(--border-strong);
+    box-shadow: 0 1px 2px rgba(30,35,40,0.05), 0 10px 26px rgba(30,35,40,0.10);
+  }
+  .shots figcaption { padding: 0.7rem 0.2rem 0; font-size: 0.93rem; color: var(--soft); }
+  @media (max-width: 56rem) { .shots { grid-template-columns: 1fr; } }
+
+  /* Kiosk layout fader: four stills cross-fading on a fixed cycle. */
+  .fader { position: relative; border-radius: 10px; overflow: hidden; }
+  .fader img { animation: kiosk-fade 24s infinite; }
+  .fader img + img { position: absolute; inset: 0; }
+  .fader img:nth-child(1) { animation-delay: 0s; position: relative; }
+  .fader img:nth-child(2) { animation-delay: 6s; opacity: 0; }
+  .fader img:nth-child(3) { animation-delay: 12s; opacity: 0; }
+  .fader img:nth-child(4) { animation-delay: 18s; opacity: 0; }
+  @keyframes kiosk-fade {
+    0% { opacity: 0; z-index: 2; }
+    4% { opacity: 1; }
+    25% { opacity: 1; }
+    29% { opacity: 0; z-index: 1; }
+    100% { opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .fader img { animation: none; }
+    .fader img:nth-child(1) { opacity: 1; }
+  }
+
+  /* Under the hood */
+  .hood { margin-top: 2.2rem; display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .hood span {
+    font-family: var(--mono); font-size: 0.82rem;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0.4rem 0.9rem; color: var(--body-text);
+  }
+
+  /* ── Footer ────────────────────────────────────────────────────────── */
+  footer { background: var(--slab); color: var(--slab-text); padding: 3.2rem 0; margin-top: 4.2rem; }
+  footer .row { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+  footer img { height: 1.5rem; }
+  footer .name { font-family: var(--heading); font-weight: 800; color: #fff; font-size: 1.1rem; }
+  footer p { margin-top: 1rem; font-size: 0.95rem; max-width: 44rem; }
+  footer p.small { font-size: 0.8rem; color: #7d8a82; margin-top: 1.6rem; }
+
+  /* ── Reveal on scroll ──────────────────────────────────────────────── */
+  .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav>
+    <img src="assets/logo.png" alt="" />
+    <span class="name">Cineplex</span>
+    <div class="links">
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+    </div>
+  </nav>
+</div>
+
+<header class="hero wrap">
+  <h1>A theater<span class="green"> at home.</span></h1>
+  <p class="sub">Turn your digital film collection into functioning theater!
+                Cineplex manages and plays trailers, ratings cards, custom
+                pre-roll and all sorts of user media. Build out programmes,
+                schedule screenings, and run a theater at home.</p>
+  <p class="status"><b>Coming Soon</b> Linux & Windows </p>
+  <p class="facts">Free and open-source software. Runs on your own hardware, no tracking.</p>
+</header>
+
+<div class="hero-shot reveal in">
+  <img src="assets/library.webp" />
+</div>
+
+<div class="wrap">
+  <section id="features">
+    <h2 class="reveal">Current Features</h2>
+    <ul class="checklist">
+      <li class="reveal"><span class="tick">✓</span><span><b>Sync your movie libraries</b> from Plex and Jellyfin</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Builds programmes:</b> trailers, pre-roll, home automation, movies</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Configurable trailer matching</b> that match genre, year and certification of upcoming movies</span></li>
+      <li class="reveal"><span class="tick">✓</span><span>Can be used with <b>BBFC or MPAA ratings cards</b></span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Design and load title cards</b> for screenings</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Home Assistant and generic REST integration</b> for home automation</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Runs screenings on a schedule</b></span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Kiosk mode</b> for front of house</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Remote control</b> from your phone</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Prints tickets</b> on a thermal printer(!)</span></li>
+    </ul>
+  </section>
+
+</div>
+
+<section class="tinted" id="screenshots">
+  <div class="wrap">
+    <h2 class="reveal">Screenshots</h2>
+    <div class="shots">
+      <figure class="reveal">
+        <img src="assets/programme.webp" alt="A double bill programme" loading="lazy" />
+        <figcaption>A double bill programme.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/schedules.webp" alt="The schedules page" loading="lazy" />
+        <figcaption>Schedule listing.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/remote.webp" alt="The remote control" loading="lazy" />
+        <figcaption>Playbout remote control.</figcaption>
+      </figure>
+      <figure class="reveal">
+        <img src="assets/editor.webp" alt="The programme editor" loading="lazy" />
+        <figcaption>Programme editor.</figcaption>
+      </figure>
+      <figure class="wide reveal">
+        <div class="fader">
+          <img src="assets/kiosk-wall.webp" alt="Kiosk wall layout" />
+          <img src="assets/kiosk-spotlight.webp" alt="Kiosk spotlight layout" loading="lazy" />
+          <img src="assets/kiosk-board.webp" alt="Kiosk board layout" loading="lazy" />
+          <img src="assets/kiosk-split.webp" alt="Kiosk split layout" loading="lazy" />
+        </div>
+        <figcaption>The kiosk turns a spare screen or old tablet into the front of house.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <section>
+    <h2 class="reveal">Under the hood</h2>
+    <div class="hood reveal">
+      <span>Django 6</span>
+      <span>SvelteKit</span>
+      <span>Go</span>
+      <span>MPV</span>
+    </div>
+  </section>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="row">
+      <img src="assets/logo.png" alt="" />
+      <span class="name">Cineplex</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }, { rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+</script>
+</body>
+</html>
