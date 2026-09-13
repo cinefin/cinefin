@@ -279,15 +279,12 @@
   }
 
   /* ── Footer ────────────────────────────────────────────────────────── */
-  footer { background: var(--slab); color: var(--slab-text); padding: 2.8rem 0; margin-top: calc(var(--section-gap) / 2); }
-  footer .row { display: flex; align-items: center; justify-content: center; gap: 0.7rem; flex-wrap: wrap; }
-  footer img { height: 1.5rem; }
-  footer .name { font-family: var(--heading); font-weight: 800; color: #fff; font-size: 1.1rem; }
-  footer p { margin-top: 1rem; font-size: 0.95rem; max-width: 44rem; }
-  footer p.small { font-size: 0.8rem; color: #7d8a82; margin-top: 1.6rem; }
-  footer .meta { margin-top: 1.6rem; text-align: center; font-size: 0.85rem; }
-  footer .meta a { color: #a7c2dc; text-decoration: none; }
-  footer .meta a:hover { color: #c9dcee; text-decoration: underline; }
+  footer { background: var(--slab); color: var(--slab-text); padding: 1.9rem 0; margin-top: calc(var(--section-gap) / 2); }
+  footer .row { display: flex; align-items: center; gap: 0.7rem; }
+  footer img { height: 1.4rem; }
+  footer .name { font-family: var(--heading); font-weight: 800; color: #fff; font-size: 1.05rem; }
+  footer .row a { margin-left: auto; font-size: 0.88rem; color: #a7c2dc; text-decoration: none; }
+  footer .row a:hover { color: #c9dcee; text-decoration: underline; }
 
   /* ── Reveal on scroll ──────────────────────────────────────────────── */
   .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.55s cubic-bezier(0.22, 0.9, 0.3, 1), transform 0.55s cubic-bezier(0.22, 0.9, 0.3, 1); }
@@ -398,8 +395,8 @@
     <div class="row">
       <img src="assets/logo.png" alt="" />
       <span class="name">Cineplex</span>
+      <a href="privacy.html">Privacy policy</a>
     </div>
-    <p class="meta"><a href="privacy.html">Privacy policy</a></p>
   </div>
 </footer>
 
