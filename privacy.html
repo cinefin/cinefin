@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy — Cineplex</title>
+<meta name="description" content="The Cineplex website's privacy policy: no tracking, no cookies, and your email is only used to tell you about the release." />
+<link rel="icon" type="image/png" href="assets/logo.png" />
+<link rel="stylesheet" href="fonts.css" />
+<style>
+  :root {
+    /* Matches index.html: dimmed cool neutrals, Cineplex's steel-blue accent. */
+    --paper: #eceef0;
+    --card: #f8f9fa;
+    --ink: #22272c;
+    --body-text: #464d54;
+    --soft: #6b747d;
+    --border: #d9dde0;
+    --border-strong: #c2c9cf;
+    --accent: #52718f;
+    --accent-deep: #405a74;
+    --slab: #1a2027;
+    --slab-text: #c3ccd4;
+    --heading: 'Bricolage Grotesque', sans-serif;
+    --body: 'Atkinson Hyperlegible', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--body-text);
+    font-family: var(--body);
+    font-size: 1.05rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+  }
+
+  ::selection { background: #dfe7ee; color: var(--accent-deep); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+
+  a { color: var(--accent); }
+  a:hover { color: var(--accent-deep); }
+
+  .navbar {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  nav { display: flex; align-items: center; gap: 0.7rem; height: 4rem; max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
+  nav img { height: 1.65rem; width: auto; }
+  nav .name { font-family: var(--heading); font-weight: 800; font-size: 1.22rem; color: var(--ink); letter-spacing: -0.01em; }
+  nav a.home { text-decoration: none; display: flex; align-items: center; gap: 0.7rem; }
+  nav .links { margin-left: auto; }
+  nav .links a { color: var(--soft); text-decoration: none; font-size: 0.94rem; font-weight: 700; }
+  nav .links a:hover { color: var(--ink); }
+
+  main { flex: 1; max-width: 44rem; margin: 0 auto; padding: 3.8rem 1.5rem 4.5rem; }
+  h1 {
+    font-family: var(--heading); font-weight: 800;
+    font-size: clamp(2rem, 5vw, 2.8rem);
+    letter-spacing: -0.02em; line-height: 1.1;
+    color: var(--ink);
+  }
+  .updated { margin-top: 0.6rem; font-size: 0.88rem; color: var(--soft); }
+  h2 {
+    font-family: var(--heading); font-weight: 700;
+    font-size: 1.25rem; color: var(--ink);
+    margin: 2.4rem 0 0.5rem;
+  }
+  p { margin-top: 0.7rem; }
+  ul { margin: 0.7rem 0 0 1.3rem; }
+  li { margin-top: 0.35rem; }
+
+  footer { background: var(--slab); color: var(--slab-text); padding: 2.2rem 0; }
+  footer .wrap { display: flex; align-items: center; gap: 0.7rem; max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
+  footer img { height: 1.4rem; }
+  footer .name { font-family: var(--heading); font-weight: 800; color: #fff; }
+  footer a { color: #a7c2dc; margin-left: auto; font-size: 0.92rem; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <nav>
+    <a class="home" href="./">
+      <img src="assets/logo.png" alt="" />
+      <span class="name">Cineplex</span>
+    </a>
+    <div class="links">
+      <a href="./">← Back to the site</a>
+    </div>
+  </nav>
+</div>
+
+<main>
+  <h1>Privacy</h1>
+  <p class="updated">Last updated: 13 September 2026</p>
+
+  <p>This site exists to tell you about Cineplex. It is designed to know as
+  little about you as possible.</p>
+
+  <h2>What this site collects</h2>
+  <p>Nothing unless you choose to give us something.</p>
+  <p>This site uses no analytics, tracking scripts, cookies, or third-party
+  requests. Fonts, images, and other site assets are served directly from
+  this site.</p>
+  <p>Like most websites, your visit may appear in ordinary web-server logs,
+  which can include your IP address and the page you requested. These logs
+  are used only to keep the site running and are not shared with anyone.</p>
+
+  <h2>Email signup</h2>
+  <p>If you provide your email address to hear about the release, your email
+  address is the only information we collect through the signup.</p>
+  <p>We use it for one purpose:</p>
+  <ul>
+    <li>to email you about Cineplex releases and, occasionally, notable project news.</li>
+  </ul>
+  <p>We will never sell or share your email address, or use it for unrelated
+  purposes.</p>
+  <p>Every email includes an unsubscribe option. If you unsubscribe, your
+  address will be removed from the mailing list.</p>
+  <p>Email signups are not live yet. When they are, your address will be
+  stored by the mailing-list service we use, and this policy will be updated
+  to identify that service.</p>
+
+  <h2>The software itself</h2>
+  <p>Cineplex — the application — is self-hosted and runs entirely on your own
+  hardware. It does not send telemetry or contact us in the background.</p>
+  <p>This privacy policy applies to this website only. It does not describe
+  the privacy practices of the Cineplex application or any software you
+  choose to run alongside it.</p>
+
+  <h2>Changes to this policy</h2>
+  <p>If this policy changes, we will update the date at the top of this page.</p>
+  <p>There is no tracking here to announce, so we don't expect this page to
+  change often.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <img src="assets/logo.png" alt="" />
+    <span class="name">Cineplex</span>
+    <a href="./">cineplex</a>
+  </div>
+</footer>
+
+</body>
+</html>

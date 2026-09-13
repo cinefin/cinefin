@@ -9,22 +9,33 @@
 <link rel="stylesheet" href="fonts.css" />
 <style>
   :root {
-    --paper: #f7f6f2;
-    --card: #ffffff;
-    --tint: #eef1ee;
-    --ink: #23282b;
-    --body-text: #43494e;
-    --soft: #6b7378;
-    --border: #e2e2dc;
-    --border-strong: #cfd0c8;
-    --accent: #2e6f4e;
-    --accent-deep: #24583e;
-    --accent-tint: #e2ede6;
-    --slab: #1d2422;
-    --slab-text: #c8d2cc;
+    /* Dimmed, cool neutral ramp; the accent is Cineplex's own steel blue
+       (#6b8cae, app.css --color-accent), deepened for light-background
+       contrast. */
+    --paper: #eceef0;
+    --card: #f8f9fa;
+    --tint: #e3e7ea;
+    --ink: #22272c;
+    --body-text: #464d54;
+    --soft: #6b747d;
+    --border: #d9dde0;
+    --border-strong: #c2c9cf;
+    --accent: #52718f;
+    --accent-deep: #405a74;
+    --accent-tint: #dfe7ee;
+    --slab: #1a2027;
+    --slab-text: #c3ccd4;
     --heading: 'Bricolage Grotesque', sans-serif;
     --body: 'Atkinson Hyperlegible', sans-serif;
     --mono: 'Fragment Mono', monospace;
+    --r-sm: 8px;
+    --r-md: 12px;
+    --r-lg: 16px;
+    --section-gap: 5.4rem; /* one rhythm between every band of the page */
+    --shadow-xs: 0 1px 2px rgba(34, 39, 44, 0.05);
+    --shadow-sm: 0 1px 2px rgba(34, 39, 44, 0.05), 0 4px 12px rgba(34, 39, 44, 0.06);
+    --shadow-md: 0 2px 4px rgba(34, 39, 44, 0.05), 0 10px 24px rgba(34, 39, 44, 0.09);
+    --shadow-lg: 0 2px 4px rgba(34, 39, 44, 0.05), 0 16px 40px rgba(34, 39, 44, 0.12), 0 36px 80px rgba(34, 39, 44, 0.10);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -34,67 +45,176 @@
     background: var(--paper);
     color: var(--body-text);
     font-family: var(--body);
-    font-size: 1.06rem;
+    font-size: 1.05rem;
     line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
+
+  ::selection { background: var(--accent-tint); color: var(--accent-deep); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
 
   .wrap { max-width: 68rem; margin: 0 auto; padding: 0 1.5rem; }
 
   a { color: var(--accent); }
   a:hover { color: var(--accent-deep); }
 
+  h1, h2 { text-wrap: balance; }
+
   /* ── Nav ───────────────────────────────────────────────────────────── */
-  nav {
-    display: flex; align-items: center; gap: 0.75rem;
-    padding: 1.2rem 0;
+  .navbar {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
   }
-  nav img { height: 1.7rem; width: auto; }
-  nav .name { font-family: var(--heading); font-weight: 800; font-size: 1.25rem; color: var(--ink); }
-  nav .links { margin-left: auto; display: flex; gap: 1.6rem; align-items: center; }
-  nav .links a { color: var(--soft); text-decoration: none; font-size: 0.95rem; }
-  nav .links a:hover { color: var(--ink); }
+  .navbar.scrolled { border-bottom-color: var(--border); box-shadow: var(--shadow-xs); }
+  nav {
+    display: flex; align-items: center; gap: 0.7rem;
+    height: 4rem;
+  }
+  nav img { height: 1.65rem; width: auto; }
+  nav .name { font-family: var(--heading); font-weight: 800; font-size: 1.22rem; color: var(--ink); letter-spacing: -0.01em; }
+  nav .links { margin-left: auto; display: flex; gap: 0.4rem; align-items: center; }
+  nav .links a {
+    color: var(--soft); text-decoration: none; font-size: 0.94rem; font-weight: 700;
+    padding: 0.45rem 0.85rem; border-radius: 999px;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  nav .links a:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, transparent); }
 
   /* ── Hero ──────────────────────────────────────────────────────────── */
-  .hero { padding: 4.5rem 0 3rem; text-align: center; }
+  .hero-bg {
+    position: relative;
+    padding-bottom: calc(var(--section-gap) / 2);
+    background:
+      radial-gradient(52rem 26rem at 50% -6rem, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+      radial-gradient(40rem 20rem at 85% 4rem, color-mix(in srgb, #8fa6bd 8%, transparent), transparent 70%);
+  }
+  .hero-bg::before {
+    content: '';
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(color-mix(in srgb, var(--ink) 8%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(46rem 24rem at 50% 0, #000 25%, transparent 72%);
+            mask-image: radial-gradient(46rem 24rem at 50% 0, #000 25%, transparent 72%);
+  }
+  .hero { position: relative; padding: 4.6rem 0 0; text-align: center; }
   .hero h1 {
     font-family: var(--heading); font-weight: 800;
-    font-size: clamp(2.5rem, 6.4vw, 4.1rem);
-    line-height: 1.05; letter-spacing: -0.02em;
+    font-size: clamp(2.6rem, 6.4vw, 4.4rem);
+    line-height: 1.03; letter-spacing: -0.028em;
     color: var(--ink);
     max-width: 54rem; margin: 0 auto;
   }
   .hero h1 .green { color: var(--accent); }
   .hero p.sub {
-    max-width: 47rem; margin: 1.5rem auto 0;
-    font-size: 1.18rem; line-height: 1.6;
+    max-width: 44rem; margin: 1.6rem auto 0;
+    font-size: 1.17rem; line-height: 1.62;
+    color: var(--body-text);
   }
-  .hero .status {
-    display: inline-block; margin-top: 2rem;
-    font-size: 0.92rem; color: var(--soft);
-    background: var(--card); border: 1px solid var(--border);
-    border-radius: 999px; padding: 0.45rem 1.1rem;
+  .hero .overline {
+    font-weight: 700; font-size: 0.88rem;
+    color: var(--accent-deep);
+    margin-bottom: 1.1rem;
   }
-  .hero .status b { color: var(--ink); font-weight: 700; }
-  .hero .facts { margin-top: 0.9rem; font-size: 0.9rem; color: var(--soft); }
 
-  .hero-shot { margin: 3rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
-  .hero-shot img {
-    display: block; width: 100%; height: auto;
-    border-radius: 12px;
+  /* Load-in: the hero settles in one quiet sequence. */
+  .hero > *, .hero-shot { opacity: 0; transform: translateY(14px); animation: settle 0.7s cubic-bezier(0.22, 0.9, 0.3, 1) forwards; }
+  .hero .overline { animation-delay: 0.02s; }
+  .hero h1 { animation-delay: 0.1s; }
+  .hero p.sub { animation-delay: 0.2s; }
+  .hero .signup { animation-delay: 0.3s; }
+  .hero-shot { animation-delay: 0.42s; }
+  @keyframes settle { to { opacity: 1; transform: none; } }
+
+  /* ── Email signup (compact) ────────────────────────────────────────── */
+  .signup { margin: 1.3rem auto 0; max-width: 21.5rem; }
+  .signup .controls {
+    display: flex;
+    background: var(--card);
     border: 1px solid var(--border-strong);
-    box-shadow:
-      0 1px 2px rgba(30, 35, 40, 0.06),
-      0 12px 28px rgba(30, 35, 40, 0.14),
-      0 32px 64px rgba(30, 35, 40, 0.12);
+    border-radius: 999px;
+    padding: 0.22rem;
+    box-shadow: var(--shadow-xs);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .signup .controls:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow-xs);
+  }
+  .signup input {
+    flex: 1; min-width: 0;
+    border: 0; background: transparent; outline: none;
+    font: inherit; font-size: 0.9rem; color: var(--ink);
+    padding: 0.35rem 0.5rem 0.35rem 0.95rem;
+  }
+  .signup input::placeholder { color: var(--soft); }
+  .signup button {
+    flex: none;
+    font-family: var(--body); font-weight: 700; font-size: 0.87rem;
+    color: #fff; background: var(--accent);
+    border: 0; border-radius: 999px;
+    padding: 0.4rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .signup button:hover { background: var(--accent-deep); }
+  .signup .signup-note {
+    min-height: 1.25rem; margin-top: 0.45rem;
+    font-size: 0.8rem; color: var(--soft);
+  }
+  .signup .signup-note.ok { color: var(--accent-deep); font-weight: 700; }
+  .signup .signup-note.err { color: #a04b3a; }
+  @media (max-width: 34rem) {
+    .signup .controls { flex-direction: column; border-radius: var(--r-md); gap: 0.25rem; }
+    .signup input { text-align: center; padding: 0.5rem 0.8rem; }
+    .signup button { padding: 0.55rem 1rem; }
+  }
+  /* Footer variant: dark slab styling, same shape. */
+  footer .signup { margin: 1.5rem auto 0; }
+  footer .signup .controls {
+    background: color-mix(in srgb, #fff 7%, transparent);
+    border-color: color-mix(in srgb, #fff 18%, transparent);
+    box-shadow: none;
+  }
+  footer .signup input { color: #fff; }
+  footer .signup input::placeholder { color: color-mix(in srgb, var(--slab-text) 75%, transparent); }
+  footer .signup .signup-note { color: var(--slab-text); }
+  footer .signup .signup-note.ok { color: #a7c2dc; }
+  footer .signup .signup-note.err { color: #d9a08f; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
   }
 
-  /* ── Sections ──────────────────────────────────────────────────────── */
-  section { padding: 4.2rem 0; }
-  section.tinted { background: var(--tint); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  /* ── App window framing ────────────────────────────────────────────── */
+  .hero-shot { position: relative; margin: 2.8rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
+  .window {
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+  .window img { display: block; width: 100%; height: auto; }
+
+  /* ── Sections — one shared rhythm: every band contributes half the gap,
+     so adjacent sections always sit exactly --section-gap apart. ──────── */
+  section { padding: calc(var(--section-gap) / 2) 0; }
+  section.tinted {
+    background: var(--tint);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
   h2 {
     font-family: var(--heading); font-weight: 800;
-    font-size: clamp(1.7rem, 3.6vw, 2.3rem);
-    letter-spacing: -0.015em; line-height: 1.15;
+    font-size: clamp(1.8rem, 3.6vw, 2.35rem);
+    letter-spacing: -0.02em; line-height: 1.12;
     color: var(--ink); margin-bottom: 0.7rem;
   }
   .section-sub { max-width: 40rem; font-size: 1.06rem; }
@@ -103,33 +223,44 @@
   .checklist {
     margin-top: 2.2rem;
     display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 0.9rem 2.2rem;
+    gap: 1rem;
     list-style: none;
   }
   .checklist li {
-    display: flex; align-items: flex-start; gap: 0.65rem;
-    font-size: 1.02rem; color: var(--body-text);
-    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 0.85rem 1rem;
+    display: flex; align-items: flex-start; gap: 0.7rem;
+    font-size: 1rem; line-height: 1.55; color: var(--body-text);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    padding: 1rem 1.1rem;
+    box-shadow: var(--shadow-xs);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+  .checklist li:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+    box-shadow: var(--shadow-md);
   }
   .checklist b { color: var(--ink); font-weight: 700; }
   .checklist .tick {
-    flex: none; width: 1.25rem; height: 1.25rem; margin-top: 0.15rem;
+    flex: none; width: 1.3rem; height: 1.3rem; margin-top: 0.12rem;
     border-radius: 50%;
-    background: var(--accent-tint); color: var(--accent-deep);
+    background: var(--accent); color: #fff;
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: 0.75rem; font-weight: 700;
+    font-size: 0.72rem; font-weight: 700;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--accent-deep) 35%, transparent);
   }
   /* Roadmap items: a hollow circle instead of a tick. */
-  .checklist .tick.open { background: transparent; border: 2px solid var(--border-strong); }
+  .checklist .tick.open { background: transparent; border: 2px solid var(--border-strong); box-shadow: none; }
   @media (max-width: 56rem) { .checklist { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 34rem) { .checklist { grid-template-columns: 1fr; } }
 
   /* Steps */
   .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem; margin-top: 2.4rem; }
   .steps .step {
-    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--r-md);
     padding: 1.4rem 1.3rem 1.5rem;
+    box-shadow: var(--shadow-xs);
   }
   .steps .n {
     display: inline-flex; align-items: center; justify-content: center;
@@ -143,18 +274,24 @@
   @media (max-width: 34rem) { .steps { grid-template-columns: 1fr; } }
 
   /* Screenshots */
-  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin-top: 2.4rem; }
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 1.8rem 1.6rem; margin-top: 2.4rem; }
   .shots figure.wide { grid-column: 1 / -1; }
-  .shots img {
-    display: block; width: 100%; height: auto;
-    border-radius: 10px; border: 1px solid var(--border-strong);
-    box-shadow: 0 1px 2px rgba(30,35,40,0.05), 0 10px 26px rgba(30,35,40,0.10);
+  .shots figure .window { border-radius: var(--r-md); box-shadow: var(--shadow-md); }
+  .shots figcaption {
+    display: flex; align-items: baseline; gap: 0.55rem;
+    padding: 0.8rem 0.25rem 0;
+    font-size: 0.93rem; color: var(--soft);
   }
-  .shots figcaption { padding: 0.7rem 0.2rem 0; font-size: 0.93rem; color: var(--soft); }
+  .shots figcaption::before {
+    content: '';
+    flex: none; width: 1.1rem; height: 2px; border-radius: 2px;
+    background: var(--accent);
+    transform: translateY(-0.22em);
+  }
   @media (max-width: 56rem) { .shots { grid-template-columns: 1fr; } }
 
   /* Kiosk layout fader: four stills cross-fading on a fixed cycle. */
-  .fader { position: relative; border-radius: 10px; overflow: hidden; }
+  .fader { position: relative; overflow: hidden; }
   .fader img { animation: kiosk-fade 24s infinite; }
   .fader img + img { position: absolute; inset: 0; }
   .fader img:nth-child(1) { animation-delay: 0s; position: relative; }
@@ -168,9 +305,28 @@
     29% { opacity: 0; z-index: 1; }
     100% { opacity: 0; }
   }
+  /* Cycle dots under the fader, in step with it (decorative). */
+  .fader-dots { display: flex; gap: 0.45rem; margin-left: auto; }
+  .fader-dots i {
+    width: 0.44rem; height: 0.44rem; border-radius: 50%;
+    background: var(--border-strong);
+    animation: dot-fade 24s infinite;
+  }
+  .fader-dots i:nth-child(1) { animation-delay: 0s; }
+  .fader-dots i:nth-child(2) { animation-delay: 6s; }
+  .fader-dots i:nth-child(3) { animation-delay: 12s; }
+  .fader-dots i:nth-child(4) { animation-delay: 18s; }
+  @keyframes dot-fade {
+    0% { background: var(--border-strong); }
+    4% { background: var(--accent); }
+    25% { background: var(--accent); }
+    29% { background: var(--border-strong); }
+    100% { background: var(--border-strong); }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .fader img { animation: none; }
+    .fader img, .fader-dots i { animation: none; }
     .fader img:nth-child(1) { opacity: 1; }
+    .hero > *, .hero-shot { animation: none; opacity: 1; transform: none; }
   }
 
   /* Under the hood */
@@ -179,18 +335,22 @@
     font-family: var(--mono); font-size: 0.82rem;
     background: var(--card); border: 1px solid var(--border);
     border-radius: 999px; padding: 0.4rem 0.9rem; color: var(--body-text);
+    box-shadow: var(--shadow-xs);
   }
 
   /* ── Footer ────────────────────────────────────────────────────────── */
-  footer { background: var(--slab); color: var(--slab-text); padding: 3.2rem 0; margin-top: 4.2rem; }
-  footer .row { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+  footer { background: var(--slab); color: var(--slab-text); padding: 2.8rem 0; margin-top: calc(var(--section-gap) / 2); }
+  footer .row { display: flex; align-items: center; justify-content: center; gap: 0.7rem; flex-wrap: wrap; }
   footer img { height: 1.5rem; }
   footer .name { font-family: var(--heading); font-weight: 800; color: #fff; font-size: 1.1rem; }
   footer p { margin-top: 1rem; font-size: 0.95rem; max-width: 44rem; }
   footer p.small { font-size: 0.8rem; color: #7d8a82; margin-top: 1.6rem; }
+  footer .meta { margin-top: 1.6rem; text-align: center; font-size: 0.85rem; }
+  footer .meta a { color: #a7c2dc; text-decoration: none; }
+  footer .meta a:hover { color: #c9dcee; text-decoration: underline; }
 
   /* ── Reveal on scroll ──────────────────────────────────────────────── */
-  .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s ease; }
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.55s cubic-bezier(0.22, 0.9, 0.3, 1), transform 0.55s cubic-bezier(0.22, 0.9, 0.3, 1); }
   .reveal.in { opacity: 1; transform: none; }
   @media (prefers-reduced-motion: reduce) {
     .reveal { opacity: 1; transform: none; transition: none; }
@@ -199,29 +359,43 @@
 </head>
 <body>
 
-<div class="wrap">
-  <nav>
-    <img src="assets/logo.png" alt="" />
-    <span class="name">Cineplex</span>
-    <div class="links">
-      <a href="#features">Features</a>
-      <a href="#screenshots">Screenshots</a>
-    </div>
-  </nav>
+<div class="navbar" id="navbar">
+  <div class="wrap">
+    <nav>
+      <img src="assets/logo.png" alt="" />
+      <span class="name">Cineplex</span>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#screenshots">Screenshots</a>
+      </div>
+    </nav>
+  </div>
 </div>
 
-<header class="hero wrap">
-  <h1>A theater<span class="green"> at home.</span></h1>
-  <p class="sub">Turn your digital film collection into functioning theater!
-                Cineplex manages and plays trailers, ratings cards, custom
-                pre-roll and all sorts of user media. Build out programmes,
-                schedule screenings, and run a theater at home.</p>
-  <p class="status"><b>Coming Soon</b> Linux & Windows </p>
-  <p class="facts">Free and open-source software. Runs on your own hardware, no tracking.</p>
-</header>
+<div class="hero-bg">
+  <header class="hero wrap">
+    <h1>A theater<span class="green"> at home.</span></h1>
+    <p class="sub">Turn your digital film collection into functioning theater!
+                  Cineplex manages and plays trailers, ratings cards, custom
+                  pre-roll and all sorts of user media. Build out programmes,
+                  schedule screenings, and run a theater at home.</p>
+    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cineplex" method="post" novalidate>
+      <p class="overline">Coming soon for Linux &amp; Windows</p>
+      <label class="sr-only" for="signup-email">Email address</label>
+      <div class="controls">
+        <input id="signup-email" name="email" type="email" required
+               placeholder="you@example.com" autocomplete="email" />
+        <button type="submit">Get updates</button>
+      </div>
+      <p class="signup-note" role="status" aria-live="polite">Free and open-source software · release news only · <a href="privacy.html">privacy</a></p>
+    </form>
+  </header>
 
-<div class="hero-shot reveal in">
-  <img src="assets/library.webp" />
+  <div class="hero-shot">
+    <div class="window">
+      <img src="assets/library.webp" alt="" />
+    </div>
+  </div>
 </div>
 
 <div class="wrap">
@@ -249,29 +423,39 @@
     <h2 class="reveal">Screenshots</h2>
     <div class="shots">
       <figure class="reveal">
-        <img src="assets/programme.webp" alt="A double bill programme" loading="lazy" />
+        <div class="window">
+          <img src="assets/programme.webp" alt="A double bill programme" loading="lazy" />
+        </div>
         <figcaption>A double bill programme.</figcaption>
       </figure>
       <figure class="reveal">
-        <img src="assets/schedules.webp" alt="The schedules page" loading="lazy" />
+        <div class="window">
+          <img src="assets/schedules.webp" alt="The schedules page" loading="lazy" />
+        </div>
         <figcaption>Schedule listing.</figcaption>
       </figure>
       <figure class="reveal">
-        <img src="assets/remote.webp" alt="The remote control" loading="lazy" />
+        <div class="window">
+          <img src="assets/remote.webp" alt="The remote control" loading="lazy" />
+        </div>
         <figcaption>Playbout remote control.</figcaption>
       </figure>
       <figure class="reveal">
-        <img src="assets/editor.webp" alt="The programme editor" loading="lazy" />
+        <div class="window">
+          <img src="assets/editor.webp" alt="The programme editor" loading="lazy" />
+        </div>
         <figcaption>Programme editor.</figcaption>
       </figure>
       <figure class="wide reveal">
-        <div class="fader">
-          <img src="assets/kiosk-wall.webp" alt="Kiosk wall layout" />
-          <img src="assets/kiosk-spotlight.webp" alt="Kiosk spotlight layout" loading="lazy" />
-          <img src="assets/kiosk-board.webp" alt="Kiosk board layout" loading="lazy" />
-          <img src="assets/kiosk-split.webp" alt="Kiosk split layout" loading="lazy" />
+        <div class="window">
+          <div class="fader">
+            <img src="assets/kiosk-wall.webp" alt="Kiosk wall layout" />
+            <img src="assets/kiosk-spotlight.webp" alt="Kiosk spotlight layout" loading="lazy" />
+            <img src="assets/kiosk-board.webp" alt="Kiosk board layout" loading="lazy" />
+            <img src="assets/kiosk-split.webp" alt="Kiosk split layout" loading="lazy" />
+          </div>
         </div>
-        <figcaption>The kiosk turns a spare screen or old tablet into the front of house.</figcaption>
+        <figcaption>The kiosk turns a spare screen or old tablet into the front of house.<span class="fader-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></span></figcaption>
       </figure>
     </div>
   </div>
@@ -283,6 +467,16 @@
       <img src="assets/logo.png" alt="" />
       <span class="name">Cineplex</span>
     </div>
+    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cineplex" method="post" novalidate>
+      <label class="sr-only" for="signup-email-footer">Email address</label>
+      <div class="controls">
+        <input id="signup-email-footer" name="email" type="email" required
+               placeholder="you@example.com" autocomplete="email" />
+        <button type="submit">Get updates</button>
+      </div>
+      <p class="signup-note" role="status" aria-live="polite"></p>
+    </form>
+    <p class="meta"><a href="privacy.html">Privacy policy</a></p>
   </div>
 </footer>
 
@@ -291,6 +485,35 @@
     for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
   }, { rootMargin: '0px 0px -8% 0px' });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  const navbar = document.getElementById('navbar');
+  const onScroll = () => navbar.classList.toggle('scrolled', window.scrollY > 8);
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  for (const form of document.querySelectorAll('[data-signup]')) {
+    const input = form.querySelector('input[type="email"]');
+    const note = form.querySelector('.signup-note');
+    const say = (msg, cls) => { note.textContent = msg; note.className = 'signup-note' + (cls ? ' ' + cls : ''); };
+
+    form.addEventListener('submit', async (e) => {
+      if (!input.checkValidity()) {
+        e.preventDefault();
+        say('That doesn’t look like an email address.', 'err');
+        input.focus();
+        return;
+      }
+      e.preventDefault();
+      try {
+        const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+        if (!res.ok) throw new Error(String(res.status));
+        form.querySelector('.controls').remove();
+        say('Thanks — you\'ll receive updates once Cineplex is released', 'ok');
+      } catch {
+        form.submit(); // let the service's own page handle it
+      }
+    });
+  }
 </script>
 </body>
 </html>
