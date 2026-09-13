@@ -430,15 +430,15 @@
       </figure>
       <figure class="reveal">
         <div class="window">
-          <img src="assets/schedules.webp" alt="The schedules page" loading="lazy" />
+          <img src="assets/tickets.webp" alt="The box office: ticket design, quantity, seats and printing" loading="lazy" />
         </div>
-        <figcaption>Schedule listing.</figcaption>
+        <figcaption>The box office — ticket designs, seats and printing.</figcaption>
       </figure>
       <figure class="reveal">
         <div class="window">
           <img src="assets/remote.webp" alt="The remote control" loading="lazy" />
         </div>
-        <figcaption>Playbout remote control.</figcaption>
+        <figcaption>Playout remote control.</figcaption>
       </figure>
       <figure class="reveal">
         <div class="window">
@@ -508,7 +508,7 @@
         const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
         if (!res.ok) throw new Error(String(res.status));
         form.querySelector('.controls').remove();
-        say('Thanks — you\'ll receive updates once Cineplex is released', 'ok');
+        say('Thanks — now check your inbox and confirm your address to get updates.', 'ok');
       } catch {
         form.submit(); // let the service's own page handle it
       }
