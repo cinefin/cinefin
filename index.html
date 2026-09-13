@@ -116,81 +116,21 @@
     color: var(--body-text);
   }
   .hero .overline {
-    font-weight: 700; font-size: 0.88rem;
+    font-weight: 700; font-size: 0.92rem;
     color: var(--accent-deep);
-    margin-bottom: 1.1rem;
+    margin-top: 1.9rem;
   }
+  .hero .facts { margin-top: 0.4rem; font-size: 0.86rem; color: var(--soft); }
 
   /* Load-in: the hero settles in one quiet sequence. */
   .hero > *, .hero-shot { opacity: 0; transform: translateY(14px); animation: settle 0.7s cubic-bezier(0.22, 0.9, 0.3, 1) forwards; }
-  .hero .overline { animation-delay: 0.02s; }
-  .hero h1 { animation-delay: 0.1s; }
-  .hero p.sub { animation-delay: 0.2s; }
-  .hero .signup { animation-delay: 0.3s; }
+  .hero h1 { animation-delay: 0.05s; }
+  .hero p.sub { animation-delay: 0.15s; }
+  .hero .overline { animation-delay: 0.25s; }
+  .hero .facts { animation-delay: 0.32s; }
   .hero-shot { animation-delay: 0.42s; }
   @keyframes settle { to { opacity: 1; transform: none; } }
 
-  /* ── Email signup (compact) ────────────────────────────────────────── */
-  .signup { margin: 1.3rem auto 0; max-width: 21.5rem; }
-  .signup .controls {
-    display: flex;
-    background: var(--card);
-    border: 1px solid var(--border-strong);
-    border-radius: 999px;
-    padding: 0.22rem;
-    box-shadow: var(--shadow-xs);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  .signup .controls:focus-within {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow-xs);
-  }
-  .signup input {
-    flex: 1; min-width: 0;
-    border: 0; background: transparent; outline: none;
-    font: inherit; font-size: 0.9rem; color: var(--ink);
-    padding: 0.35rem 0.5rem 0.35rem 0.95rem;
-  }
-  .signup input::placeholder { color: var(--soft); }
-  .signup button {
-    flex: none;
-    font-family: var(--body); font-weight: 700; font-size: 0.87rem;
-    color: #fff; background: var(--accent);
-    border: 0; border-radius: 999px;
-    padding: 0.4rem 1rem;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-  .signup button:hover { background: var(--accent-deep); }
-  .signup .signup-note {
-    min-height: 1.25rem; margin-top: 0.45rem;
-    font-size: 0.8rem; color: var(--soft);
-  }
-  .signup .signup-note.ok { color: var(--accent-deep); font-weight: 700; }
-  .signup .signup-note.err { color: #a04b3a; }
-  @media (max-width: 34rem) {
-    .signup .controls { flex-direction: column; border-radius: var(--r-md); gap: 0.25rem; }
-    .signup input { text-align: center; padding: 0.5rem 0.8rem; }
-    .signup button { padding: 0.55rem 1rem; }
-  }
-  /* Footer variant: dark slab styling, same shape. */
-  footer .signup { margin: 1.5rem auto 0; }
-  footer .signup .controls {
-    background: color-mix(in srgb, #fff 7%, transparent);
-    border-color: color-mix(in srgb, #fff 18%, transparent);
-    box-shadow: none;
-  }
-  footer .signup input { color: #fff; }
-  footer .signup input::placeholder { color: color-mix(in srgb, var(--slab-text) 75%, transparent); }
-  footer .signup .signup-note { color: var(--slab-text); }
-  footer .signup .signup-note.ok { color: #a7c2dc; }
-  footer .signup .signup-note.err { color: #d9a08f; }
-
-  .sr-only {
-    position: absolute; width: 1px; height: 1px;
-    padding: 0; margin: -1px; overflow: hidden;
-    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-  }
 
   /* ── App window framing ────────────────────────────────────────────── */
   .hero-shot { position: relative; margin: 2.8rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
@@ -379,16 +319,8 @@
                   Cineplex manages and plays trailers, ratings cards, custom
                   pre-roll and all sorts of user media. Build out programmes,
                   schedule screenings, and run a theater at home.</p>
-    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cineplex" method="post" novalidate>
-      <p class="overline">Coming soon for Linux &amp; Windows</p>
-      <label class="sr-only" for="signup-email">Email address</label>
-      <div class="controls">
-        <input id="signup-email" name="email" type="email" required
-               placeholder="you@example.com" autocomplete="email" />
-        <button type="submit">Get updates</button>
-      </div>
-      <p class="signup-note" role="status" aria-live="polite">Free and open-source software · release news only · <a href="privacy.html">privacy</a></p>
-    </form>
+    <p class="overline">Coming soon for Linux &amp; Windows</p>
+    <p class="facts">Free and open-source software · <a href="privacy.html">privacy</a></p>
   </header>
 
   <div class="hero-shot">
@@ -430,7 +362,7 @@
       </figure>
       <figure class="reveal">
         <div class="window">
-          <img src="assets/tickets.webp" alt="The box office: ticket design, quantity, seats and printing" loading="lazy" />
+          <img src="assets/boxoffice.webp" alt="The box office: ticket design, quantity, seats and printing" loading="lazy" />
         </div>
         <figcaption>The box office — ticket designs, seats and printing.</figcaption>
       </figure>
@@ -467,15 +399,6 @@
       <img src="assets/logo.png" alt="" />
       <span class="name">Cineplex</span>
     </div>
-    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cineplex" method="post" novalidate>
-      <label class="sr-only" for="signup-email-footer">Email address</label>
-      <div class="controls">
-        <input id="signup-email-footer" name="email" type="email" required
-               placeholder="you@example.com" autocomplete="email" />
-        <button type="submit">Get updates</button>
-      </div>
-      <p class="signup-note" role="status" aria-live="polite"></p>
-    </form>
     <p class="meta"><a href="privacy.html">Privacy policy</a></p>
   </div>
 </footer>
@@ -491,29 +414,6 @@
   onScroll();
   addEventListener('scroll', onScroll, { passive: true });
 
-  for (const form of document.querySelectorAll('[data-signup]')) {
-    const input = form.querySelector('input[type="email"]');
-    const note = form.querySelector('.signup-note');
-    const say = (msg, cls) => { note.textContent = msg; note.className = 'signup-note' + (cls ? ' ' + cls : ''); };
-
-    form.addEventListener('submit', async (e) => {
-      if (!input.checkValidity()) {
-        e.preventDefault();
-        say('That doesn’t look like an email address.', 'err');
-        input.focus();
-        return;
-      }
-      e.preventDefault();
-      try {
-        const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
-        if (!res.ok) throw new Error(String(res.status));
-        form.querySelector('.controls').remove();
-        say('Thanks — now check your inbox and confirm your address to get updates.', 'ok');
-      } catch {
-        form.submit(); // let the service's own page handle it
-      }
-    });
-  }
 </script>
 </body>
 </html>
