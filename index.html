@@ -3,27 +3,27 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Cineplex - a Theater at Home</title>
-<meta name="description" content="Cineplex turns your movie collection into a real night at the pictures. Open source self hosted software" />
+<title>Cinefin - a Theater at Home</title>
+<meta name="description" content="Cinefin turns your movie collection into a real night at the pictures. Open source self hosted software" />
 <link rel="icon" type="image/png" href="assets/logo.png" />
 <link rel="stylesheet" href="fonts.css" />
 <style>
   :root {
-    /* Dimmed, cool neutral ramp; the accent is Cineplex's own steel blue
+    /* Dimmed, cool neutral ramp; the accent is Cinefin's own steel blue
        (#6b8cae, app.css --color-accent), deepened for light-background
        contrast. */
-    --paper: #eceef0;
-    --card: #f8f9fa;
-    --tint: #e3e7ea;
-    --ink: #22272c;
-    --body-text: #464d54;
-    --soft: #6b747d;
-    --border: #d9dde0;
-    --border-strong: #c2c9cf;
-    --accent: #52718f;
-    --accent-deep: #405a74;
-    --accent-tint: #dfe7ee;
-    --slab: #1a2027;
+    --paper: #14181d;
+    --card: #1b2129;
+    --tint: #10141a;
+    --ink: #eef2f6;
+    --body-text: #b6bfc9;
+    --soft: #87919c;
+    --border: #262e37;
+    --border-strong: #38424d;
+    --accent: #6b8cae;
+    --accent-deep: #8fb0d1;
+    --accent-tint: #223140;
+    --slab: #0d1013;
     --slab-text: #c3ccd4;
     --heading: 'Bricolage Grotesque', sans-serif;
     --body: 'Atkinson Hyperlegible', sans-serif;
@@ -32,10 +32,10 @@
     --r-md: 12px;
     --r-lg: 16px;
     --section-gap: 5.4rem; /* one rhythm between every band of the page */
-    --shadow-xs: 0 1px 2px rgba(34, 39, 44, 0.05);
-    --shadow-sm: 0 1px 2px rgba(34, 39, 44, 0.05), 0 4px 12px rgba(34, 39, 44, 0.06);
-    --shadow-md: 0 2px 4px rgba(34, 39, 44, 0.05), 0 10px 24px rgba(34, 39, 44, 0.09);
-    --shadow-lg: 0 2px 4px rgba(34, 39, 44, 0.05), 0 16px 40px rgba(34, 39, 44, 0.12), 0 36px 80px rgba(34, 39, 44, 0.10);
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.35), 0 18px 44px rgba(0, 0, 0, 0.5), 0 40px 90px rgba(0, 0, 0, 0.45);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -64,7 +64,7 @@
   /* ── Nav ───────────────────────────────────────────────────────────── */
   .navbar {
     position: sticky; top: 0; z-index: 50;
-    background: color-mix(in srgb, var(--paper) 86%, transparent);
+    background: color-mix(in srgb, var(--paper) 78%, transparent);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid transparent;
@@ -83,25 +83,47 @@
     padding: 0.45rem 0.85rem; border-radius: 999px;
     transition: color 0.15s ease, background 0.15s ease;
   }
-  nav .links a:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, transparent); }
+  nav .links a:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
 
   /* ── Hero ──────────────────────────────────────────────────────────── */
   .hero-bg {
     position: relative;
     padding-bottom: calc(var(--section-gap) / 2);
-    background:
-      radial-gradient(52rem 26rem at 50% -6rem, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
-      radial-gradient(40rem 20rem at 85% 4rem, color-mix(in srgb, #8fa6bd 8%, transparent), transparent 70%);
+    overflow: hidden;
   }
+  /* The poster wall: one slow, endless pan of real pre-1946 one-sheets
+     behind the hero. The track holds two copies of the row and translates
+     by half its own width, so the loop is seamless at any row length. */
+  .poster-wall {
+    position: absolute; inset: 0 0 auto 0; height: 34rem;
+    pointer-events: none;
+    opacity: 0.45;
+    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 96%);
+            mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 96%);
+  }
+  .poster-wall .track {
+    display: flex; gap: 1.1rem; width: max-content;
+    animation: wall-drift 160s linear infinite;
+  }
+  .poster-wall img {
+    height: 21rem; width: auto;
+    border-radius: 4px;
+    filter: saturate(0.72) brightness(0.62) contrast(0.98);
+  }
+  @keyframes wall-drift { to { transform: translateX(-50%); } }
+  /* Readability: a pool of page colour behind the hero copy. */
   .hero-bg::before {
     content: '';
     position: absolute; inset: 0; pointer-events: none;
-    background-image: radial-gradient(color-mix(in srgb, var(--ink) 8%, transparent) 1px, transparent 1px);
-    background-size: 22px 22px;
-    -webkit-mask-image: radial-gradient(46rem 24rem at 50% 0, #000 25%, transparent 72%);
-            mask-image: radial-gradient(46rem 24rem at 50% 0, #000 25%, transparent 72%);
+    z-index: 1;
+    background:
+      radial-gradient(66rem 32rem at 50% 60%, var(--paper) 42%, color-mix(in srgb, var(--paper) 72%, transparent) 64%, transparent 86%),
+      linear-gradient(180deg, color-mix(in srgb, var(--paper) 55%, transparent), transparent 26%, transparent 58%, var(--paper) 92%);
   }
-  .hero { position: relative; padding: 4.6rem 0 0; text-align: center; }
+  @media (prefers-reduced-motion: reduce) {
+    .poster-wall .track { animation: none; }
+  }
+  .hero { position: relative; z-index: 2; padding: 4.6rem 0 0; text-align: center; }
   .hero h1 {
     font-family: var(--heading); font-weight: 800;
     font-size: clamp(2.6rem, 6.4vw, 4.4rem);
@@ -127,16 +149,78 @@
   .hero h1 { animation-delay: 0.05s; }
   .hero p.sub { animation-delay: 0.15s; }
   .hero .overline { animation-delay: 0.25s; }
-  .hero .facts { animation-delay: 0.32s; }
+  .hero .signup { animation-delay: 0.32s; }
   .hero-shot { animation-delay: 0.42s; }
   @keyframes settle { to { opacity: 1; transform: none; } }
 
 
-  /* ── App window framing ────────────────────────────────────────────── */
-  .hero-shot { position: relative; margin: 2.8rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
-  .window {
+  /* ── Email signup (compact) ────────────────────────────────────────── */
+  .signup { margin: 1.3rem auto 0; max-width: 21.5rem; }
+  .signup .controls {
+    display: flex;
     background: var(--card);
     border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 0.22rem;
+    box-shadow: var(--shadow-xs);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .signup .controls:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent), var(--shadow-xs);
+  }
+  .signup input {
+    flex: 1; min-width: 0;
+    border: 0; background: transparent; outline: none;
+    font: inherit; font-size: 0.9rem; color: var(--ink);
+    padding: 0.35rem 0.5rem 0.35rem 0.95rem;
+  }
+  .signup input::placeholder { color: var(--soft); }
+  .signup button {
+    flex: none;
+    font-family: var(--body); font-weight: 700; font-size: 0.87rem;
+    color: #0d1014; background: var(--accent);
+    border: 0; border-radius: 999px;
+    padding: 0.4rem 1rem;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .signup button:hover { background: var(--accent-deep); }
+  .signup .signup-note {
+    min-height: 1.25rem; margin-top: 0.45rem;
+    font-size: 0.8rem; color: var(--soft);
+  }
+  .signup .signup-note.ok { color: var(--accent-deep); font-weight: 700; }
+  .signup .signup-note.err { color: #d9917e; }
+  @media (max-width: 34rem) {
+    .signup .controls { flex-direction: column; border-radius: var(--r-md); gap: 0.25rem; }
+    .signup input { text-align: center; padding: 0.5rem 0.8rem; }
+    .signup button { padding: 0.55rem 1rem; }
+  }
+  /* Footer variant: dark slab styling, same shape. */
+  footer .signup { margin: 1.5rem auto 0; }
+  footer .signup .controls {
+    background: color-mix(in srgb, #fff 7%, transparent);
+    border-color: color-mix(in srgb, #fff 18%, transparent);
+    box-shadow: none;
+  }
+  footer .signup input { color: #fff; }
+  footer .signup input::placeholder { color: color-mix(in srgb, var(--slab-text) 75%, transparent); }
+  footer .signup .signup-note { color: var(--slab-text); }
+  footer .signup .signup-note.ok { color: #a7c2dc; }
+  footer .signup .signup-note.err { color: #d9a08f; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  /* ── App window framing ────────────────────────────────────────────── */
+  .hero-shot { position: relative; z-index: 2; margin: 2.8rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
+  .window {
+    background: var(--card);
+    border: 1px solid #414c58;
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
@@ -185,7 +269,7 @@
   .checklist .tick {
     flex: none; width: 1.3rem; height: 1.3rem; margin-top: 0.12rem;
     border-radius: 50%;
-    background: var(--accent); color: #fff;
+    background: var(--accent); color: #0d1014;
     display: inline-flex; align-items: center; justify-content: center;
     font-size: 0.72rem; font-weight: 700;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--accent-deep) 35%, transparent);
@@ -300,7 +384,7 @@
   <div class="wrap">
     <nav>
       <img src="assets/logo.png" alt="" />
-      <span class="name">Cineplex</span>
+      <span class="name">Cinefin</span>
       <div class="links">
         <a href="#features">Features</a>
         <a href="#screenshots">Screenshots</a>
@@ -310,14 +394,46 @@
 </div>
 
 <div class="hero-bg">
+  <div class="poster-wall" aria-hidden="true">
+    <div class="track">
+      <img src="assets/posters/metropolis.webp" alt="" loading="eager" />
+      <img src="assets/posters/casablanca.webp" alt="" loading="eager" />
+      <img src="assets/posters/citizen_kane.webp" alt="" loading="eager" />
+      <img src="assets/posters/maltese_falcon.webp" alt="" loading="eager" />
+      <img src="assets/posters/double_indemnity.webp" alt="" loading="eager" />
+      <img src="assets/posters/king_kong.webp" alt="" loading="eager" />
+      <img src="assets/posters/wizard_of_oz.webp" alt="" loading="eager" />
+      <img src="assets/posters/his_girl_friday.webp" alt="" loading="eager" />
+      <img src="assets/posters/39_steps.webp" alt="" loading="eager" />
+      <img src="assets/posters/nosferatu.webp" alt="" loading="eager" />
+      <img src="assets/posters/metropolis.webp" alt="" loading="eager" />
+      <img src="assets/posters/casablanca.webp" alt="" loading="eager" />
+      <img src="assets/posters/citizen_kane.webp" alt="" loading="eager" />
+      <img src="assets/posters/maltese_falcon.webp" alt="" loading="eager" />
+      <img src="assets/posters/double_indemnity.webp" alt="" loading="eager" />
+      <img src="assets/posters/king_kong.webp" alt="" loading="eager" />
+      <img src="assets/posters/wizard_of_oz.webp" alt="" loading="eager" />
+      <img src="assets/posters/his_girl_friday.webp" alt="" loading="eager" />
+      <img src="assets/posters/39_steps.webp" alt="" loading="eager" />
+      <img src="assets/posters/nosferatu.webp" alt="" loading="eager" />
+    </div>
+  </div>
   <header class="hero wrap">
     <h1>A theater<span class="green"> at home.</span></h1>
     <p class="sub">Turn your digital film collection into functioning theater!
-                  Cineplex manages and plays trailers, ratings cards, custom
+                  Cinefin manages and plays trailers, ratings cards, custom
                   pre-roll and all sorts of user media. Build out programmes,
                   schedule screenings, and run a theater at home.</p>
     <p class="overline">Coming soon for Linux &amp; Windows</p>
-    <p class="facts">Free and open-source software · <a href="privacy.html">privacy</a></p>
+    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cineplex" method="post" novalidate>
+      <label class="sr-only" for="signup-email">Email address</label>
+      <div class="controls">
+        <input id="signup-email" name="email" type="email" required
+               placeholder="you@example.com" autocomplete="email" />
+        <button type="submit">Get updates</button>
+      </div>
+      <p class="signup-note" role="status" aria-live="polite">Free and open-source software · release news only · <a href="privacy.html">privacy</a></p>
+    </form>
   </header>
 
   <div class="hero-shot">
@@ -331,7 +447,7 @@
   <section id="features">
     <h2 class="reveal">Current Features</h2>
     <ul class="checklist">
-      <li class="reveal"><span class="tick">✓</span><span><b>Sync your movie libraries</b> from Plex and Jellyfin</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Sync your movie libraries</b> from Jellyfin and Plex</span></li>
       <li class="reveal"><span class="tick">✓</span><span><b>Builds programmes:</b> trailers, pre-roll, home automation, movies</span></li>
       <li class="reveal"><span class="tick">✓</span><span><b>Playout via MPV:</b> The player comes embedded or you can connect your own instance (local or network)</span></li>
       <li class="reveal"><span class="tick">✓</span><span><b>Configurable trailer matching</b> that match genre, year and certification of upcoming movies</span></li>
@@ -394,7 +510,7 @@
   <div class="wrap">
     <div class="row">
       <img src="assets/logo.png" alt="" />
-      <span class="name">Cineplex</span>
+      <span class="name">Cinefin</span>
       <a href="privacy.html">Privacy policy</a>
     </div>
   </div>
@@ -411,6 +527,29 @@
   onScroll();
   addEventListener('scroll', onScroll, { passive: true });
 
+  for (const form of document.querySelectorAll('[data-signup]')) {
+    const input = form.querySelector('input[type="email"]');
+    const note = form.querySelector('.signup-note');
+    const say = (msg, cls) => { note.textContent = msg; note.className = 'signup-note' + (cls ? ' ' + cls : ''); };
+
+    form.addEventListener('submit', async (e) => {
+      if (!input.checkValidity()) {
+        e.preventDefault();
+        say('That doesn’t look like an email address.', 'err');
+        input.focus();
+        return;
+      }
+      e.preventDefault();
+      try {
+        const res = await fetch(form.action, { method: 'POST', body: new FormData(form) });
+        if (!res.ok) throw new Error(String(res.status));
+        form.querySelector('.controls').remove();
+        say('Thanks — now check your inbox and confirm your address to get updates.', 'ok');
+      } catch {
+        form.submit(); // let the service's own page handle it
+      }
+    });
+  }
 </script>
 </body>
 </html>
