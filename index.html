@@ -12,18 +12,18 @@
     /* Dimmed, cool neutral ramp; the accent is Cinefin's own steel blue
        (#6b8cae, app.css --color-accent), deepened for light-background
        contrast. */
-    --paper: #14181d;
-    --card: #1b2129;
-    --tint: #10141a;
-    --ink: #eef2f6;
-    --body-text: #b6bfc9;
-    --soft: #87919c;
-    --border: #262e37;
-    --border-strong: #38424d;
-    --accent: #6b8cae;
-    --accent-deep: #8fb0d1;
-    --accent-tint: #223140;
-    --slab: #0d1013;
+    --paper: #eceef0;
+    --card: #f8f9fa;
+    --tint: #e3e7ea;
+    --ink: #22272c;
+    --body-text: #464d54;
+    --soft: #6b747d;
+    --border: #d9dde0;
+    --border-strong: #c2c9cf;
+    --accent: #52718f;
+    --accent-deep: #405a74;
+    --accent-tint: #dfe7ee;
+    --slab: #1a2027;
     --slab-text: #c3ccd4;
     --heading: 'Bricolage Grotesque', sans-serif;
     --body: 'Atkinson Hyperlegible', sans-serif;
@@ -32,22 +32,13 @@
     --r-md: 12px;
     --r-lg: 16px;
     --section-gap: 5.4rem; /* one rhythm between every band of the page */
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.3), 0 12px 28px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 2px 4px rgba(0, 0, 0, 0.35), 0 18px 44px rgba(0, 0, 0, 0.5), 0 40px 90px rgba(0, 0, 0, 0.45);
+    --shadow-xs: 0 1px 2px rgba(34, 39, 44, 0.05);
+    --shadow-sm: 0 1px 2px rgba(34, 39, 44, 0.05), 0 4px 12px rgba(34, 39, 44, 0.06);
+    --shadow-md: 0 2px 4px rgba(34, 39, 44, 0.05), 0 10px 24px rgba(34, 39, 44, 0.09);
+    --shadow-lg: 0 2px 4px rgba(34, 39, 44, 0.05), 0 16px 40px rgba(34, 39, 44, 0.12), 0 36px 80px rgba(34, 39, 44, 0.10);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  /* Fine noise over the whole page — dark gradients band in 8-bit without it. */
-  body::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 60; pointer-events: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0 0 0 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
-    background-size: 140px 140px;
-    mix-blend-mode: overlay;
-  }
   html { scroll-behavior: smooth; }
 
   body {
@@ -73,7 +64,7 @@
   /* ── Nav ───────────────────────────────────────────────────────────── */
   .navbar {
     position: sticky; top: 0; z-index: 50;
-    background: color-mix(in srgb, var(--paper) 78%, transparent);
+    background: color-mix(in srgb, var(--paper) 86%, transparent);
     -webkit-backdrop-filter: blur(10px);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid transparent;
@@ -92,47 +83,25 @@
     padding: 0.45rem 0.85rem; border-radius: 999px;
     transition: color 0.15s ease, background 0.15s ease;
   }
-  nav .links a:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
+  nav .links a:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 6%, transparent); }
 
   /* ── Hero ──────────────────────────────────────────────────────────── */
   .hero-bg {
     position: relative;
     padding-bottom: calc(var(--section-gap) / 2);
-    overflow: hidden;
+    background:
+      radial-gradient(52rem 26rem at 50% -6rem, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
+      radial-gradient(40rem 20rem at 85% 4rem, color-mix(in srgb, #8fa6bd 8%, transparent), transparent 70%);
   }
-  /* The poster wall: one slow, endless pan of real pre-1946 one-sheets
-     behind the hero. The track holds two copies of the row and translates
-     by half its own width, so the loop is seamless at any row length. */
-  .poster-wall {
-    position: absolute; inset: 0 0 auto 0; height: 34rem;
-    pointer-events: none;
-    opacity: 0.45;
-    -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 96%);
-            mask-image: linear-gradient(180deg, #000 0%, #000 45%, transparent 96%);
-  }
-  .poster-wall .track {
-    display: flex; gap: 1.1rem; width: max-content;
-    animation: wall-drift 160s linear infinite;
-  }
-  .poster-wall img {
-    height: 21rem; width: auto;
-    border-radius: 4px;
-    filter: saturate(0.72) brightness(0.62) contrast(0.98);
-  }
-  @keyframes wall-drift { to { transform: translateX(-50%); } }
-  /* Readability: a pool of page colour behind the hero copy. */
   .hero-bg::before {
     content: '';
     position: absolute; inset: 0; pointer-events: none;
-    z-index: 1;
-    background:
-      radial-gradient(66rem 32rem at 50% 60%, var(--paper) 42%, color-mix(in srgb, var(--paper) 72%, transparent) 64%, transparent 86%),
-      linear-gradient(180deg, color-mix(in srgb, var(--paper) 55%, transparent), transparent 26%, transparent 58%, var(--paper) 92%);
+    background-image: radial-gradient(color-mix(in srgb, var(--ink) 8%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(46rem 24rem at 50% 0, #000 25%, transparent 72%);
+            mask-image: radial-gradient(46rem 24rem at 50% 0, #000 25%, transparent 72%);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .poster-wall .track { animation: none; }
-  }
-  .hero { position: relative; z-index: 2; padding: 4.6rem 0 0; text-align: center; }
+  .hero { position: relative; padding: 4.6rem 0 0; text-align: center; }
   .hero h1 {
     font-family: var(--heading); font-weight: 800;
     font-size: clamp(2.6rem, 6.4vw, 4.4rem);
@@ -147,9 +116,12 @@
     color: var(--body-text);
   }
   .hero .overline {
-    font-weight: 700; font-size: 0.92rem;
-    color: var(--accent-deep);
+    display: inline-block;
+    font-weight: 700; font-size: 0.85rem;
+    color: #dfe7ee; background: var(--ink);
+    border-radius: 999px; padding: 0.45rem 1.15rem;
     margin-top: 1.9rem;
+    box-shadow: var(--shadow-sm);
   }
   .hero .facts { margin-top: 0.4rem; font-size: 0.86rem; color: var(--soft); }
 
@@ -188,7 +160,7 @@
   .signup button {
     flex: none;
     font-family: var(--body); font-weight: 700; font-size: 0.87rem;
-    color: #0d1014; background: var(--accent);
+    color: #fff; background: var(--accent);
     border: 0; border-radius: 999px;
     padding: 0.4rem 1rem;
     cursor: pointer;
@@ -200,7 +172,7 @@
     font-size: 0.8rem; color: var(--soft);
   }
   .signup .signup-note.ok { color: var(--accent-deep); font-weight: 700; }
-  .signup .signup-note.err { color: #d9917e; }
+  .signup .signup-note.err { color: #a04b3a; }
   @media (max-width: 34rem) {
     .signup .controls { flex-direction: column; border-radius: var(--r-md); gap: 0.25rem; }
     .signup input { text-align: center; padding: 0.5rem 0.8rem; }
@@ -226,10 +198,17 @@
   }
 
   /* ── App window framing ────────────────────────────────────────────── */
-  .hero-shot { position: relative; z-index: 2; margin: 2.8rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
+  .hero-shot { position: relative; margin: 2.8rem auto 0; max-width: 64rem; padding: 0 1.5rem; }
+  .hero-shot::before {
+    content: '';
+    position: absolute; inset: 12% 6% -4%;
+    pointer-events: none;
+    background: radial-gradient(52% 55% at 50% 60%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 74%);
+    filter: blur(10px);
+  }
   .window {
     background: var(--card);
-    border: 1px solid #414c58;
+    border: 1px solid var(--border-strong);
     border-radius: var(--r-lg);
     box-shadow: var(--shadow-lg);
     overflow: hidden;
@@ -240,15 +219,32 @@
      so adjacent sections always sit exactly --section-gap apart. ──────── */
   section { padding: calc(var(--section-gap) / 2) 0; }
   section.tinted {
+    position: relative;
     background: var(--tint);
     border-top: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
   }
+  /* A whisper of the hero's texture, so the band feels lit, not flat. */
+  section.tinted::before {
+    content: '';
+    position: absolute; inset: 0; pointer-events: none;
+    background-image: radial-gradient(color-mix(in srgb, var(--ink) 7%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
+    -webkit-mask-image: radial-gradient(60rem 20rem at 50% 0, #000 20%, transparent 75%);
+            mask-image: radial-gradient(60rem 20rem at 50% 0, #000 20%, transparent 75%);
+  }
+  section.tinted > .wrap { position: relative; }
   h2 {
     font-family: var(--heading); font-weight: 800;
     font-size: clamp(1.8rem, 3.6vw, 2.35rem);
     letter-spacing: -0.02em; line-height: 1.12;
     color: var(--ink); margin-bottom: 0.7rem;
+  }
+  h2::after {
+    content: '';
+    display: block; width: 2.6rem; height: 3px; border-radius: 2px;
+    margin-top: 0.65rem;
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 25%, transparent));
   }
   .section-sub { max-width: 40rem; font-size: 1.06rem; }
 
@@ -278,7 +274,7 @@
   .checklist .tick {
     flex: none; width: 1.3rem; height: 1.3rem; margin-top: 0.12rem;
     border-radius: 50%;
-    background: var(--accent); color: #0d1014;
+    background: var(--accent); color: #fff;
     display: inline-flex; align-items: center; justify-content: center;
     font-size: 0.72rem; font-weight: 700;
     box-shadow: 0 1px 2px color-mix(in srgb, var(--accent-deep) 35%, transparent);
@@ -310,6 +306,13 @@
   .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 1.8rem 1.6rem; margin-top: 2.4rem; }
   .shots figure.wide { grid-column: 1 / -1; }
   .shots figure .window { border-radius: var(--r-md); box-shadow: var(--shadow-md); }
+  .shots figure { transition: transform 0.3s cubic-bezier(0.22, 0.9, 0.3, 1); }
+  .shots figure:not(.wide):hover { transform: translateY(-4px); }
+  .shots figure:not(.wide):hover .window { box-shadow: var(--shadow-lg); }
+  .shots figure .window { transition: box-shadow 0.3s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .shots figure, .shots figure:hover { transform: none; }
+  }
   .shots figcaption {
     display: flex; align-items: baseline; gap: 0.55rem;
     padding: 0.8rem 0.25rem 0;
@@ -403,30 +406,6 @@
 </div>
 
 <div class="hero-bg">
-  <div class="poster-wall" aria-hidden="true">
-    <div class="track">
-      <img src="assets/posters/metropolis.webp" alt="" loading="eager" />
-      <img src="assets/posters/casablanca.webp" alt="" loading="eager" />
-      <img src="assets/posters/citizen_kane.webp" alt="" loading="eager" />
-      <img src="assets/posters/maltese_falcon.webp" alt="" loading="eager" />
-      <img src="assets/posters/double_indemnity.webp" alt="" loading="eager" />
-      <img src="assets/posters/king_kong.webp" alt="" loading="eager" />
-      <img src="assets/posters/wizard_of_oz.webp" alt="" loading="eager" />
-      <img src="assets/posters/his_girl_friday.webp" alt="" loading="eager" />
-      <img src="assets/posters/39_steps.webp" alt="" loading="eager" />
-      <img src="assets/posters/nosferatu.webp" alt="" loading="eager" />
-      <img src="assets/posters/metropolis.webp" alt="" loading="eager" />
-      <img src="assets/posters/casablanca.webp" alt="" loading="eager" />
-      <img src="assets/posters/citizen_kane.webp" alt="" loading="eager" />
-      <img src="assets/posters/maltese_falcon.webp" alt="" loading="eager" />
-      <img src="assets/posters/double_indemnity.webp" alt="" loading="eager" />
-      <img src="assets/posters/king_kong.webp" alt="" loading="eager" />
-      <img src="assets/posters/wizard_of_oz.webp" alt="" loading="eager" />
-      <img src="assets/posters/his_girl_friday.webp" alt="" loading="eager" />
-      <img src="assets/posters/39_steps.webp" alt="" loading="eager" />
-      <img src="assets/posters/nosferatu.webp" alt="" loading="eager" />
-    </div>
-  </div>
   <header class="hero wrap">
     <h1>A theater<span class="green"> at home.</span></h1>
     <p class="sub">Turn your digital film collection into functioning theater!
@@ -456,7 +435,7 @@
   <section id="features">
     <h2 class="reveal">Current Features</h2>
     <ul class="checklist">
-      <li class="reveal"><span class="tick">✓</span><span><b>Sync your movie libraries</b> from Jellyfin and Plex</span></li>
+      <li class="reveal"><span class="tick">✓</span><span><b>Sync your movie libraries</b> from Plex and Jellyfin</span></li>
       <li class="reveal"><span class="tick">✓</span><span><b>Builds programmes:</b> trailers, pre-roll, home automation, movies</span></li>
       <li class="reveal"><span class="tick">✓</span><span><b>Playout via MPV:</b> The player comes embedded or you can connect your own instance (local or network)</span></li>
       <li class="reveal"><span class="tick">✓</span><span><b>Configurable trailer matching</b> that match genre, year and certification of upcoming movies</span></li>
