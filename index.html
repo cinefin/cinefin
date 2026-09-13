@@ -39,6 +39,15 @@
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* Fine noise over the whole page — dark gradients band in 8-bit without it. */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 60; pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0 0 0 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 140px 140px;
+    mix-blend-mode: overlay;
+  }
   html { scroll-behavior: smooth; }
 
   body {
@@ -425,7 +434,7 @@
                   pre-roll and all sorts of user media. Build out programmes,
                   schedule screenings, and run a theater at home.</p>
     <p class="overline">Coming soon for Linux &amp; Windows</p>
-    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cineplex" method="post" novalidate>
+    <form class="signup" data-signup action="https://buttondown.com/api/emails/embed-subscribe/cinefin" method="post" novalidate>
       <label class="sr-only" for="signup-email">Email address</label>
       <div class="controls">
         <input id="signup-email" name="email" type="email" required
