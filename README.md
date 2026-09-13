@@ -4,8 +4,6 @@
 
 <h1 align="center">Cinefin</h1>
 
-<p align="center"><em>A theater at home.</em></p>
-
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="License: AGPL v3"></a>
 </p>
