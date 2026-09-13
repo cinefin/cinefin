@@ -379,8 +379,9 @@
   footer .row { display: flex; align-items: center; gap: 0.7rem; }
   footer img { height: 1.4rem; }
   footer .name { font-family: var(--heading); font-weight: 800; color: #fff; font-size: 1.05rem; }
-  footer .row a { margin-left: auto; font-size: 0.88rem; color: #a7c2dc; text-decoration: none; }
-  footer .row a:hover { color: #c9dcee; text-decoration: underline; }
+  footer .row .links { margin-left: auto; font-size: 0.88rem; color: #59636e; }
+  footer .row .links a { color: #a7c2dc; text-decoration: none; }
+  footer .row .links a:hover { color: #c9dcee; text-decoration: underline; }
 
   /* ── Reveal on scroll ──────────────────────────────────────────────── */
   .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.55s cubic-bezier(0.22, 0.9, 0.3, 1), transform 0.55s cubic-bezier(0.22, 0.9, 0.3, 1); }
@@ -500,7 +501,7 @@
     <div class="row">
       <img src="assets/logo.png" alt="" />
       <span class="name">Cinefin</span>
-      <a href="privacy.html">Privacy policy</a>
+      <span class="links"><a href="https://github.com/cinefin/cinefin">GitHub</a> · <a href="privacy.html">Privacy policy</a></span>
     </div>
   </div>
 </footer>
