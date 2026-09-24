@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 SEARCH_URL = "https://www.filmratings.com/search-results/"
 TIMEOUT = 15
-USER_AGENT = "Cinefin (home cinema; +https://github.com/cinefin-dev/cinefin)"
+USER_AGENT = "Cinefin (home cinema; +https://github.com/cinefin/cinefin)"
 
 _ITEM_RE = re.compile(r'<div class="item[^"]*">(.*?)<!--end-item-->', re.S)
 _TITLE_RE = re.compile(r'<div class="item-title">(.*?)</div>', re.S)

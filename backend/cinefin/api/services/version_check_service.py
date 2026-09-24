@@ -38,7 +38,7 @@ def _parse_semver(tag):
 def _latest_release_url():
     # GitHub and Gitea expose the same fields at different paths; GitHub via api.github.com, else Gitea.
     host = getattr(settings, "CINEFIN_UPDATE_HOST", "https://github.com").rstrip("/")
-    repo = getattr(settings, "CINEFIN_UPDATE_REPO", "cinefin-dev/cinefin").strip("/")
+    repo = getattr(settings, "CINEFIN_UPDATE_REPO", "cinefin/cinefin").strip("/")
     if "github.com" in host:
         return f"https://api.github.com/repos/{repo}/releases/latest"
     return f"{host}/api/v1/repos/{repo}/releases/latest"

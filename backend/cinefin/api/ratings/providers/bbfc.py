@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 SEARCH_URL = "https://www.bbfc.co.uk/search"
 TIMEOUT = 15
-USER_AGENT = "Cinefin (home cinema; +https://github.com/cinefin-dev/cinefin)"
+USER_AGENT = "Cinefin (home cinema; +https://github.com/cinefin/cinefin)"
 
 _NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 _TITLE_YEAR_RE = re.compile(r"^(?P<title>.*?)\s*\((?P<year>\d{4})\)\s*$")
