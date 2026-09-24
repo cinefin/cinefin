@@ -1,0 +1,1729 @@
+/*
+ * Kiosk display — "The Marquee", ported from the legacy stylesheet
+ * (cinefin/static/css/pages/kiosk.css) onto the SPA's design tokens.
+ *
+ * The public wall display: a letterboxed, poster-forward front-of-house
+ * screen. Display capitals over the app's body face, near-black field, the
+ * app's tungsten-amber accent (overridden live by display.accent_color), and
+ * hairline frame rules. Five layouts (wall / spotlight / split / board /
+ * tonight), each adapting to portrait and landscape.
+ *
+ * Global on purpose (route-loaded, kiosk-only class names): the kiosk's
+ * components share one visual grammar — poster frames, slides, rows — and
+ * per-component scoping would either duplicate it or need :global everywhere.
+ * Everything is rooted under .kiosk-root, a fixed overlay above the app shell.
+ */
+
+.kiosk-root {
+	/* Legacy variable names, mapped onto the app tokens. */
+	--bg: var(--color-bg);
+	--panel: var(--color-surface-1);
+	--ink: var(--color-text);
+	--ink-dim: var(--color-muted);
+	--ink-faint: var(--color-faint);
+	--line: var(--color-border);
+	--line-strong: var(--color-border-strong);
+	--accent: var(--color-accent);
+	--display: var(--font-display);
+	--body: var(--font-sans);
+
+	position: fixed;
+	inset: 0;
+	z-index: 50; /* above the app shell (sidebar z-30, topbar z-10) */
+	overflow: hidden; /* a display never scrolls */
+	font-family: var(--body);
+	background: var(--bg);
+	color: var(--ink);
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	cursor: none; /* wall display: no idle cursor… */
+}
+
+.kiosk-root.cursor-on,
+.kiosk-root.cursor-on * {
+	cursor: auto; /* …restored while someone is actually interacting */
+}
+
+/* Faint auditorium vignette + projector grain. */
+.kiosk-root::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+	background:
+		radial-gradient(ellipse 120% 90% at 50% 30%, transparent 55%, rgba(0, 0, 0, 0.5) 100%),
+		repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 3px);
+	transition: opacity 0.9s ease;
+}
+
+.kiosk-root.asleep::before {
+	opacity: 0.3; /* the vignette/grain dims with the lights */
+}
+
+.kiosk {
+	position: relative;
+	z-index: 1;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.kiosk-header {
+	display: flex;
+	align-items: center;
+	gap: clamp(16px, 2.5vw, 40px);
+	padding: clamp(14px, 2.2vmin, 26px) clamp(20px, 3vmin, 44px);
+	border-bottom: 1px solid var(--line);
+	flex: 0 0 auto;
+	transition: opacity 0.9s ease;
+}
+
+.kiosk-root.no-header .kiosk-header {
+	display: none;
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+
+.brand-logo {
+	height: clamp(30px, 4.6vmin, 56px);
+	width: auto;
+	display: block;
+}
+
+.brand-name {
+	font-family: var(--display);
+	font-size: clamp(26px, 4.6vmin, 54px);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--ink);
+	white-space: nowrap;
+	line-height: 1;
+}
+
+.header-rule {
+	flex: 1;
+	height: 1px;
+	background: linear-gradient(
+		90deg,
+		var(--line-strong),
+		var(--line) 40%,
+		var(--line) 60%,
+		var(--line-strong)
+	);
+	position: relative;
+}
+
+.header-rule::before,
+.header-rule::after {
+	content: '';
+	position: absolute;
+	top: -2px;
+	width: 5px;
+	height: 5px;
+	background: var(--accent);
+}
+
+.header-rule::before {
+	left: 0;
+}
+.header-rule::after {
+	right: 0;
+}
+
+.header-clock {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	line-height: 1;
+}
+
+.clock-time {
+	font-family: var(--display);
+	font-size: clamp(28px, 4.8vmin, 58px);
+	letter-spacing: 0.06em;
+	color: var(--accent);
+	font-variant-numeric: tabular-nums;
+}
+
+.clock-date {
+	font-size: clamp(10px, 1.3vmin, 15px);
+	font-weight: 500;
+	letter-spacing: 0.22em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+	margin-top: 5px;
+}
+
+.kiosk-root.no-clock .header-clock,
+.kiosk-root.no-clock .floating-clock {
+	display: none;
+}
+
+.floating-clock {
+	position: absolute;
+	top: clamp(14px, 2vmin, 24px);
+	right: clamp(16px, 2.4vmin, 30px);
+	z-index: 20;
+	font-family: var(--display);
+	font-size: clamp(24px, 3.8vmin, 44px);
+	letter-spacing: 0.06em;
+	color: var(--accent);
+	background: color-mix(in srgb, var(--bg) 72%, transparent);
+	border: 1px solid var(--line);
+	padding: 4px 14px 2px;
+	font-variant-numeric: tabular-nums;
+	transition: opacity 0.9s ease;
+}
+
+.kiosk-root.asleep .kiosk-header,
+.kiosk-root.asleep .floating-clock {
+	opacity: 0; /* chrome keeps its layout so waking doesn't re-fit the stage */
+}
+
+/* ------------------------------------------------------------------- stage */
+
+.kiosk-stage {
+	flex: 1 1 auto;
+	min-height: 0; /* children fit, never overflow */
+	position: relative;
+	overflow: hidden;
+}
+
+/* Every scene fills the stage absolutely, so the keyed crossfade overlaps. */
+.stage-scene {
+	position: absolute;
+	inset: 0;
+}
+
+.slide-host {
+	position: absolute;
+	inset: 0;
+}
+
+/* ------------------------------------------------------------- primitives */
+
+.eyebrow {
+	display: inline-flex;
+	align-items: center;
+	gap: 12px;
+	font-family: var(--body);
+	font-size: clamp(11px, 1.5vmin, 17px);
+	font-weight: 600;
+	letter-spacing: 0.34em;
+	text-transform: uppercase;
+	color: var(--accent);
+}
+
+.live-dot {
+	width: 9px;
+	height: 9px;
+	background: var(--accent);
+	display: inline-block;
+	animation: kiosk-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes kiosk-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+
+.cert {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-family: var(--body);
+	font-weight: 700;
+	font-size: 0.72em;
+	letter-spacing: 0.08em;
+	line-height: 1;
+	padding: 0.32em 0.5em 0.28em;
+	border: 1px solid var(--ink-dim);
+	color: var(--ink);
+	min-width: 2em;
+	white-space: nowrap;
+}
+
+.meta-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.9em;
+	font-size: clamp(14px, 2vmin, 24px);
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	color: var(--ink-dim);
+	font-variant-numeric: tabular-nums;
+}
+
+.dot {
+	width: 4px;
+	height: 4px;
+	background: var(--ink-faint);
+	display: inline-block;
+	flex: 0 0 auto;
+}
+
+.genres {
+	display: flex;
+	align-items: center;
+	gap: 0.8em;
+	font-size: clamp(11px, 1.5vmin, 17px);
+	font-weight: 600;
+	letter-spacing: 0.24em;
+	text-transform: uppercase;
+	color: var(--ink-faint);
+}
+
+.synopsis {
+	font-weight: 300;
+	font-size: clamp(14px, 1.9vmin, 24px);
+	line-height: 1.65;
+	color: var(--ink-dim);
+	max-width: 58ch;
+	display: -webkit-box;
+	-webkit-line-clamp: 4;
+	line-clamp: 4;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* The programme/bill subline under a takeover, countdown or tonight title. */
+.nn-programme {
+	font-size: clamp(13px, 1.8vmin, 22px);
+	font-weight: 500;
+	letter-spacing: 0.16em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+}
+
+/* Start-time plate + countdown text (tonight card). */
+.nn-clockplate {
+	font-family: var(--display);
+	font-size: clamp(26px, 4vmin, 56px);
+	letter-spacing: 0.06em;
+	line-height: 1;
+	color: var(--color-on-accent, var(--bg));
+	background: var(--accent);
+	padding: 0.14em 0.36em 0.06em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.nn-count {
+	font-size: clamp(13px, 1.9vmin, 23px);
+	font-weight: 500;
+	letter-spacing: 0.08em;
+	color: var(--ink-dim);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Poster frame: never a broken image — a styled marquee card instead. */
+.poster {
+	position: relative;
+	overflow: hidden;
+	background: linear-gradient(
+		160deg,
+		var(--color-surface-2) 0%,
+		var(--color-surface-1) 60%,
+		var(--bg) 100%
+	);
+	border: 1px solid var(--line);
+}
+
+.poster img {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.poster-fallback {
+	display: none;
+}
+
+.poster.poster-missing .poster-fallback {
+	position: absolute;
+	inset: 8%;
+	border: 1px solid var(--line-strong);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	padding: 8%;
+}
+
+/* Sprocket strips down the placeholder's edges — a film-frame motif. */
+.poster.poster-missing::before,
+.poster.poster-missing::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 4%;
+	background: repeating-linear-gradient(0deg, transparent 0 10%, var(--line) 10% 16%);
+	opacity: 0.9;
+}
+
+.poster.poster-missing::before {
+	left: 1.5%;
+}
+.poster.poster-missing::after {
+	right: 1.5%;
+}
+
+.poster-fallback em {
+	font-style: normal;
+	font-family: var(--display);
+	font-size: clamp(16px, 2.4vmin, 34px);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	line-height: 1.1;
+	color: var(--ink-dim);
+	display: -webkit-box;
+	-webkit-line-clamp: 4;
+	line-clamp: 4;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* ------------------------------------------------------------- empty state */
+
+.kiosk-empty {
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	text-align: center;
+	gap: clamp(14px, 2.4vmin, 28px);
+	padding: 6vmin;
+}
+
+.empty-mark {
+	display: flex;
+	gap: 14px;
+}
+
+.empty-mark span {
+	width: 12px;
+	height: 12px;
+	background: var(--accent);
+	opacity: 0.25;
+	animation: kiosk-pulse 3s ease-in-out infinite;
+}
+
+.empty-mark span:nth-child(2) {
+	animation-delay: 0.5s;
+}
+.empty-mark span:nth-child(3) {
+	animation-delay: 1s;
+}
+
+.kiosk-empty h2 {
+	font-family: var(--display);
+	font-weight: 400;
+	font-size: clamp(38px, 7vmin, 96px);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	line-height: 1;
+	color: var(--ink);
+}
+
+.kiosk-empty p {
+	font-size: clamp(14px, 2vmin, 24px);
+	font-weight: 300;
+	letter-spacing: 0.06em;
+	color: var(--ink-dim);
+}
+
+/* ------------------------------------------------------------- wall layout */
+
+.wall-host {
+	height: 100%;
+}
+
+.wall {
+	height: 100%;
+	display: grid;
+	grid-template-columns: repeat(var(--cols), var(--tw));
+	grid-auto-rows: var(--th);
+	gap: var(--gap);
+	place-content: center;
+	transition: opacity 0.4s ease;
+}
+
+.wall.page-out {
+	opacity: 0;
+}
+
+.tile {
+	position: relative;
+	overflow: hidden;
+}
+
+.tile .poster {
+	position: absolute;
+	inset: 0;
+}
+
+.tile-scrim {
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(
+		to top,
+		rgba(3, 3, 3, 0.92) 0%,
+		rgba(3, 3, 3, 0.45) 18%,
+		transparent 42%
+	);
+	pointer-events: none;
+}
+
+.tile-info {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	padding: calc(var(--tw) * 0.07) calc(var(--tw) * 0.08);
+	display: flex;
+	flex-direction: column;
+	gap: calc(var(--tw) * 0.03);
+}
+
+.tile-info h2 {
+	font-family: var(--display);
+	font-weight: 400;
+	font-size: calc(var(--tw) * 0.135);
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	line-height: 1.02;
+	color: var(--ink);
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+}
+
+.tile-meta {
+	display: flex;
+	align-items: center;
+	gap: calc(var(--tw) * 0.05);
+	font-size: calc(var(--tw) * 0.062);
+	font-weight: 500;
+	letter-spacing: 0.05em;
+	color: var(--ink-dim);
+}
+
+.tile-meta .cert {
+	font-size: calc(var(--tw) * 0.058);
+}
+
+/* Next-showtime line on a wall tile (kiosk.show_showtimes) */
+.tile-time {
+	display: flex;
+	align-items: center;
+	gap: calc(var(--tw) * 0.04);
+	margin-top: calc(var(--tw) * 0.02);
+	font-size: calc(var(--tw) * 0.06);
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	color: var(--accent);
+}
+
+.tile-time .live-dot {
+	width: calc(var(--tw) * 0.045);
+	height: calc(var(--tw) * 0.045);
+}
+
+/* ---------------------- showings rows (split rail) ----------------------- */
+
+.rail-title {
+	font-size: clamp(11px, 1.5vmin, 17px);
+	font-weight: 600;
+	letter-spacing: 0.34em;
+	text-transform: uppercase;
+	color: var(--ink-faint);
+	padding-bottom: clamp(8px, 1.2vmin, 14px);
+	border-bottom: 1px solid var(--line);
+	flex: 0 0 auto;
+}
+
+.nn-row {
+	display: flex;
+	align-items: center;
+	gap: clamp(14px, 2vmin, 26px);
+	padding: clamp(8px, 1.4vmin, 18px) 0;
+	border-bottom: 1px solid var(--line);
+	flex: 0 0 auto;
+}
+
+.nn-row.running .row-day {
+	color: var(--accent);
+}
+
+.nn-row-time {
+	flex: 0 0 auto;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	min-width: 5.2em;
+}
+
+.row-day {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	font-size: clamp(10px, 1.3vmin, 15px);
+	font-weight: 600;
+	letter-spacing: 0.24em;
+	text-transform: uppercase;
+	color: var(--ink-faint);
+}
+
+.row-day .live-dot {
+	width: 7px;
+	height: 7px;
+}
+
+.row-clock {
+	font-family: var(--display);
+	font-size: clamp(26px, 3.8vmin, 52px);
+	letter-spacing: 0.05em;
+	line-height: 1;
+	color: var(--accent);
+	font-variant-numeric: tabular-nums;
+}
+
+.nn-row-info {
+	min-width: 0;
+	flex: 1;
+}
+
+.row-name {
+	font-family: var(--display);
+	font-weight: 400;
+	font-size: clamp(20px, 3vmin, 40px);
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	line-height: 1.05;
+	color: var(--ink);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.row-sub {
+	font-size: clamp(11px, 1.5vmin, 17px);
+	font-weight: 400;
+	color: var(--ink-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-top: 2px;
+}
+
+.nn-row-cert {
+	flex: 0 0 auto;
+	font-size: clamp(14px, 2vmin, 24px);
+}
+
+.rail-none {
+	padding: clamp(14px, 2.4vmin, 30px) 0;
+	font-size: clamp(13px, 1.8vmin, 21px);
+	font-weight: 300;
+	letter-spacing: 0.06em;
+	color: var(--ink-faint);
+}
+
+/* ---------------------------------------------- spotlight / split slides */
+
+.spotlight {
+	position: relative;
+	height: 100%;
+	overflow: hidden;
+}
+
+.slide {
+	position: absolute;
+	inset: 0;
+	overflow: hidden;
+}
+
+.slide-backdrop {
+	position: absolute;
+	inset: 0;
+}
+
+.slide-backdrop img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	filter: blur(46px) brightness(0.32) saturate(1.15);
+	transform: scale(1.18);
+}
+
+.slide-backdrop::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	background: radial-gradient(
+		ellipse 110% 90% at 42% 45%,
+		transparent 40%,
+		rgba(6, 6, 6, 0.72) 100%
+	);
+}
+
+.slide-inner {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	gap: clamp(24px, 5vmin, 72px);
+	padding: clamp(24px, 5vmin, 72px);
+	padding-bottom: calc(clamp(24px, 5vmin, 72px) + 3vmin);
+}
+
+.slide-poster {
+	flex: 0 0 auto;
+	height: min(100%, 76vh);
+	aspect-ratio: 2 / 3;
+	max-width: 42%;
+	box-shadow: 0 30px 100px rgba(0, 0, 0, 0.7);
+	border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.slide-body {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: clamp(12px, 2vmin, 26px);
+}
+
+.slide-title {
+	font-family: var(--display);
+	font-weight: 400;
+	font-size: clamp(48px, 10vmin, 160px);
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	line-height: 0.92;
+	color: var(--ink);
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.showtime {
+	display: flex;
+	align-items: center;
+	gap: clamp(12px, 1.8vmin, 24px);
+	flex-wrap: wrap;
+	margin-top: clamp(2px, 0.8vmin, 10px);
+}
+
+.showtime-plate {
+	font-family: var(--display);
+	font-size: clamp(24px, 3.6vmin, 52px);
+	letter-spacing: 0.06em;
+	line-height: 1;
+	color: var(--color-on-accent, var(--bg));
+	background: var(--accent);
+	padding: 0.14em 0.36em 0.06em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.showtime-name {
+	font-size: clamp(12px, 1.7vmin, 20px);
+	font-weight: 500;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+}
+
+.slide-progress {
+	position: absolute;
+	left: clamp(24px, 5vmin, 72px);
+	right: clamp(24px, 5vmin, 72px);
+	bottom: clamp(16px, 2.6vmin, 34px);
+	display: flex;
+	align-items: center;
+	gap: 16px;
+}
+
+.slide-progress .bar {
+	flex: 1;
+	height: 2px;
+	background: color-mix(in srgb, var(--ink) 14%, transparent);
+	overflow: hidden;
+}
+
+.slide-progress .bar i {
+	display: block;
+	height: 100%;
+	width: 100%;
+	background: var(--accent);
+	transform-origin: left;
+	transform: scaleX(0);
+	animation-name: kiosk-spot-progress;
+	animation-timing-function: linear;
+	animation-fill-mode: forwards;
+}
+
+@keyframes kiosk-spot-progress {
+	to {
+		transform: scaleX(1);
+	}
+}
+
+.slide-progress em {
+	font-style: normal;
+	font-family: var(--display);
+	font-size: clamp(15px, 2vmin, 26px);
+	letter-spacing: 0.14em;
+	color: var(--ink-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Portrait spotlight: poster crowns the screen, text below. */
+@media (orientation: portrait) {
+	.slide-inner {
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: flex-end;
+		gap: clamp(18px, 3vmin, 40px);
+	}
+
+	.slide-poster {
+		align-self: center;
+		height: auto;
+		max-width: min(64vw, 46vh * 2 / 3);
+		width: 100%;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	.slide-body {
+		flex: 0 0 auto;
+		width: 100%;
+	}
+
+	.slide-title {
+		font-size: clamp(44px, 11vmin, 120px);
+	}
+
+	.synopsis {
+		-webkit-line-clamp: 3;
+		line-clamp: 3;
+	}
+}
+
+/* Compact slides (split hero): tighter scale. */
+.slide.compact .slide-inner {
+	gap: clamp(18px, 3vmin, 44px);
+	padding: clamp(18px, 3.4vmin, 48px);
+	padding-bottom: calc(clamp(18px, 3.4vmin, 48px) + 3vmin);
+}
+
+.slide.compact .slide-title {
+	font-size: clamp(34px, 6.4vmin, 96px);
+}
+
+.slide.compact .slide-poster {
+	height: min(100%, 62vh);
+}
+
+.slide.compact .synopsis {
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	font-size: clamp(13px, 1.7vmin, 20px);
+}
+
+/* ------------------------------------------------------------ split layout */
+
+.split {
+	height: 100%;
+	display: grid;
+}
+
+@media (orientation: landscape) {
+	.split {
+		grid-template-columns: minmax(0, 1fr) clamp(320px, 30%, 560px);
+	}
+
+	.split-rail {
+		border-left: 1px solid var(--line);
+	}
+}
+
+@media (orientation: portrait) {
+	.split {
+		grid-template-rows: minmax(0, 1.35fr) minmax(0, 1fr);
+	}
+
+	.split-rail {
+		border-top: 1px solid var(--line);
+	}
+
+	.slide.compact .slide-inner {
+		flex-direction: row; /* boxed hero is itself landscape-ish in portrait */
+		align-items: center;
+		justify-content: flex-start;
+	}
+
+	.slide.compact .slide-poster {
+		height: min(100%, 40vh);
+		width: auto;
+		max-width: 38%;
+		flex: 0 0 auto;
+		align-self: center;
+	}
+
+	.slide.compact .slide-title {
+		font-size: clamp(34px, 7.5vmin, 90px);
+	}
+}
+
+.split-hero {
+	position: relative;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.split-rail {
+	min-height: 0;
+	padding: clamp(18px, 3vmin, 40px);
+	display: flex;
+	flex-direction: column;
+	gap: clamp(8px, 1.2vmin, 16px);
+	overflow: hidden;
+	background: var(--panel);
+}
+
+.rail-items {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	min-height: 0;
+}
+
+/* The split rail is narrow in landscape — let names wrap to two lines
+   rather than ellipsising almost immediately. */
+.split-rail .row-name {
+	white-space: normal;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+	line-height: 1.08;
+}
+
+.split-rail .row-clock {
+	font-size: clamp(24px, 3.2vmin, 42px);
+}
+
+/* ------------------------------------------------------------ board layout */
+
+/* Departures-board schedule: tabular rows, flip-board type, no artwork. */
+.board {
+	height: 100%;
+	width: min(1500px, 100%);
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	padding: clamp(20px, 4vmin, 60px);
+}
+
+.bd-head,
+.bd-row {
+	display: grid;
+	grid-template-columns:
+		clamp(90px, 9vw, 150px) clamp(90px, 9vw, 160px) 1fr clamp(50px, 5vw, 90px)
+		clamp(150px, 16vw, 260px);
+	gap: clamp(10px, 1.6vmin, 26px);
+	align-items: center;
+}
+
+.bd-head {
+	padding: 0 6px clamp(8px, 1.4vmin, 16px);
+	font-size: clamp(10px, 1.2vmin, 14px);
+	font-weight: 600;
+	letter-spacing: 0.24em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+	border-bottom: 1px solid var(--line);
+}
+
+.bd-row {
+	padding: clamp(12px, 2vmin, 24px) 6px;
+	border-bottom: 1px solid var(--line);
+}
+
+.bd-day {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: clamp(12px, 1.5vmin, 18px);
+	font-weight: 600;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+}
+
+.bd-row.running .bd-day {
+	color: var(--accent);
+}
+
+.bd-time {
+	font-family: var(--display);
+	font-size: clamp(24px, 3.4vmin, 44px);
+	color: var(--ink);
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+
+.bd-name {
+	font-family: var(--display);
+	font-size: clamp(22px, 3vmin, 40px);
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+	color: var(--ink);
+	line-height: 1.05;
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.bd-bill {
+	display: block;
+	font-family: var(--body);
+	font-style: normal;
+	font-size: clamp(11px, 1.4vmin, 17px);
+	font-weight: 500;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.bd-status {
+	font-size: clamp(12px, 1.5vmin, 18px);
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+	text-align: right;
+	font-variant-numeric: tabular-nums;
+}
+
+.bd-row.running .bd-status {
+	color: var(--accent);
+}
+
+/* ---------------------------------------------------------- tonight layout */
+
+/* Single-purpose door card: the next showing's bill, name and start time. */
+.tonight {
+	position: relative;
+	height: 100%;
+	overflow: hidden;
+}
+
+.tn-inner {
+	position: relative;
+	z-index: 1;
+	height: 100%;
+	display: flex;
+	align-items: center;
+	gap: clamp(24px, 5vmin, 72px);
+	padding: clamp(24px, 5vmin, 72px);
+}
+
+.tn-poster {
+	flex: 0 0 auto;
+	height: min(100%, 68vh);
+	aspect-ratio: 2 / 3;
+	max-width: 40%;
+	box-shadow: 0 30px 100px rgba(0, 0, 0, 0.7);
+	border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.tn-body {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: clamp(12px, 2.2vmin, 30px);
+}
+
+.tn-title {
+	font-family: var(--display);
+	font-size: clamp(44px, 9vmin, 130px);
+	line-height: 0.98;
+	letter-spacing: 0.01em;
+	text-transform: uppercase;
+	color: var(--ink);
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.tn-time {
+	display: flex;
+	align-items: center;
+	gap: clamp(14px, 2.4vmin, 32px);
+}
+
+@media (orientation: portrait) {
+	.tn-inner {
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: flex-end;
+		gap: clamp(18px, 3vmin, 40px);
+	}
+
+	.tn-poster {
+		align-self: center;
+		height: auto;
+		max-width: min(60vw, 44vh * 2 / 3);
+		width: 100%;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	.tn-body {
+		flex: 0 0 auto;
+		width: 100%;
+	}
+}
+
+/* ----------------------------- takeover cards (playout + countdown) ------ */
+
+/* Both takeovers are one full-screen hero card over the shared blurred
+   backdrop. They share the slide's visual grammar. */
+.takeover,
+.countdown {
+	position: relative;
+	height: 100%;
+	overflow: hidden;
+}
+
+.takeover-inner,
+.countdown-inner {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	gap: clamp(24px, 5vmin, 72px);
+	padding: clamp(24px, 5vmin, 72px);
+}
+
+.takeover-poster,
+.countdown-poster {
+	flex: 0 0 auto;
+	height: min(100%, 72vh);
+	aspect-ratio: 2 / 3;
+	max-width: 40%;
+	box-shadow: 0 30px 100px rgba(0, 0, 0, 0.7);
+	border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+/* A bill of several features: the size class moves to the .poster-multi
+   wrapper and the posters split its slot. The wrapper drops the
+   single-poster frame — each poster carries its own — and frees the aspect
+   ratio so two or three can sit side by side. */
+.poster-multi {
+	display: flex;
+	align-items: stretch;
+	gap: clamp(8px, 1.2vmin, 20px);
+}
+
+.poster-multi.takeover-poster,
+.poster-multi.countdown-poster,
+.poster-multi.tn-poster {
+	aspect-ratio: auto;
+	max-width: none;
+	border: none;
+	box-shadow: none;
+	background: none;
+	overflow: visible;
+}
+
+.poster-multi > .poster {
+	flex: 0 0 auto;
+	height: 100%;
+	aspect-ratio: 2 / 3;
+	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+	border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+/* Smaller than a single poster so the pair/trio doesn't crowd the text */
+.poster-multi.n2.takeover-poster,
+.poster-multi.n2.countdown-poster,
+.poster-multi.n2.tn-poster {
+	height: min(100%, 56vh);
+}
+
+.poster-multi.n3.takeover-poster,
+.poster-multi.n3.countdown-poster,
+.poster-multi.n3.tn-poster {
+	height: min(100%, 44vh);
+}
+
+@media (orientation: portrait) {
+	.poster-multi.takeover-poster,
+	.poster-multi.countdown-poster {
+		align-self: center;
+		height: auto;
+		width: auto;
+		max-width: 88vw;
+		flex: 0 1 auto;
+		min-height: 0;
+	}
+
+	.poster-multi.takeover-poster > .poster,
+	.poster-multi.countdown-poster > .poster {
+		height: auto;
+		flex: 1 1 0;
+		min-width: 0;
+		max-width: min(42vw, 36vh * 2 / 3);
+	}
+}
+
+.takeover-body,
+.countdown-body {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: clamp(12px, 2.2vmin, 30px);
+}
+
+.takeover-title,
+.countdown-title {
+	font-family: var(--display);
+	font-weight: 400;
+	font-size: clamp(48px, 10vmin, 160px);
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	line-height: 0.92;
+	color: var(--ink);
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* Playout progress: a tick-driven bar (programme elapsed/duration) plus the
+   "Ends ~21:45" readout. */
+.takeover-progress {
+	display: flex;
+	align-items: center;
+	gap: clamp(14px, 2vmin, 26px);
+	margin-top: clamp(4px, 1vmin, 12px);
+}
+
+.takeover-progress .bar {
+	flex: 0 1 clamp(200px, 26vw, 560px);
+	height: 3px;
+	background: color-mix(in srgb, var(--ink) 14%, transparent);
+	overflow: hidden;
+}
+
+.takeover-progress .bar i {
+	display: block;
+	height: 100%;
+	width: 100%;
+	background: var(--accent);
+	transform-origin: left;
+	transform: scaleX(0);
+	transition: transform 1s linear; /* glides between tick updates */
+}
+
+.takeover-progress em {
+	font-style: normal;
+	font-size: clamp(14px, 2.2vmin, 28px);
+	font-weight: 500;
+	letter-spacing: 0.05em;
+	color: var(--ink-dim);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* Countdown numerals: the biggest thing on the screen, by design. */
+.countdown-timer {
+	display: flex;
+	align-items: baseline;
+	gap: clamp(14px, 2.4vmin, 32px);
+	flex-wrap: wrap;
+	margin-top: clamp(2px, 0.8vmin, 10px);
+}
+
+.count-label {
+	font-size: clamp(12px, 1.7vmin, 20px);
+	font-weight: 600;
+	letter-spacing: 0.28em;
+	text-transform: uppercase;
+	color: var(--ink-dim);
+}
+
+.count-clock {
+	font-family: var(--display);
+	/* Sized for "12 minutes" words, not a ticking MM:SS clock */
+	font-size: clamp(56px, 11vmin, 170px);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	line-height: 0.9;
+	color: var(--accent);
+	font-variant-numeric: tabular-nums;
+}
+
+/* "Starting now" replaces the numerals during the start grace period. */
+.count-clock.starting {
+	font-size: clamp(44px, 9vmin, 150px);
+	animation: kiosk-pulse 2.2s ease-in-out infinite;
+}
+
+.count-at {
+	display: flex;
+}
+
+/* Portrait: poster crowns the screen, text below — same as the slides. */
+@media (orientation: portrait) {
+	.takeover-inner,
+	.countdown-inner {
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: flex-end;
+		gap: clamp(18px, 3vmin, 40px);
+	}
+
+	.takeover-poster,
+	.countdown-poster {
+		align-self: center;
+		height: auto;
+		max-width: min(60vw, 44vh * 2 / 3);
+		width: 100%;
+		flex: 1 1 auto;
+		min-height: 0;
+	}
+
+	.takeover-body,
+	.countdown-body {
+		flex: 0 0 auto;
+		width: 100%;
+	}
+
+	.takeover-title,
+	.countdown-title {
+		font-size: clamp(44px, 11vmin, 120px);
+	}
+}
+
+/* -------------------------------------------------------------- night mode */
+
+/* Quiet hours: a near-black field and one very dim clock. */
+.night {
+	height: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.night-clock {
+	font-family: var(--display);
+	font-size: clamp(40px, 8vmin, 110px);
+	letter-spacing: 0.08em;
+	color: var(--ink);
+	opacity: 0.14; /* readable in a dark room, too faint to burn in */
+	font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------- ken burns ambience */
+
+/* Very slow poster/backdrop drift on the hero slides (spotlight + split) and
+   the takeover cards — ambience, not a screensaver. Direction alternates per
+   slide cycle (every other slide is tagged .kb-b). */
+@media (prefers-reduced-motion: no-preference) {
+	.slide-backdrop img {
+		animation: kiosk-kb-drift-a 44s ease-in-out infinite alternate;
+	}
+
+	.slide.kb-b .slide-backdrop img {
+		animation-name: kiosk-kb-drift-b;
+	}
+
+	.slide-poster img,
+	.takeover-poster img,
+	.countdown-poster img {
+		animation: kiosk-kb-poster 44s ease-in-out infinite alternate;
+	}
+
+	.slide.kb-b .slide-poster img {
+		animation-direction: alternate-reverse;
+	}
+}
+
+@keyframes kiosk-kb-drift-a {
+	from {
+		transform: scale(1.18) translate(0, 0);
+	}
+	to {
+		transform: scale(1.24) translate(-1.2%, 0.8%);
+	}
+}
+
+@keyframes kiosk-kb-drift-b {
+	from {
+		transform: scale(1.24) translate(1.2%, -0.8%);
+	}
+	to {
+		transform: scale(1.18) translate(0, 0);
+	}
+}
+
+@keyframes kiosk-kb-poster {
+	from {
+		transform: scale(1);
+	}
+	to {
+		transform: scale(1.045);
+	}
+}
+
+/* --------------------------------------------------- burn-in protection */
+
+/* Imperceptible pixel-shift on persistent static chrome: a few px over a
+   nine-minute cycle. Applied to the header, the clocks and the long-lived
+   takeover/countdown cards; elements that already cycle protect themselves. */
+.kiosk-header,
+.floating-clock,
+.night-clock,
+.takeover-inner,
+.countdown-inner {
+	animation: kiosk-px-drift 540s linear infinite;
+}
+
+@keyframes kiosk-px-drift {
+	0% {
+		transform: translate(0, 0);
+	}
+	25% {
+		transform: translate(2px, -2px);
+	}
+	50% {
+		transform: translate(3px, 1px);
+	}
+	75% {
+		transform: translate(-2px, 2px);
+	}
+	100% {
+		transform: translate(0, 0);
+	}
+}
+
+/* --------------------------------------------------------------- picker UI */
+
+.picker-btn {
+	position: fixed;
+	right: 20px;
+	bottom: 20px;
+	z-index: 60;
+	width: 46px;
+	height: 46px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: color-mix(in srgb, var(--bg) 92%, transparent);
+	border: 1px solid var(--line-strong);
+	color: var(--ink-dim);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.35s ease;
+	cursor: pointer;
+}
+
+.picker-btn.visible {
+	opacity: 0.9;
+	pointer-events: auto;
+}
+
+.picker-btn:hover {
+	color: var(--accent);
+	border-color: var(--accent);
+}
+
+.picker-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 55;
+	background: rgba(0, 0, 0, 0.55);
+	display: flex;
+	align-items: flex-end;
+	justify-content: flex-end;
+	padding: 20px;
+	padding-bottom: 80px;
+}
+
+.picker-panel {
+	width: min(360px, calc(100vw - 40px));
+	background: var(--color-surface-1);
+	border: 1px solid var(--line-strong);
+	padding: 22px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+	box-shadow: 0 24px 80px rgba(0, 0, 0, 0.8);
+}
+
+.picker-title {
+	font-family: var(--display);
+	font-size: 24px;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--ink);
+	line-height: 1;
+}
+
+.picker-group {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px;
+}
+
+.picker-choice {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 9px;
+	padding: 14px 8px 12px;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	color: var(--ink-dim);
+	cursor: pointer;
+	font-family: var(--body);
+}
+
+.picker-choice:hover {
+	border-color: var(--line-strong);
+	color: var(--ink);
+}
+
+.picker-choice.active {
+	border-color: var(--accent);
+	color: var(--ink);
+}
+
+.picker-choice.active .choice-glyph i {
+	background: var(--accent);
+}
+
+.choice-label {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+}
+
+/* Miniature wireframes of each layout, drawn with <i> cells. */
+.choice-glyph {
+	width: 48px;
+	height: 32px;
+	display: grid;
+	gap: 3px;
+}
+
+.choice-glyph i {
+	background: var(--ink-faint);
+	display: block;
+}
+
+.glyph-wall {
+	grid-template-columns: repeat(3, 1fr);
+	grid-template-rows: repeat(2, 1fr);
+}
+
+.glyph-spotlight {
+	grid-template-columns: 1fr;
+}
+
+.glyph-split {
+	grid-template-columns: 1.8fr 1fr;
+}
+
+.glyph-board {
+	grid-template-columns: 1fr;
+	grid-template-rows: repeat(4, 1fr);
+}
+
+.glyph-tonight {
+	grid-template-columns: 1fr;
+	padding: 3px 14px;
+}
+
+/* Auto spans the grid — it's a mode over the other four, not a fifth peer. */
+.picker-choice.choice-auto {
+	grid-column: 1 / -1;
+	flex-direction: row;
+	justify-content: center;
+	gap: 12px;
+	padding: 10px 8px;
+}
+
+.glyph-auto {
+	width: 34px;
+	height: 22px;
+	grid-template-columns: repeat(2, 1fr);
+	grid-template-rows: repeat(2, 1fr);
+}
+
+.glyph-auto i:first-child {
+	background: var(--accent);
+	opacity: 0.75;
+}
+
+.picker-divider {
+	height: 1px;
+	background: var(--line);
+}
+
+/* "Use Settings-page defaults" — drops this screen's picker overrides */
+.picker-server {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 9px 12px;
+	background: transparent;
+	border: 1px solid var(--line);
+	color: var(--ink-dim);
+	font: inherit;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+}
+
+.picker-server:hover {
+	color: var(--ink);
+	border-color: var(--ink-dim);
+}
+
+.picker-toggle {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--ink-dim);
+	cursor: pointer;
+	user-select: none;
+}
+
+.picker-toggle input {
+	appearance: none;
+	width: 34px;
+	height: 18px;
+	background: var(--line);
+	position: relative;
+	cursor: pointer;
+	flex: 0 0 auto;
+	transition: background 0.2s ease;
+}
+
+.picker-toggle input::after {
+	content: '';
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 14px;
+	height: 14px;
+	background: var(--ink-dim);
+	transition:
+		transform 0.2s ease,
+		background 0.2s ease;
+}
+
+.picker-toggle input:checked {
+	background: color-mix(in srgb, var(--accent) 35%, var(--color-surface-1));
+}
+
+.picker-toggle input:checked::after {
+	transform: translateX(16px);
+	background: var(--accent);
+}
+
+.picker-field {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--ink-dim);
+}
+
+.picker-times {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.picker-times input[type='time'] {
+	background: var(--bg);
+	border: 1px solid var(--line);
+	color: var(--ink);
+	font-family: var(--body);
+	font-size: 12px;
+	font-weight: 600;
+	padding: 5px 6px;
+	color-scheme: dark; /* dark native picker chrome */
+}
+
+.picker-times input[type='time']:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.picker-num {
+	width: 52px;
+	background: var(--bg);
+	border: 1px solid var(--line);
+	color: var(--ink);
+	font-family: var(--body);
+	font-size: 12px;
+	font-weight: 600;
+	padding: 5px 6px;
+	text-align: right;
+	color-scheme: dark;
+}
+
+.picker-num:focus {
+	outline: none;
+	border-color: var(--accent);
+}
+
+.picker-unit {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--ink-dim);
+}

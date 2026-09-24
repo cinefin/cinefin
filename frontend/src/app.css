@@ -1,0 +1,378 @@
+@import 'tailwindcss';
+
+/*
+ * Bundled faces (frontend/src/lib/assets/fonts, latin subsets, hashed by
+ * Vite — the SPA stays self-contained). Tilt Warp names things; Archivo
+ * explains; IBM Plex Mono measures. See docs/cinefin-ui-spec.html.
+ */
+@font-face {
+	font-family: 'Tilt Warp';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('./lib/assets/fonts/tilt-warp-400.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Archivo';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('./lib/assets/fonts/archivo-400.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Archivo';
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url('./lib/assets/fonts/archivo-500.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'Archivo';
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url('./lib/assets/fonts/archivo-600.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('./lib/assets/fonts/plex-mono-400.woff2') format('woff2');
+}
+@font-face {
+	font-family: 'IBM Plex Mono';
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url('./lib/assets/fonts/plex-mono-500.woff2') format('woff2');
+}
+
+/*
+ * Cinefin design tokens — quiet, dark, media-first.
+ *
+ * A true-neutral grey ramp (no colour cast), one steel-blue accent
+ * (user-configurable) used sparingly for primary actions and live/active
+ * states, restrained semantic colours, sentence-case bold sans type, and 3px
+ * corners on controls only (panels, tables and posters stay square). The
+ * posters carry the colour; the chrome stays out of the way.
+ *
+ * These are THE tokens. Components use the utility classes these generate
+ * (bg-surface-1, text-muted, border-border, text-accent, rounded-md, …);
+ * do not hardcode hex values in components.
+ */
+@theme {
+	/* Neutral ramp — the room: near-black taken almost neat
+	 * (docs/cinefin-ui-spec.html §01), but TRUE NEUTRAL — R=G=B at every
+	 * rung, no blue cast anywhere in the chrome. Contrast ratios hold
+	 * (muted ≥6.5:1 on a panel, text ≥14:1); only the hue is gone.
+	 *
+	 * The ramp is also a LADDER OF LIGHT, and that is what carries depth now
+	 * that panels may not use shadows or faceplate edges: `shell` (the
+	 * navigation, furthest back) → `bg` (the page) → `surface-1` (a panel) →
+	 * `surface-2` (the panel that matters, or a raised row). Each step is
+	 * about 1.5× the luminance of the one below, so the chrome recedes into
+	 * the dark and the panels read as lit surfaces standing in it. */
+	--color-shell: #070707;
+	--color-bg: #0a0a0b;
+	--color-surface-1: #131315;
+	--color-surface-2: #1b1b1e;
+	--color-surface-3: #232327;
+	--color-border: #2a2a2f;
+	--color-border-strong: #43434b;
+
+	/* Text ramp — neutral greys, no cool tint. */
+	--color-text: #f0f0f2;
+	--color-muted: #a6a6ac;
+	--color-faint: #71717a;
+
+	/* Signals — the mark's three channels ARE the signal vocabulary
+	 * (spec §02): blue is interactive, red is live/destructive, green is
+	 * ready; amber is the one borrowed non-channel for warning. The accent
+	 * IS the blue channel. USER-CONFIGURABLE: Settings → Appearance writes
+	 * display.accent_color, which lib/display.svelte.ts applies as an inline
+	 * --color-accent override on <html>; the hover/dim shades below are
+	 * color-mix()ed off the var, so they follow any accent automatically.
+	 * (Keep DEFAULT_ACCENT in lib/settings/form.svelte.ts in step.) */
+	--color-accent: #3a7bff;
+	--color-accent-hover: color-mix(in oklab, var(--color-accent) 78%, white);
+	--color-accent-dim: color-mix(in oklab, var(--color-accent) 55%, black);
+	--color-on-accent: #ffffff;
+
+	/* The other channels + the amber loan. The red channel splits in two:
+	 * LIVE (#ff2f4d — the tally, a hold owning the screen; the brand red,
+	 * never re-tinted) and DANGER (a quieter crimson for errors and
+	 * destructive actions — the brand red at working strength was too loud
+	 * for everyday UI). */
+	--color-success: #25e88a;
+	--color-warning: #e8b93b;
+	--color-live: #ff2f4d;
+	--color-danger: #d9364a;
+
+	/* Item-type families (src/lib/item-types.ts — the single source of truth
+	 * for type labels, icons and colours). Six families, hue-shifted away
+	 * from the channel signals so a type mark never reads as a status or a
+	 * link: gold is not amber, rose is not record-red, indigo is not
+	 * link-blue. Applied as a coloured icon, a tint badge and a 2px left
+	 * edge — never as a row wash. */
+	--color-type-film: #d9ae54;
+	--color-type-trailer: #a88ce8;
+	--color-type-media: #4eb4ce;
+	--color-type-command: #8e96e8;
+	--color-type-certification: #de7f9c;
+	--color-type-system: #7e899c;
+
+	/* Three voices, one of them ceremonial: Tilt Warp is the WORDMARK's
+	 * face only (the maintainer demoted it from headings — too loud for
+	 * daily chrome); Archivo EXPLAINS everything including headings (bold
+	 * sentence case); IBM Plex Mono MEASURES (timecodes, durations, counts,
+	 * paths — the only place caps tracking is legal). */
+	--font-display: 'Tilt Warp', ui-sans-serif, system-ui, sans-serif;
+	--font-sans:
+		'Archivo', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+		sans-serif;
+	--font-mono:
+		'IBM Plex Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+	/* Radius is BINARY (spec §04): all architecture is square (panels,
+	 * cards, tables, dialog frames — rounded-lg and up are zero); the one
+	 * radius is 2px on pressable controls (buttons, fields, chips, menus) —
+	 * felt, never seen. rounded-full stays for true dots. */
+	--radius-xs: 2px;
+	--radius-sm: 2px;
+	--radius-md: 2px;
+	--radius-lg: 0px;
+	--radius-xl: 0px;
+	--radius-2xl: 0px;
+	--radius-3xl: 0px;
+
+	/* Motion (spec §07, tokens M3). One ease, and the durations the spec
+	 * names. Only things that genuinely GO somewhere may use them — a
+	 * drawer, a reveal — never a hover or a press, which change light
+	 * instead of position. The global prefers-reduced-motion rule below
+	 * flattens all of it. */
+	--ease-panel: cubic-bezier(0.22, 0.61, 0.36, 1);
+	--duration-tap: 120ms;
+	--duration-ui: 220ms;
+	--duration-panel: 340ms;
+}
+
+/*
+ * Per-device display preferences (lib/display.svelte.ts — the legacy
+ * "Display" menu, same localStorage keys). Density is rem scaling, so every
+ * Tailwind size follows; width is bound in the layout.
+ */
+html.density-90 {
+	font-size: 90%;
+}
+html.density-80 {
+	font-size: 80%;
+}
+
+/*
+ * Quiet typography. The app is sentence-case bold sans throughout; existing
+ * utility classes on page markup are neutralised here rather than edited
+ * across forty files (unlayered rules win over Tailwind's @layer utilities).
+ * The kiosk is a display surface with its own deliberate type — exempt.
+ */
+:root:not(:has(.kiosk-stage)) .uppercase:not(.brand-mark) {
+	text-transform: none;
+}
+:root:not(:has(.kiosk-stage)) [class*='tracking-']:not(.brand-mark) {
+	letter-spacing: normal;
+}
+
+/* Theme: Dim — the same room half a step brighter, for rooms with some
+ * light in them. Signals and item-type hues are inherited from the dark
+ * defaults (they clear 4.5:1 on these surfaces too); only the neutral
+ * ramp changes. */
+html.theme-dim {
+	--color-shell: #0b0d14;
+	--color-bg: #0e111a;
+	--color-surface-1: #161a26;
+	--color-surface-2: #1d2333;
+	--color-surface-3: #262d42;
+	--color-border: #2c3450;
+	--color-border-strong: #414d70;
+	--color-text: #eff1f8;
+	--color-muted: #a4acc1;
+	--color-faint: #737c93;
+}
+
+/* Theme: Light — cool paper: the room inverted, carrying the guide's
+ * deep channel variants at legible contrast. The SPA is designed
+ * dark-first, so anything unreadable here is a bug. */
+html.theme-light {
+	color-scheme: light;
+	/* Paper has the same ladder: the rail sits a shade under the page, the
+	 * panels a shade over it. */
+	--color-shell: #e3e6ee;
+	--color-bg: #eff1f6;
+	--color-surface-1: #fafbfd;
+	--color-surface-2: #eff2f7;
+	--color-surface-3: #e3e7f0;
+	--color-border: #d5dae6;
+	--color-border-strong: #a7b0c4;
+	--color-text: #1c2230;
+	--color-muted: #59627a;
+	--color-faint: #8890a6;
+	--color-on-accent: #ffffff;
+	/* Deep channel variants (guide A2) — a user-set accent still wins via
+	 * the inline override. */
+	--color-accent: #2d6be0;
+	--color-success: #12b869;
+	--color-warning: #a67c14;
+	--color-live: #e01838;
+	--color-danger: #c22a3c;
+	/* Item-type families, darkened for paper: same six hues, all ≥4.5:1 as
+	 * text/icon on surface-1 and surface-2 (the dark values would vanish). */
+	--color-type-film: #8a6c14;
+	--color-type-trailer: #7149b3;
+	--color-type-media: #14758c;
+	--color-type-command: #4653b8;
+	--color-type-certification: #b04568;
+	--color-type-system: #5a6478;
+}
+
+@layer base {
+	html {
+		color-scheme: dark;
+	}
+
+	body {
+		background-color: var(--color-bg);
+		/* The room around the light: the page falls away toward the edges of
+		 * the viewport. Painted as the page's own background rather than an
+		 * overlay, so it sits UNDER everything and no text ever loses
+		 * contrast to it; fixed, so it belongs to the window, not the scroll.
+		 * The noise tile on top is a dither, not a texture: the falloff spans
+		 * only a few 8-bit steps over a ground this dark, and without a couple
+		 * of percent of fine noise it bands visibly on most displays. */
+		background-image:
+			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='d'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0 0 0 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23d)'/%3E%3C/svg%3E"),
+			radial-gradient(
+				ellipse 95% 75% at 50% 32%,
+				transparent 45%,
+				color-mix(in oklab, black 26%, transparent) 100%
+			);
+		background-size:
+			160px 160px,
+			auto;
+		background-attachment: fixed;
+		color: var(--color-text);
+		font-family: var(--font-sans);
+	}
+
+	::selection {
+		background-color: var(--color-accent-dim);
+		color: var(--color-text);
+	}
+
+	/* Visible keyboard focus everywhere, in the lamp colour. */
+	:focus-visible {
+		outline: 2px solid var(--color-accent);
+		outline-offset: 1px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		*,
+		*::before,
+		*::after {
+			animation-duration: 0.01ms !important;
+			animation-iteration-count: 1 !important;
+			transition-duration: 0.01ms !important;
+		}
+	}
+}
+
+/*
+ * A lamp in transition breathes (spec §06 C3: "only a transition pulses").
+ * Global so any status line can light one — StatusLamp is the usual wrapper.
+ */
+@media (prefers-reduced-motion: no-preference) {
+	.lamp-pending {
+		animation: lamp-pulse 1.6s var(--ease-panel) infinite;
+	}
+}
+@keyframes lamp-pulse {
+	50% {
+		opacity: 0.3;
+	}
+}
+
+/*
+ * The detail drawer (ui/SidePanel). Docked from xl up, the page gives up the
+ * drawer's width so the list beside it reflows and stays in reach; below xl
+ * (where that would leave the list a sliver) it overlays instead. --playout-h is the live playout bar's height (layout).
+ * The item open in the drawer is lit — a neutral outline, deliberately not the
+ * accent, which already means "selected" in the library and media grids.
+ */
+:root {
+	--panel-w: 32rem;
+}
+@media (min-width: 96rem) {
+	:root {
+		--panel-w: 36rem;
+	}
+}
+@media (min-width: 80rem) {
+	html.side-panel-open main {
+		padding-right: calc(var(--panel-w) + 1.5rem);
+	}
+}
+[data-panel-current]:not(tr) {
+	outline: 2px solid var(--color-text);
+	outline-offset: 2px;
+}
+tr[data-panel-current] {
+	background-color: var(--color-surface-3);
+	box-shadow: inset 2px 0 0 var(--color-text);
+}
+
+/*
+ * Film grain — for LARGE artwork only (a feature's poster on the programme
+ * page, the film modal's artwork). Two layers, deliberately separate: a
+ * fine fractal-noise tile blended in soft light so it sits in the image
+ * rather than over it, and a plain vignette that darkens the frame's edges.
+ * The kiosk has carried its own auditorium vignette and projector grain
+ * since it was built — this is the same idea brought inside, at a lower
+ * strength, and it never goes near dense thumbnails or list rows, where
+ * noise just reads as dirt.
+ */
+.film-grain {
+	position: relative;
+}
+
+.film-grain::before,
+.film-grain::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+.film-grain::before {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+	background-size: 160px 160px;
+	mix-blend-mode: soft-light;
+	opacity: 0.28;
+}
+
+.film-grain::after {
+	background: radial-gradient(
+		ellipse 85% 80% at 50% 42%,
+		transparent 55%,
+		color-mix(in oklab, black 32%, transparent) 100%
+	);
+}
+
+/* Paper: neither the grain nor the room's falloff belongs on a printed
+ * page — on a light ground a vignette just reads as a dirty screen. */
+html.theme-light body {
+	background-image: none;
+}
+
+html.theme-light .film-grain::before,
+html.theme-light .film-grain::after {
+	display: none;
+}

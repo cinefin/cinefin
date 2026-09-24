@@ -1,0 +1,8 @@
+node_modules/
+build/
+test-results/
+playwright-report/
+.svelte-kit/
+src/lib/api/types.gen.ts
+src/lib/api/openapi.json
+package-lock.json

@@ -1,0 +1,37 @@
+{
+	"name": "cinefin-spa",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+		"format": "prettier --write .",
+		"lint": "prettier --check .",
+		"generate:schema": "cd ../backend && poetry run python manage.py export_openapi",
+		"generate:types": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/types.gen.ts",
+		"generate:api": "npm run generate:schema && npm run generate:types",
+		"e2e": "playwright test"
+	},
+	"dependencies": {
+		"@lucide/svelte": "0.511.0",
+		"openapi-fetch": "0.13.8"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.63.0",
+		"@sveltejs/adapter-static": "3.0.8",
+		"@sveltejs/kit": "2.21.1",
+		"@sveltejs/vite-plugin-svelte": "5.0.3",
+		"@tailwindcss/vite": "4.1.7",
+		"openapi-typescript": "7.8.0",
+		"prettier": "3.5.3",
+		"prettier-plugin-svelte": "3.4.0",
+		"svelte": "5.33.1",
+		"svelte-check": "4.2.1",
+		"tailwindcss": "4.1.7",
+		"typescript": "5.8.3",
+		"vite": "6.3.5"
+	}
+}

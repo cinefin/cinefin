@@ -1,0 +1,136 @@
+[
+  {
+    "align": "center",
+    "bold": false,
+    "file": "logo.png",
+    "invert": false,
+    "op": "image",
+    "path": "<MEDIA>/ticket_images/logo.png",
+    "size": "normal"
+  },
+  {
+    "align": "center",
+    "bold": true,
+    "invert": false,
+    "op": "text",
+    "size": "large",
+    "value": "The Regal\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "=============================\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": true,
+    "op": "text",
+    "size": "normal",
+    "value": "ADMIT ONE\n"
+  },
+  {
+    "align": "center",
+    "bold": true,
+    "invert": false,
+    "op": "text",
+    "size": "wide",
+    "value": "Noir Night\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "The Third Man (1949)\n"
+  },
+  {
+    "align": "left",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "The Third Man (1949) [PG]\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": false,
+    "op": "rating",
+    "path": "<ASSETS>/ratings/BBFC/pos/PG.png",
+    "scale": 0.35,
+    "size": "normal"
+  },
+  {
+    "align": "right",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "tall",
+    "value": "Seat C4\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "14/03/2026 19:30\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "Show: 14/03/2026 19:30\n"
+  },
+  {
+    "op": "text",
+    "value": "\n\n"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "data": "T101",
+    "invert": false,
+    "op": "barcode",
+    "size": "normal"
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "data": "https://tickets.example/check/101",
+    "invert": false,
+    "op": "qr",
+    "size": 4
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "data": "https://cinefin.example/fun",
+    "invert": false,
+    "op": "qr",
+    "size": 6
+  },
+  {
+    "align": "center",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "Ticket #101\n"
+  },
+  {
+    "align": "left",
+    "bold": false,
+    "invert": false,
+    "op": "text",
+    "size": "normal",
+    "value": "=============================\n"
+  }
+]
