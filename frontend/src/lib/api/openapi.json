@@ -5710,6 +5710,18 @@
             "title": "Per Page",
             "type": "integer"
           },
+          "random_seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seed for sort=random so pagination stays consistent (omit to reshuffle)",
+            "title": "Random Seed"
+          },
           "resolution": {
             "anyOf": [
               {
@@ -7907,6 +7919,11 @@
             "title": "Details",
             "type": "object"
           },
+          "duration_seconds": {
+            "description": "Playback duration in seconds",
+            "title": "Duration Seconds",
+            "type": "number"
+          },
           "id": {
             "description": "Programme block ID",
             "title": "Id",
@@ -7916,11 +7933,6 @@
             "description": "Item order in programme",
             "title": "Order",
             "type": "integer"
-          },
-          "runtime": {
-            "description": "Runtime in seconds",
-            "title": "Runtime",
-            "type": "number"
           },
           "title": {
             "description": "Item title",
@@ -7938,7 +7950,7 @@
           "order",
           "type",
           "title",
-          "runtime",
+          "duration_seconds",
           "details"
         ],
         "title": "ProgrammeItemDetailSchema",
@@ -16789,6 +16801,24 @@
               "description": "Sort order (asc/desc)",
               "title": "Order",
               "type": "string"
+            }
+          },
+          {
+            "description": "Seed for sort=random so pagination stays consistent (omit to reshuffle)",
+            "in": "query",
+            "name": "random_seed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Seed for sort=random so pagination stays consistent (omit to reshuffle)",
+              "title": "Random Seed"
             }
           }
         ],

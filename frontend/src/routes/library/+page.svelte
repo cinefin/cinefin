@@ -96,6 +96,14 @@
 		['present', 'missing'].includes(initial.get('tmdb') ?? '') ? initial.get('tmdb')! : ''
 	);
 
+	// A seed pins one shuffle order for a random browse so paging stays
+	// consistent; picking Random (or a reload) draws a fresh one.
+	const newSeed = () => Math.floor(Math.random() * 2_000_000_000) + 1;
+	let randomSeed = $state(newSeed());
+	$effect(() => {
+		if (sort === 'random') randomSeed = newSeed();
+	});
+
 	const SOURCE_SETTINGS = `${base}/settings?tab=library`;
 
 	$effect(() => syncActivity.subscribe());
@@ -222,6 +230,7 @@
 		};
 		if (sort === 'random') {
 			params.sort = 'random';
+			params.random_seed = randomSeed;
 		} else {
 			params.sort = sort.startsWith('-') ? sort.slice(1) : sort;
 			params.order = sort.startsWith('-') ? 'desc' : 'asc';
@@ -259,7 +268,8 @@
 			yearFrom,
 			yearTo,
 			runtime,
-			sort
+			sort,
+			randomSeed
 		];
 		void [pageNum, perPage];
 		void movies.load();

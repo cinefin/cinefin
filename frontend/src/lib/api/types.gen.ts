@@ -6479,6 +6479,11 @@ export interface components {
              */
             per_page: number;
             /**
+             * Random Seed
+             * @description Seed for sort=random so pagination stays consistent (omit to reshuffle)
+             */
+            random_seed?: number | null;
+            /**
              * Resolution
              * @description Filter by resolution
              */
@@ -7677,6 +7682,11 @@ export interface components {
                 [key: string]: unknown;
             };
             /**
+             * Duration Seconds
+             * @description Playback duration in seconds
+             */
+            duration_seconds: number;
+            /**
              * Id
              * @description Programme block ID
              */
@@ -7686,11 +7696,6 @@ export interface components {
              * @description Item order in programme
              */
             order: number;
-            /**
-             * Runtime
-             * @description Runtime in seconds
-             */
-            runtime: number;
             /**
              * Title
              * @description Item title
@@ -12497,6 +12502,8 @@ export interface operations {
                 sort?: string;
                 /** @description Sort order (asc/desc) */
                 order?: string;
+                /** @description Seed for sort=random so pagination stays consistent (omit to reshuffle) */
+                random_seed?: number | null;
             };
             header?: never;
             path?: never;

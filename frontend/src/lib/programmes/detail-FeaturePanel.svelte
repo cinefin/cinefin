@@ -176,7 +176,7 @@
 							<Badge variant="outline">{d.certification}</Badge>
 						{/if}
 						<span class="text-faint">·</span>
-						<span class="font-mono">{formatDuration(item.runtime)}</span>
+						<span class="font-mono">{formatDuration(item.duration_seconds)}</span>
 						{#each qualityBits as bit (bit)}
 							<span class="text-faint">·</span>
 							<span class="font-mono">{bit}</span>
