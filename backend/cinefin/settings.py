@@ -105,7 +105,7 @@ CINEFIN_SERVER_URL = os.environ.get("CINEFIN_SERVER_URL", "http://localhost:8000
 # are overridable via the environment; the check is best-effort and never
 # surfaces a network error to the user.
 CINEFIN_UPDATE_HOST = os.environ.get("CINEFIN_UPDATE_HOST", "https://github.com").rstrip("/")
-CINEFIN_UPDATE_REPO = os.environ.get("CINEFIN_UPDATE_REPO", "cinefin-dev/cinefin").strip("/")
+CINEFIN_UPDATE_REPO = os.environ.get("CINEFIN_UPDATE_REPO", "cinefin/cinefin").strip("/")
 
 # Application version — resolved from the CINEFIN_VERSION env (set in the Docker
 # image) or `git describe`. See cinefin/version.py for the single source of truth.

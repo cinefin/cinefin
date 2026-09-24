@@ -71,7 +71,7 @@ ENV CINEFIN_VERSION=${CINEFIN_VERSION} \
 LABEL org.opencontainers.image.title="Cinefin" \
       org.opencontainers.image.version="${CINEFIN_VERSION}" \
       org.opencontainers.image.revision="${CINEFIN_COMMIT}" \
-      org.opencontainers.image.source="https://github.com/cinefin-dev/cinefin"
+      org.opencontainers.image.source="https://github.com/cinefin/cinefin"
 
 # Collect static files for WhiteNoise (baked into the image, not a volume).
 RUN python manage.py collectstatic --no-input
