@@ -1,0 +1,39 @@
+# Cinefin — web app (the schedule runner is a background thread inside it).
+#
+# Hardware (MPV playout, thermal printer, projector/lights) is on the host —
+# see docs/DOCKER.md. To drive a host MPV instance, uncomment the socket mount
+# under `web`.
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: cinefin:latest
+    # uvicorn (ASGI) so the real-time WebSocket works. ONE process only — the MPV
+    # service is a per-process singleton (never add --workers).
+    command: uvicorn cinefin.asgi:application --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      DEBUG: "${DEBUG:-false}"
+      # The one thing to set: your box's address. It also becomes the default
+      # ALLOWED_HOSTS host, CSRF origin, and playout stream base — so usually
+      # nothing else here needs changing.
+      CINEFIN_SERVER_URL: "${CINEFIN_SERVER_URL:-http://localhost:8000}"
+      # Accept any Host by default. Set ALLOWED_HOSTS=cinema.local,192.168.1.50
+      # to restrict it, or leave blank for "*".
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-}"
+      # Optional: auto-generated and persisted under the userdata dir when unset.
+      SECRET_KEY: "${SECRET_KEY:-}"
+      # ALL runtime data — db, media, secret key, logs — lives here (the mount
+      # below). db → userdata/db.sqlite3, media → userdata/media.
+      CINEFIN_USERDATA_DIR: "/app/userdata"
+      # Uncomment to also write a rotating logfile (5 MB × 5) inside the volume:
+      # CINEFIN_LOG_FILE: "/app/userdata/logs/cinefin.log"
+    volumes:
+      - ../userdata:/app/userdata # db + media + secret key + logs
+      # Drive a host MPV instance (it must be started with
+      #   --input-ipc-server=/tmp/mpvsocket):
+      # - /tmp/mpvsocket:/tmp/mpvsocket
+    restart: unless-stopped

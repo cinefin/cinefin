@@ -1,0 +1,88 @@
+[tool.poetry]
+name = "cinefin3"
+version = "0.36.0"
+description = ""
+authors = ["Cinefin contributors"]
+license = "AGPL-3.0-or-later"
+# No `readme`: the README lives at the repo root, not in backend/, and Poetry
+# rejects a path outside the project dir. package-mode = false means none of
+# this metadata is packaged anyway — it exists for `poetry version` (scripts/
+# release.sh) and for humans reading the file.
+package-mode = false
+# Dev deps are declared PEP 735 style ([dependency-groups] below). Support for
+# that section landed in Poetry 2.2 — every earlier release (including 2.0 and
+# 2.1) silently writes a lock WITHOUT pytest/pytest-django/factory-boy, so
+# `poetry run pytest` then falls through to a system pytest with no Django and
+# CI breaks. Refuse to run under anything older; verified by bisection
+# (2.1.4 omits them, 2.2.1 includes them).
+requires-poetry = ">=2.2"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+django = "^6.1"
+django-ninja = "^1.4.3"
+django-cors-headers = "^4.9.0"
+whitenoise = "^6.6.0"
+pytz = "^2026.3"
+tzlocal = "^5.2"
+python-dateutil = "^2.9"
+# pillow >=12 ships wheels for Python 3.13 and 3.14
+pillow = "^12.3"
+# pydantic <2.12 has no pydantic_core wheels for Python 3.14
+pydantic = ">=2.12,<3"
+plexapi = "^4.15.13"
+jellyfin-apiclient-python = "^1.11.0"
+# WS control transport (WSMPV): Cinefin controls mpv only over the playout
+# agent's WebSocket — sync client with a background reader thread. See mpv_ws.py.
+websocket-client = "^1.9.0"
+yt-dlp = "^2026.3.17"
+tmdbv3api = "^1.9.0"
+pymediainfo = "^7.0"
+# the maintained successor of the abandoned "escpos" fork (same import name);
+# v3 dropped the runtime pkg_resources/setuptools dependency
+python-escpos = "^3.1"
+requests = "^2.32.3"
+zeroconf = "^0.150.0"
+ruff = "^0.16.1"
+uvicorn = {version = "^0.34", extras = ["standard"]}
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+extend-exclude = ["cinefin/api/migrations"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "DJ",  # flake8-django
+]
+ignore = [
+    "E501",   # line length is advisory; format handles wrapping where it can
+    "B008",   # call-in-default-argument: Ninja's Query()/File() parameter pattern is idiomatic
+    "DJ012",  # model member ordering: revisit when models.py is split into a package (cleanup phase 5)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Standalone utility scripts (TUIs, one-off data fixes) run outside the app
+"scripts/*" = ["E402", "E722", "F841", "F811", "B007", "B018", "UP031"]
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "cinefin.test_settings"
+python_files = ["test_*.py"]
+testpaths = ["cinefin/api/tests"]
+
+[dependency-groups]
+dev = [
+    "ruff (>=0.16.1,<0.17.0)",
+    "pytest (>=9.1.1,<10.0.0)",
+    "pytest-django (>=4.12.0,<5.0.0)",
+    "factory-boy (>=3.3.3,<4.0.0)"
+]

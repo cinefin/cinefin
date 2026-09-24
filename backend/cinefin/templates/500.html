@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!--
+  Self-contained by design. Django renders 500 with an EMPTY context and may be
+  mid-failure, so this template uses no context processors, no DB-backed values,
+  and no template tags. All styling is inlined below.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Something went wrong - Cinefin</title>
+    <style>
+        html, body { margin: 0; padding: 0; background: #07090e; color: #eef1f7;
+            font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+        .cx-error { max-width: 560px; margin: 80px auto; text-align: center; padding: 0 16px; }
+        .cx-error-code { font-size: 64px; font-weight: 800; line-height: 1; color: #d9364a;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+        .cx-error h1 { font-size: 22px; margin: 16px 0 8px; color: #eef1f7; }
+        .cx-error p { color: #9aa3b6; font-size: 14px; margin: 0 0 24px; }
+        .cx-error-link { display: inline-block; padding: 8px 14px; border-radius: 3px; background: #3a7bff;
+            color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 500; }
+        .cx-error-link:hover { background: #649aff; }
+    </style>
+</head>
+<body>
+    <div class="cx-error">
+        <div class="cx-error-code">500</div>
+        <h1>Something went wrong</h1>
+        <p>An unexpected error occurred on the server. The problem has been logged.</p>
+        <a class="cx-error-link" href="/">Back to dashboard</a>
+    </div>
+</body>
+</html>
