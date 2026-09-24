@@ -25,7 +25,7 @@ class ProgrammeItemDetailSchema(Schema):
     order: int = Field(..., description="Item order in programme")
     type: str = Field(..., description="Item type")
     title: str = Field(..., description="Item title")
-    runtime: float = Field(..., description="Runtime in seconds")
+    duration_seconds: float = Field(..., description="Playback duration in seconds")
     details: dict[str, Any] = Field(..., description="Item-specific details")
 
 
@@ -476,7 +476,7 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
             order=block.order,
             type=block.content_type,
             title=block_title,
-            runtime=block_runtime,
+            duration_seconds=block_runtime,
             details=block_details,
         )
         items_data.append(item_data)

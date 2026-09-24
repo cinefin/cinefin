@@ -60,8 +60,7 @@ export interface ProgrammeItem {
 	order: number;
 	type: string;
 	title: string;
-	// Named "runtime" on the wire but holds SECONDS.
-	runtime: number;
+	duration_seconds: number;
 	details: ProgrammeItemDetails;
 }
 

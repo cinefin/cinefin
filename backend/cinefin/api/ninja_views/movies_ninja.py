@@ -6,6 +6,7 @@ import os
 from django.conf import settings
 from django.core.paginator import EmptyPage, Paginator
 from django.db.models import Avg, Count, F, Prefetch, Q, Sum
+from django.db.models.functions import Mod
 from django.http import HttpRequest, HttpResponse, HttpResponseNotModified, HttpResponseRedirect
 from ninja import Field, Query, Router, Schema, Status
 
@@ -262,6 +263,9 @@ class MovieListFilters(Schema):
     )
     sort: str = Field(default="title", description="Sort field")
     order: str = Field(default="asc", description="Sort order (asc/desc)")
+    random_seed: int | None = Field(
+        default=None, description="Seed for sort=random so pagination stays consistent (omit to reshuffle)"
+    )
 
 
 movies_api = Router()
@@ -342,7 +346,18 @@ def list_movies(request: HttpRequest, filters: MovieListFilters = Query(...)):
     }
 
     if filters.sort == "random":
-        queryset = queryset.order_by("?")
+        if filters.random_seed:
+            # Deterministic shuffle: for prime P, id → (id·mult) mod P is a
+            # bijection, so a fixed seed gives one stable permutation across
+            # pages (no dupes/gaps). The seed is spread by a large fixed
+            # multiplier first, so even small seeds mix well (a bare id·seed
+            # degenerates to id-order until the product wraps P). Omitting the
+            # seed reshuffles each request.
+            prime = 2147483647  # 2^31 - 1
+            mult = (filters.random_seed % prime) * 1327217884 % prime or 1
+            queryset = queryset.annotate(_rnd=Mod(F("id") * mult, prime)).order_by("_rnd", "id")
+        else:
+            queryset = queryset.order_by("?")
     elif filters.sort in valid_sort_fields:
         order_by = valid_sort_fields[filters.sort]
         if filters.order == "desc":

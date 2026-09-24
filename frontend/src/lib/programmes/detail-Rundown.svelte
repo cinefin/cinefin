@@ -36,7 +36,7 @@
 			const sum = children.reduce((s, pi) => s + (pi.duration || 0), 0);
 			if (sum > 0) return sum;
 		}
-		return item.runtime;
+		return item.duration_seconds;
 	}
 
 	function childSummary(children: ProgrammePlaylistItem[]): string {
