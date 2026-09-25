@@ -1,0 +1,38 @@
+# Weekly dependency-update PRs. Minor/patch bumps are grouped into one PR per
+# ecosystem to keep the noise down; majors come as their own PRs.
+version: 2
+updates:
+  # Backend Python deps (Poetry — Dependabot reads pyproject.toml + poetry.lock).
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Frontend SPA deps.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  # The GitHub Actions used by the workflows above.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci(deps)
+    groups:
+      actions:
+        update-types: [minor, patch]

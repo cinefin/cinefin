@@ -1,0 +1,62 @@
+# Lint + test on every pull request and push to main.
+#
+# The SPA (frontend/) is svelte-check'd and built, then the backend is linted
+# (ruff) and tested (pytest). Building the SPA here also lets test_spa.py
+# exercise the /app serving view in the pytest step.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: SPA check + build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+          npm run build
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install system libraries
+        # runtime libs for pymediainfo / python-escpos
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libmediainfo0v5 libusb-1.0-0
+
+      - name: Install poetry
+        # >=2.2 required: earlier releases ignore the PEP 735 [dependency-groups]
+        # block and lock WITHOUT pytest (pyproject's requires-poetry enforces this).
+        run: pip install --quiet "poetry>=2.2"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: poetry install
+
+      - name: Ruff lint
+        working-directory: backend
+        run: poetry run ruff check cinefin/ manage.py ../contrib
+
+      - name: Ruff format check
+        working-directory: backend
+        run: poetry run ruff format --check cinefin/ ../contrib
+
+      - name: Tests
+        working-directory: backend
+        run: poetry run pytest -q
