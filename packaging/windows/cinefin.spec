@@ -53,9 +53,11 @@ hiddenimports = (
     + collect_submodules("django")
     + collect_submodules("uvicorn")
     + collect_submodules("ninja")
+    # Third-party packages Django loads by string from settings (MIDDLEWARE /
+    # STORAGES) — not statically visible, so collect the whole package.
+    + collect_submodules("corsheaders")
+    + collect_submodules("whitenoise")
     + [
-        "whitenoise",
-        "whitenoise.middleware",
         "asgiref",
         "anyio",
         "websockets",
