@@ -55,9 +55,12 @@
 		actions
 	}: Props = $props();
 
+	// svelte-ignore state_referenced_locally
 	let name = $state(initialName);
+	// svelte-ignore state_referenced_locally
 	let description = $state(initialDescription);
 	/** The id to PUT to: a created template keeps being edited in place. */
+	// svelte-ignore state_referenced_locally
 	let savedId = $state<number | null>(templateId);
 
 	const editor = new BlockEditor<{ name: string; description: string }>({

@@ -17,7 +17,7 @@
 		X
 	} from '@lucide/svelte';
 	import type { Component } from 'svelte';
-	import type { IconProps } from '@lucide/svelte';
+	import type { LucideIcon } from '@lucide/svelte';
 	import { api } from '$lib/api/client';
 	import { raw } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
@@ -46,7 +46,7 @@
 		elements: TicketElement[];
 	}
 
-	const PRESETS: { label: string; icon: Component<IconProps>; make: () => TicketElement }[] = [
+	const PRESETS: { label: string; icon: LucideIcon; make: () => TicketElement }[] = [
 		{ label: 'Text', icon: Type, make: () => ({ type: 'text', content: 'Text' }) },
 		{ label: 'Image', icon: Image, make: () => ({ type: 'image' }) },
 		{ label: 'Rating symbol', icon: BadgeCheck, make: () => ({ type: 'rating', scale: 'medium' }) },
@@ -55,7 +55,7 @@
 		{ label: 'Divider', icon: Minus, make: () => ({ type: 'rule' }) },
 		{ label: 'Spacer', icon: ArrowUpDown, make: () => ({ type: 'spacer', lines: 1 }) }
 	];
-	const ICONS: Record<string, Component<IconProps>> = {
+	const ICONS: Record<string, LucideIcon> = {
 		text: Type,
 		image: Image,
 		rating: BadgeCheck,
@@ -243,9 +243,7 @@
 
 	function insertToken(token: string) {
 		const field = document.getElementById('td-content-input') as
-			| HTMLInputElement
-			| HTMLTextAreaElement
-			| null;
+			HTMLInputElement | HTMLTextAreaElement | null;
 		if (!field || !current || selected < 0) return;
 		const start = field.selectionStart ?? field.value.length;
 		const end = field.selectionEnd ?? field.value.length;
@@ -555,8 +553,7 @@
 												oninput={(e) => {
 													el.content = (e.currentTarget as HTMLTextAreaElement).value;
 													commit();
-												}}
-											></textarea>
+												}}></textarea>
 										</label>
 									{:else if el.type === 'barcode'}
 										<label class="block">

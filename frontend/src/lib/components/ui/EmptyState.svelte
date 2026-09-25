@@ -1,10 +1,10 @@
 <script lang="ts">
 	import type { Component, Snippet } from 'svelte';
-	import type { IconProps } from '@lucide/svelte';
+	import type { LucideIcon } from '@lucide/svelte';
 
 	interface Props {
 		/** A @lucide/svelte icon component, e.g. `icon={Film}`. */
-		icon?: Component<IconProps>;
+		icon?: LucideIcon;
 		title: string;
 		message?: string;
 		/** Call to action (usually a Button). An empty screen invites action. */

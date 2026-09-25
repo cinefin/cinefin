@@ -14,7 +14,7 @@
 		Tv
 	} from '@lucide/svelte';
 	import type { Component } from 'svelte';
-	import type { IconProps } from '@lucide/svelte';
+	import type { LucideIcon } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
 	import { api } from '$lib/api/client';
@@ -56,7 +56,7 @@
 	interface NavItem {
 		id: Section;
 		label: string;
-		icon: Component<IconProps>;
+		icon: LucideIcon;
 	}
 	const NAV: { group: string; items: NavItem[] }[] = [
 		{

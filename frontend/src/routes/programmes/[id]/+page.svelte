@@ -496,8 +496,8 @@
 							? ` (${titles.join(', ')})`
 							: ''}.
 					</strong>
-					{n === 1 ? 'This block' : 'These blocks'} will be skipped when the playlist is generated -
-					edit the programme to replace {n === 1 ? 'it' : 'them'}.
+					{n === 1 ? 'This block' : 'These blocks'} will be skipped when the playlist is generated - edit
+					the programme to replace {n === 1 ? 'it' : 'them'}.
 					{#snippet actions()}
 						<button
 							type="button"
