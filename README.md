@@ -7,7 +7,11 @@
 <p align="center"><em>A theater at home.</em></p>
 
 <p align="center">
+  <a href="https://github.com/cinefin/cinefin/actions/workflows/ci.yml"><img src="https://github.com/cinefin/cinefin/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/cinefin/cinefin/releases"><img src="https://img.shields.io/github/v/release/cinefin/cinefin?sort=semver" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="License: AGPL v3"></a>
+  <a href="https://github.com/cinefin/cinefin/pkgs/container/cinefin"><img src="https://img.shields.io/badge/ghcr.io-cinefin-2496ED?logo=docker&logoColor=white" alt="Container image"></a>
+  <a href="https://github.com/cinefin/cinefin/releases/latest"><img src="https://img.shields.io/badge/Windows-installer-0078D6?logo=windows&logoColor=white" alt="Windows installer"></a>
 </p>
 
 Turn your digital film collection into functioning theater! Cinefin manages
