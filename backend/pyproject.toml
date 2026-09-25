@@ -5,10 +5,15 @@ description = ""
 authors = ["Cinefin contributors"]
 license = "AGPL-3.0-or-later"
 # No `readme`: the README lives at the repo root, not in backend/, and Poetry
-# rejects a path outside the project dir. package-mode = false means none of
-# this metadata is packaged anyway — it exists for `poetry version` (scripts/
-# release.sh) and for humans reading the file.
-package-mode = false
+# rejects a path outside the project dir.
+# package-mode is on so `poetry build` can produce the pip/pipx wheel; the SPA
+# build and collected static are generated (gitignored) and bundled by
+# packaging/pip/build-wheel.sh, so they're listed in `include`.
+packages = [{ include = "cinefin" }]
+include = [
+    { path = "cinefin/spa/**/*", format = ["sdist", "wheel"] },
+    { path = "cinefin/staticfiles/**/*", format = ["sdist", "wheel"] },
+]
 # Dev deps are declared PEP 735 style ([dependency-groups] below). Support for
 # that section landed in Poetry 2.2 — every earlier release (including 2.0 and
 # 2.1) silently writes a lock WITHOUT pytest/pytest-django/factory-boy, so
@@ -45,6 +50,9 @@ requests = "^2.32.3"
 zeroconf = "^0.151.0"
 ruff = "^0.16.1"
 uvicorn = {version = "^0.53", extras = ["standard"]}
+
+[tool.poetry.scripts]
+cinefin = "cinefin.cli:main"
 
 [build-system]
 requires = ["poetry-core"]

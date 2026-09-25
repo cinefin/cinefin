@@ -149,6 +149,8 @@ GitHub.sublime-settings
 
 backend/cinefin/static/thumbnails/
 backend/cinefin/staticfiles/
+# SPA build copied in for the pip/pipx wheel (packaging/pip/build-wheel.sh).
+backend/cinefin/spa/
 .claude/worktrees/
 
 node_modules/

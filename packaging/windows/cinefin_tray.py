@@ -59,6 +59,23 @@ def _setup_environment() -> None:
             os.environ["PATH"] = str(ffmpeg) + os.pathsep + os.environ.get("PATH", "")
 
     (data / "logs").mkdir(parents=True, exist_ok=True)
+    _redirect_std_streams(data / "logs" / "cinefin.log")
+
+
+def _redirect_std_streams(logfile) -> None:
+    """A windowed PyInstaller build has sys.stdout/stderr = None, so anything
+    that writes to them (Django's migrate output, uvicorn's logs) raises
+    AttributeError. Point the missing streams at the log file."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    try:
+        stream = open(logfile, "a", buffering=1, encoding="utf-8", errors="replace")
+    except OSError:
+        stream = open(os.devnull, "w")
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
 
 
 # --------------------------------------------------------------------------- #
