@@ -148,8 +148,7 @@ function emptyTrailers(): TrailerDraft {
 }
 
 export type SaveResult =
-	| { ok: true }
-	| { ok: false; message: string; field?: string; section?: string };
+	{ ok: true } | { ok: false; message: string; field?: string; section?: string };
 
 export class SettingsStore {
 	loading = $state(true);

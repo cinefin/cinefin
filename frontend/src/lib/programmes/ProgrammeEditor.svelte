@@ -63,9 +63,12 @@
 		actions
 	}: Props = $props();
 
+	// svelte-ignore state_referenced_locally
 	let name = $state(initialName);
+	// svelte-ignore state_referenced_locally
 	let description = $state(initialDescription);
 	// A created programme keeps being edited in place, so PUT to this id.
+	// svelte-ignore state_referenced_locally
 	let savedId = $state<number | null>(programmeId);
 
 	const editor = new BlockEditor<{ name: string; description: string }>({

@@ -432,15 +432,15 @@
 	const filtersActive = $derived(
 		Boolean(
 			search ||
-				genre ||
-				certification ||
-				resolution ||
-				kiosk ||
-				trailerF ||
-				tmdbF ||
-				yearFrom ||
-				yearTo ||
-				runtime
+			genre ||
+			certification ||
+			resolution ||
+			kiosk ||
+			trailerF ||
+			tmdbF ||
+			yearFrom ||
+			yearTo ||
+			runtime
 		)
 	);
 

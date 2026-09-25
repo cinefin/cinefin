@@ -20,8 +20,7 @@ export interface KioskPlayoutFeature {
 
 export interface KioskPlayoutStatus extends PlayoutStatus {
 	programme:
-		| (NonNullable<PlayoutStatus['programme']> & { features?: KioskPlayoutFeature[] })
-		| null;
+		(NonNullable<PlayoutStatus['programme']> & { features?: KioskPlayoutFeature[] }) | null;
 	playlist?:
 		| (NonNullable<PlayoutStatus['playlist']> & {
 				programme_total_duration?: number;

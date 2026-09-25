@@ -67,7 +67,9 @@
 	const panelled = $derived(filterPanel ?? filters.length > 3);
 
 	// Search: local text, debounced onchange; external sets flow back without clobbering typing.
+	// svelte-ignore state_referenced_locally
 	let searchText = $state(search?.value ?? '');
+	// svelte-ignore state_referenced_locally
 	let emitted = search?.value ?? '';
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 

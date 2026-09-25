@@ -19,7 +19,7 @@ import {
 	Video,
 	Volume2,
 	Wand,
-	type IconProps
+	type LucideIcon
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
 
@@ -92,7 +92,7 @@ export interface ItemTypeMeta {
 	/** Lowercase GLOSSARY noun, [singular, plural]. */
 	noun: readonly [string, string];
 	family: ItemTypeFamily;
-	icon: Component<IconProps>;
+	icon: LucideIcon;
 }
 
 const ITEM_TYPES: Record<string, ItemTypeMeta> = {
@@ -235,7 +235,7 @@ export function itemTypeLabel(type: string | null | undefined, opts?: { short?: 
 	return opts?.short ? meta.short : meta.label;
 }
 
-export function itemTypeIcon(type: string | null | undefined): Component<IconProps> {
+export function itemTypeIcon(type: string | null | undefined): LucideIcon {
 	return itemType(type).icon;
 }
 

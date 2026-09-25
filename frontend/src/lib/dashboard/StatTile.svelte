@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { Component } from 'svelte';
-	import type { IconProps } from '@lucide/svelte';
+	import type { LucideIcon } from '@lucide/svelte';
 
 	interface Props {
 		label: string;
 		value: string | number;
 		note?: string;
-		icon?: Component<IconProps>;
+		icon?: LucideIcon;
 		tone?: 'neutral' | 'success' | 'warning' | 'danger';
 		href?: string;
 		class?: string;

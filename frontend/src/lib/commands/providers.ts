@@ -19,7 +19,7 @@ import {
 	Zap
 } from '@lucide/svelte';
 import type { Component } from 'svelte';
-import type { IconProps } from '@lucide/svelte';
+import type { LucideIcon } from '@lucide/svelte';
 import type { components } from '$lib/api/types.gen';
 
 export type ProviderInfo = components['schemas']['ProviderSchema'];
@@ -29,7 +29,7 @@ export type Suggestion = components['schemas']['SuggestionSchema'];
 export type FormValues = Record<string, string>;
 
 /** The icon names a provider may declare (`CommandProvider.icon`); anything else renders as Zap. */
-const ICONS: Record<string, Component<IconProps>> = {
+const ICONS: Record<string, LucideIcon> = {
 	bell: Bell,
 	blinds: Blinds,
 	fan: Fan,
@@ -48,7 +48,7 @@ const ICONS: Record<string, Component<IconProps>> = {
 	zap: Zap
 };
 
-export function providerIcon(name: string | null | undefined): Component<IconProps> {
+export function providerIcon(name: string | null | undefined): LucideIcon {
 	return (name && ICONS[name]) || Zap;
 }
 

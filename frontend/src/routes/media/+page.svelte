@@ -18,8 +18,7 @@
 		Trash2,
 		TriangleAlert,
 		Upload,
-		X,
-		Youtube
+		X
 	} from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
 	import { Query } from '$lib/api/query.svelte';
