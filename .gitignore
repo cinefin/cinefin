@@ -73,9 +73,11 @@ wheels/
 *.whl
 *.egg-info/ 
 .installed.cfg 
-*.egg 
-*.manifest 
-*.spec 
+*.egg
+*.manifest
+*.spec
+# …but the Windows PyInstaller spec is a tracked source file, not build output.
+!packaging/windows/cinefin.spec
 
 # Installer logs 
 pip-log.txt 

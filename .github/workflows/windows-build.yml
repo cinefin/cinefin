@@ -1,0 +1,48 @@
+name: windows-build
+
+# Build the Windows GUI installer on a Windows runner. Manual, or on a version
+# tag (then the installer is attached to the GitHub release).
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+    # Build on pushes to the windows branch(es) so the installer can be tested
+    # before merge. (workflow_dispatch only shows once the file is on the default
+    # branch; a push trigger runs from the pushed branch itself.)
+    branches: ["feat/windows-build", "windows-**"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: packaging/windows/build.ps1
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinefin-windows-installer
+          path: packaging/windows/Output/*.exe
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packaging/windows/Output/*.exe

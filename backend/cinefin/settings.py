@@ -98,6 +98,12 @@ CINEFIN_TRUST_PROXY = os.environ.get("CINEFIN_TRUST_PROXY", "0") == "1"
 # Cinefin server URL for streaming - used to build absolute URLs for playlist items
 CINEFIN_SERVER_URL = os.environ.get("CINEFIN_SERVER_URL", "http://localhost:8000")
 
+# Skip the background worker threads (sync engine, schedule runner) and the
+# boot-time media-tree creation. The test suite sets this (test_settings), and a
+# build-time django.setup() (e.g. PyInstaller freezing) sets the env var so
+# importing the project has no side effects.
+CINEFIN_DISABLE_BACKGROUND_WORKERS = os.environ.get("CINEFIN_DISABLE_BACKGROUND_WORKERS") == "1"
+
 # Where the "update available" check looks for the latest release.
 # CINEFIN_UPDATE_HOST is the forge base URL (GitHub and Gitea are both
 # understood — see version_check_service); CINEFIN_UPDATE_REPO is the
@@ -341,7 +347,9 @@ MEDIA_ROOT = os.environ.get("CINEFIN_USERMEDIA_DIR") or os.path.join(CINEFIN_USE
 # Bundled app assets (rating card backgrounds, the system black clip, card
 # branding). Tracked in the repo and shipped with the app — distinct from
 # static/ (web-served) and MEDIA_ROOT (user data, may be a mounted volume).
-CINEFIN_ASSETS_DIR = os.path.join(BASE_DIR, "cinefin", "assets")
+# Env override lets a frozen/packaged build (e.g. the Windows bundle) point at
+# its own extracted location instead of the source-tree-relative default.
+CINEFIN_ASSETS_DIR = os.environ.get("CINEFIN_ASSETS_DIR") or os.path.join(BASE_DIR, "cinefin", "assets")
 
 # The SvelteKit SPA build (frontend/, `npm run build:spa`), mounted at /app/ —
 # THE UI. Served by cinefin.views.spa_view (index.html fallback + build
@@ -350,7 +358,12 @@ CINEFIN_ASSETS_DIR = os.path.join(BASE_DIR, "cinefin", "assets")
 # /app/_app/… paths, so a plain Django view is the single serving point (the
 # same trade-off the /media/ routes make; see urls.py). The directory is
 # gitignored: without a build, /app/ answers 404 with a how-to-build hint.
-FRONTEND_BUILD_DIR = os.path.join(REPO_ROOT, "frontend", "build")
+FRONTEND_BUILD_DIR = os.environ.get("CINEFIN_FRONTEND_BUILD_DIR") or os.path.join(REPO_ROOT, "frontend", "build")
+
+# Contrib command-provider plugins dir. Unset (None) → plugins.plugins_dir()
+# falls back to REPO_ROOT/contrib/plugins (dev). A frozen build points this at
+# its bundled copy.
+CINEFIN_PLUGINS_DIR = os.environ.get("CINEFIN_PLUGINS_DIR") or None
 
 # Thumbnail-specific settings
 
