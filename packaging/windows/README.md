@@ -33,11 +33,20 @@ The frozen app points Django at bundled data via `CINEFIN_FRONTEND_BUILD_DIR`,
 `CINEFIN_ASSETS_DIR`, `CINEFIN_PLUGINS_DIR` and `CINEFIN_USERDATA_DIR` (all
 env-overridable in `settings.py`), and prepends the bundled `ffmpeg\` to `PATH`.
 
-## Building
+## Releases
 
-Neither the build nor the artifact can be produced on Linux — build on Windows
-(or via the `windows-build` GitHub Actions workflow, which does all of the below
-on a `windows-latest` runner and attaches the installer to a tag's release).
+The installer is built and published by `.github/workflows/release.yml`
+alongside the container:
+
+- push to `main` → attached to the rolling **`edge`** pre-release
+  (version = `git describe`);
+- tag `vX.Y.Z` → attached to that **release**.
+
+A manual `workflow_dispatch` run builds it (and the image) without publishing.
+
+## Building locally
+
+Neither the build nor the artifact can be produced on Linux — build on Windows.
 
 Prerequisites: Python 3.13 + Poetry, Node 20+, Inno Setup 6 (`iscc` on PATH).
 

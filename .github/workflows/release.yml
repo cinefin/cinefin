@@ -1,0 +1,146 @@
+name: Release
+
+# Build and publish the container image and the Windows installer.
+#
+#   push to main    -> :edge image + rolling "edge" pre-release
+#   push tag vX.Y.Z -> :X.Y.Z + :latest image + a GitHub release
+#   manual run      -> builds both, publishes nothing
+#
+# Both the edge pre-release and the tagged release carry the Windows installer.
+# Auth is the built-in GITHUB_TOKEN — no secrets to configure.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, so `git describe` works
+
+      - name: Work out version, channel and tags
+        id: meta
+        run: |
+          image="${REGISTRY}/${IMAGE_NAME,,}"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"; channel="release"
+            tags="${image}:${version},${image}:latest"
+          else
+            version="$(git describe --tags --always --dirty)"; channel="edge"
+            tags="${image}:edge"
+          fi
+          {
+            echo "version=${version}"
+            echo "channel=${channel}"
+            echo "tags=${tags}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: ${{ github.event_name == 'push' }} # dispatch builds but doesn't publish
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            CINEFIN_VERSION=${{ steps.meta.outputs.version }}
+            CINEFIN_COMMIT=${{ github.sha }}
+            CINEFIN_CHANNEL=${{ steps.meta.outputs.channel }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pipx install poetry
+      - run: choco install innosetup --no-progress -y
+      - name: Work out version
+        id: v
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo edge)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build installer
+        shell: pwsh
+        run: packaging/windows/build.ps1 -Version "${{ steps.v.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: packaging/windows/Output/*.exe
+
+  edge:
+    runs-on: ubuntu-latest
+    needs: [image, windows]
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist-win
+      - name: Refresh the rolling "edge" pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release delete edge --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create edge \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease --latest=false \
+            --target "$GITHUB_SHA" \
+            --title "Latest dev build (edge)" \
+            --notes "Rolling build of the latest \`main\` (\`${GITHUB_SHA::8}\`) — unstable. Docker image: \`${REGISTRY}/${IMAGE_NAME,,}:edge\`." \
+            dist-win/*.exe
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [image, windows]
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: dist-win
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist-win/*.exe
