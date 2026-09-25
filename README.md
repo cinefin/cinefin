@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="logo.png" alt="" height="110">
-</p>
-
 <h1 align="center">Cinefin</h1>
 
 <p align="center"><em>A theater at home.</em></p>
