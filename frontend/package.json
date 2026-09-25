@@ -16,7 +16,7 @@
 		"e2e": "playwright test"
 	},
 	"dependencies": {
-		"@lucide/svelte": "0.511.0",
+		"@lucide/svelte": "1.47.0",
 		"openapi-fetch": "0.13.8"
 	},
 	"devDependencies": {
