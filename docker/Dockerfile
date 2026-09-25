@@ -1,9 +1,3 @@
-# Cinefin — web app image.
-# Runs the Django app under gunicorn; the schedule runner and sync engine run
-# as background threads inside it.
-# NOTE: actual MPV playout, the thermal printer and projector/lights are host
-# hardware and live OUTSIDE this container — see docs/DOCKER.md.
-
 # ---- SPA build stage ---------------------------------------------------------
 # The SvelteKit SPA (frontend/) — THE UI, served by Django at /app/ from the
 # static build in frontend/build (gitignored — built here, not committed).
@@ -28,16 +22,16 @@ ENV PYTHONUNBUFFERED=1 \
 # Set SECRET_KEY to pin it explicitly (recommended).
 
 # System dependencies:
-#   ffmpeg          - media screenshots + moviepy (certification cards)
 #   libmediainfo0v5 - pymediainfo (reads media duration)
 #   libusb-1.0-0    - escpos (only used for USB thermal printers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ffmpeg \
         libmediainfo0v5 \
         libusb-1.0-0 \
         curl \
         tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg /ffprobe /usr/local/bin/
 
 RUN pip install poetry
 
