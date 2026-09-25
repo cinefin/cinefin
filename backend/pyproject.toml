@@ -35,16 +35,16 @@ jellyfin-apiclient-python = "^1.11.0"
 # WS control transport (WSMPV): Cinefin controls mpv only over the playout
 # agent's WebSocket — sync client with a background reader thread. See mpv_ws.py.
 websocket-client = "^1.9.0"
-yt-dlp = "^2026.3.17"
+yt-dlp = "^2026.8.19"
 tmdbv3api = "^1.9.0"
 pymediainfo = "^7.0"
 # the maintained successor of the abandoned "escpos" fork (same import name);
 # v3 dropped the runtime pkg_resources/setuptools dependency
 python-escpos = "^3.1"
 requests = "^2.32.3"
-zeroconf = "^0.150.0"
+zeroconf = "^0.151.0"
 ruff = "^0.16.1"
-uvicorn = {version = "^0.34", extras = ["standard"]}
+uvicorn = {version = "^0.53", extras = ["standard"]}
 
 [build-system]
 requires = ["poetry-core"]
