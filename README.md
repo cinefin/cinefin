@@ -48,6 +48,8 @@ and migrates its database on first start; all your data lives in `./userdata`.
 
 Change `CINEFIN_SERVER_URL` if you are using a different domain/port.
 
-You will need to either run the the [Playout agent](https://github.com/cinefin/cinefin-playout) or an instance of [MPV](https://mpv.io) with a JSON-IPC socket file configured using ` --input-ipc-server`.
+You will need to run an instance of [MPV](https://mpv.io) with a JSON-IPC socket file configured using ` --input-ipc-server`.
+
+A playout agent that bundles MPV will be available soon
 
 
