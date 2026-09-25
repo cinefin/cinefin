@@ -1,0 +1,39 @@
+# VCS / editor
+.git
+.gitignore
+.vscode
+.idea
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+
+# Local data that must NOT be baked into the image
+db.sqlite3
+db.sqlite3-*
+usermedia/
+backend/cinefin/staticfiles/
+*.log
+logs/
+
+# Local machine config
+backend/cinefin/local_settings.py
+
+# Node / misc
+node_modules/
+*.png
+*.mp4
+
+# Frontend builds: sources compile in the node stages; local outputs stay out
+node_modules/
+backend/cinefin/static/js/
+frontend/node_modules/
+frontend/build/
+frontend/.svelte-kit/
+frontend/test-results/
+frontend/playwright-report/
