@@ -18,6 +18,7 @@
 
 	// Can't be a pure $derived of tag_id: switching TO random has no tag yet, so it
 	// would snap back to specific and never open. Seed once (BlockList keys per uid).
+	// svelte-ignore state_referenced_locally
 	let mode = $state<'specific' | 'random'>(block.content.tag_id ? 'random' : 'specific');
 
 	function setMode(next: 'specific' | 'random'): void {

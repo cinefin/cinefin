@@ -42,7 +42,7 @@
 	};
 
 	const dialogTitle = $derived(title ?? (mode === 'multi' ? 'Add movies' : DEFAULTS[kind].title));
-	const hasFilters = kind !== 'bumper';
+	const hasFilters = $derived(kind !== 'bumper');
 
 	let open = $state(false);
 	let searchInput = $state('');

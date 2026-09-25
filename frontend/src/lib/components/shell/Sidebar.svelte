@@ -18,7 +18,7 @@
 		LogOut,
 		PanelLeftClose,
 		PanelLeftOpen,
-		type IconProps
+		type LucideIcon
 	} from '@lucide/svelte';
 	import type { Component } from 'svelte';
 	import Logo from '$lib/components/shell/Logo.svelte';
@@ -34,7 +34,7 @@
 	interface NavItem {
 		href: string;
 		label: string;
-		icon: Component<IconProps>;
+		icon: LucideIcon;
 	}
 
 	interface NavGroup {

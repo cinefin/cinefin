@@ -1,12 +1,12 @@
 <script lang="ts" module>
 	import type { Component } from 'svelte';
-	import type { IconProps } from '@lucide/svelte';
+	import type { LucideIcon } from '@lucide/svelte';
 
 	export type MenuItem =
 		| { separator: true }
 		| {
 				label: string;
-				icon?: Component<IconProps>;
+				icon?: LucideIcon;
 				onclick: () => void;
 				danger?: boolean;
 				disabled?: boolean;
@@ -27,7 +27,7 @@
 		items: MenuItem[];
 		/** Trigger label; omit with `caretOnly` for the split-button caret. */
 		label?: string;
-		icon?: Component<IconProps>;
+		icon?: LucideIcon;
 		variant?: 'primary' | 'default' | 'ghost' | 'danger';
 		size?: 'sm' | 'md';
 		/** Which edge the popover aligns to. */

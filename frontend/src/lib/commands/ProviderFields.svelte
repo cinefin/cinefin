@@ -59,8 +59,7 @@
 					bind:value={() => values[f.key] ?? '', (v) => (values[f.key] = v)}
 					rows={f.type === 'json' ? 3 : 4}
 					placeholder={f.placeholder}
-					class={textareaClass}
-				></textarea>
+					class={textareaClass}></textarea>
 			{:else if options.length}
 				<input
 					{id}

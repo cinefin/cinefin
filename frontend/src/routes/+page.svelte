@@ -53,8 +53,7 @@
 	const heroArt = $derived.by(() => {
 		if (!prog) return null;
 		const meta = playout.status?.current_item?.details?.metadata as
-			| { thumbnail_url?: string }
-			| undefined;
+			{ thumbnail_url?: string } | undefined;
 		return data.posterForProgramme(prog.id) ?? meta?.thumbnail_url ?? null;
 	});
 

@@ -64,6 +64,7 @@
 	// A drawer opened while a navigation is still landing (a deep link followed from another page —
 	// the film drawer's "Trailer in library") must wait for it: pushing mid-navigation gets our entry
 	// overwritten by the arriving one, which the watcher below would read as Back and close us.
+	// svelte-ignore state_referenced_locally
 	let wantPush = history;
 	$effect(() => {
 		if (!wantPush || navigating.to) return;

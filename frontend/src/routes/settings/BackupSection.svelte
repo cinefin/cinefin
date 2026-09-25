@@ -153,8 +153,8 @@
 			{/if}
 			<CheckResult result={restoreResult} />
 			<p class="text-xs text-faint">
-				Restoring <strong class="text-text">replaces your entire database</strong> with the backup's
-				contents - the current data is overwritten. A restart is required afterward.
+				Restoring <strong class="text-text">replaces your entire database</strong> with the backup's contents
+				- the current data is overwritten. A restart is required afterward.
 			</p>
 			{#if restartRequired}
 				<div

@@ -196,8 +196,8 @@
 			<TriangleAlert size={18} class="mt-0.5 shrink-0 text-warning" />
 			<div>
 				<strong>Authentication is off.</strong>
-				Anyone who can reach this server can control the theater, run commands, and restore backups.
-				Set a password below and turn authentication on.
+				Anyone who can reach this server can control the theater, run commands, and restore backups. Set
+				a password below and turn authentication on.
 			</div>
 		</div>
 	{/if}
