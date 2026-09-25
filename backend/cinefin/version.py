@@ -83,11 +83,31 @@ def get_commit():
     return sha or "unknown"
 
 
+def get_channel():
+    """Return the release channel: ``release`` / ``edge`` / ``dev``.
+
+    An explicit ``CINEFIN_CHANNEL`` env var (stamped at build time — ``edge`` on
+    main CI builds, ``release`` on tag builds, ``dev`` on local compose builds)
+    always wins, so a git-describe version on a locally built image still reads
+    as ``dev`` rather than being mistaken for an edge build. Absent the env var
+    it is derived from the version string.
+    """
+    env = os.environ.get("CINEFIN_CHANNEL", "").strip()
+    if env:
+        return env
+    version = get_version()
+    if re.fullmatch(r"v\d+\.\d+\.\d+", version):
+        return "release"
+    if version == "dev":
+        return "dev"
+    return "edge"
+
+
 def get_version_info():
     """
     Parse the version string into a dict the UI can explain.
 
-    Returns ``{"version", "is_release", "tag", "ahead", "commit", "dirty"}``.
+    Returns ``{"version", "channel", "is_release", "tag", "ahead", "commit", "dirty"}``.
     ``is_release`` is True only for an exact ``vX.Y.Z`` build (env-stamped
     Docker images and exactly-tagged checkouts). For dev builds, ``tag`` is
     the nearest release, ``ahead`` how many commits past it, and ``dirty``
@@ -96,6 +116,7 @@ def get_version_info():
     version = get_version()
     info = {
         "version": version,
+        "channel": get_channel(),
         "is_release": False,
         "tag": None,
         "ahead": 0,

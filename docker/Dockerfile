@@ -1,3 +1,9 @@
+# Cinefin — web app image.
+# Runs the Django app under gunicorn; the schedule runner and sync engine run
+# as background threads inside it.
+# NOTE: actual MPV playout, the thermal printer and projector/lights are host
+# hardware and live OUTSIDE this container — see docs/DOCKER.md.
+
 # ---- SPA build stage ---------------------------------------------------------
 # The SvelteKit SPA (frontend/) — THE UI, served by Django at /app/ from the
 # static build in frontend/build (gitignored — built here, not committed).
@@ -21,7 +27,7 @@ ENV PYTHONUNBUFFERED=1 \
 # media, in the one mounted volume), so a backup/restore keeps sessions valid.
 # Set SECRET_KEY to pin it explicitly (recommended).
 
-# System dependencies:
+# System dependencies (headless — see the static ffmpeg below):
 #   libmediainfo0v5 - pymediainfo (reads media duration)
 #   libusb-1.0-0    - escpos (only used for USB thermal printers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -31,6 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tzdata \
     && rm -rf /var/lib/apt/lists/*
 
+# ffmpeg + ffprobe (certification/title cards, yt-dlp merges) as static
+# binaries. The Debian `ffmpeg` package Depends on libavdevice, which drags in
+# ~200 X11/mesa/GL/SDL/pulse/jack packages we never use on a headless server;
+# these self-contained builds need none of it. Pinned by tag.
 COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg /ffprobe /usr/local/bin/
 
 RUN pip install poetry
@@ -56,12 +66,18 @@ COPY contrib/ /app/contrib/
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 COPY --from=spa /app/frontend/build/ /app/frontend/build/
 
-# Version stamped in at build time (CI passes `git describe`). Baked into env
-# vars so the running container reports the right version without git history.
+# Version stamped in at build time (CI and the compose helper pass `git
+# describe`). Baked into env vars so the running container reports the right
+# version without git history (.git is not in the build context).
+# CINEFIN_CHANNEL is the release channel: release (tag builds) / edge (main CI) /
+# dev (local compose builds) — explicit so a git-describe version on a local
+# build still reads as dev, not edge.
 ARG CINEFIN_VERSION=dev
 ARG CINEFIN_COMMIT=unknown
+ARG CINEFIN_CHANNEL=dev
 ENV CINEFIN_VERSION=${CINEFIN_VERSION} \
-    CINEFIN_COMMIT=${CINEFIN_COMMIT}
+    CINEFIN_COMMIT=${CINEFIN_COMMIT} \
+    CINEFIN_CHANNEL=${CINEFIN_CHANNEL}
 LABEL org.opencontainers.image.title="Cinefin" \
       org.opencontainers.image.version="${CINEFIN_VERSION}" \
       org.opencontainers.image.revision="${CINEFIN_COMMIT}" \

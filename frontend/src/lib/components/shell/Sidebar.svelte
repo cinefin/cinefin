@@ -103,7 +103,14 @@
 
 	// Version + "is there a session to log out of" — fetched once per boot.
 	session.load();
-	const versionLabel = $derived(session.version ?? 'Version unknown');
+	// Suffix the channel for non-release builds so an edge/dev image is obvious.
+	const versionLabel = $derived(
+		session.version
+			? session.channel && session.channel !== 'release'
+				? `${session.version} · ${session.channel}`
+				: session.version
+			: 'Version unknown'
+	);
 </script>
 
 <!-- Mobile scrim -->

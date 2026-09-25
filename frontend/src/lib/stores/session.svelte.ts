@@ -8,11 +8,14 @@ import { api, toApiError, unwrap } from '$lib/api/client';
 /** GET /api/v2/version — a plain dict, no envelope. */
 interface VersionPayload {
 	version: string;
+	channel: string;
 	commit: string;
 }
 
 class SessionStore {
 	version = $state<string | null>(null);
+	/** release / edge / dev — shown next to the version for non-release builds. */
+	channel = $state<string | null>(null);
 	authActive = $state(false);
 	#started = false;
 
@@ -32,8 +35,10 @@ class SessionStore {
 			}
 			const payload = result.data as unknown as VersionPayload;
 			this.version = payload.version || null;
+			this.channel = payload.channel || null;
 		} catch {
 			this.version = null;
+			this.channel = null;
 		}
 	}
 

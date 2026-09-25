@@ -9,6 +9,13 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      # Stamp the version so the image doesn't report "dev". These read from the
+      # environment; `scripts/docker-build.sh` fills them from git automatically.
+      # A bare `docker compose build` falls back to the dev defaults.
+      args:
+        CINEFIN_VERSION: "${CINEFIN_VERSION:-dev}"
+        CINEFIN_COMMIT: "${CINEFIN_COMMIT:-unknown}"
+        CINEFIN_CHANNEL: "${CINEFIN_CHANNEL:-dev}"
     image: cinefin:latest
     # uvicorn (ASGI) so the real-time WebSocket works. ONE process only — the MPV
     # service is a per-process singleton (never add --workers).

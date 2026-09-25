@@ -42,8 +42,10 @@ jobs:
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "channel=release" >> "$GITHUB_OUTPUT"
           else
             echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo edge)" >> "$GITHUB_OUTPUT"
+            echo "channel=edge" >> "$GITHUB_OUTPUT"
           fi
           echo "short_sha=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
 
@@ -86,6 +88,7 @@ jobs:
           build-args: |
             CINEFIN_VERSION=${{ steps.vars.outputs.version }}
             CINEFIN_COMMIT=${{ steps.vars.outputs.short_sha }}
+            CINEFIN_CHANNEL=${{ steps.vars.outputs.channel }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

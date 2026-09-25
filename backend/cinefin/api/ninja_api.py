@@ -4,7 +4,7 @@ Django Ninja API Configuration for Cinefin V2 APIs
 
 from ninja import NinjaAPI
 
-from cinefin.version import get_commit, get_version
+from cinefin.version import get_channel, get_commit, get_version
 
 from .ninja_auth import session_auth
 from .ninja_views.backup_ninja import backup_api
@@ -87,8 +87,8 @@ def health_check(request):
 # Version endpoint
 @api.get("/version")
 def version(request):
-    """Return the running application version and commit."""
-    return {"version": get_version(), "commit": get_commit()}
+    """Return the running application version, channel and commit."""
+    return {"version": get_version(), "channel": get_channel(), "commit": get_commit()}
 
 
 # Global exception handling. Endpoints simply raise NotFoundError /

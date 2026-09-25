@@ -62,6 +62,7 @@
 	let adminUsername = $state('admin');
 	let adminPassword = $state('');
 	let adminPasswordConfirm = $state('');
+	let telemetryEnabled = $state(false);
 	let step1Error = $state('');
 
 	let completing = $state(false); // step 1 finalise (POST /installer/complete)
@@ -186,7 +187,13 @@
 			admin_username?: string;
 			admin_password?: string;
 			start_sync: boolean;
-		} = { cinema_name: name, ratings_system: ratingsSystem, start_sync: false };
+			telemetry_enabled: boolean;
+		} = {
+			cinema_name: name,
+			ratings_system: ratingsSystem,
+			start_sync: false,
+			telemetry_enabled: telemetryEnabled
+		};
 		if (adminPassword) {
 			body.admin_password = adminPassword;
 			body.admin_username = adminUsername.trim() || 'admin';
@@ -631,6 +638,20 @@
 								Any password you like - this is a single-user home system.
 							</p>
 						</div>
+					</section>
+
+					<section class="border border-border bg-surface-1 p-4">
+						<label class="flex items-start gap-2 text-sm text-text">
+							<input type="checkbox" bind:checked={telemetryEnabled} class="mt-0.5 accent-accent" />
+							<span>
+								Share anonymous usage telemetry
+								<span class="mt-0.5 block text-xs text-faint">
+									Optional. Sends one anonymous daily heartbeat — Cinefin version and configuration
+									shape only, never your library, URLs or credentials. You can change this any time
+									in Settings → Telemetry.
+								</span>
+							</span>
+						</label>
 					</section>
 
 					{#if step1Error}
