@@ -16,6 +16,16 @@ Usage:
 param([string]$Version = "")
 
 $ErrorActionPreference = "Stop"
+
+# PowerShell does NOT abort on a native command's non-zero exit — check it
+# explicitly after each, so a failed SPA build / PyInstaller freeze stops here
+# with the real error instead of cascading to a misleading "no files" at iscc.
+function Invoke-Checked {
+    param([Parameter(Mandatory)][scriptblock]$Cmd, [string]$What)
+    & $Cmd
+    if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
+}
+
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Resolve-Path (Join-Path $here "..\..")
 $backend = Join-Path $repo "backend"
@@ -30,17 +40,17 @@ Write-Host "==> Building Cinefin $Version" -ForegroundColor Cyan
 # 1. SPA build -------------------------------------------------------------
 Write-Host "==> Building the SPA" -ForegroundColor Cyan
 Push-Location $frontend
-npm ci
-npm run build
+Invoke-Checked { npm ci } "npm ci"
+Invoke-Checked { npm run build } "SPA build"
 Pop-Location
 
 # 2. Backend deps + build tools -------------------------------------------
 Write-Host "==> Installing backend + build deps" -ForegroundColor Cyan
 Push-Location $backend
-poetry install --only main
-poetry run pip install pyinstaller pystray
+Invoke-Checked { poetry install --only main } "poetry install"
+Invoke-Checked { poetry run pip install pyinstaller pystray } "pip install build tools"
 # collectstatic populates cinefin/staticfiles (bundled + served by WhiteNoise)
-poetry run python manage.py collectstatic --no-input --clear
+Invoke-Checked { poetry run python manage.py collectstatic --no-input --clear } "collectstatic"
 Pop-Location
 
 # 3. ffmpeg (static win64) -------------------------------------------------
@@ -72,14 +82,21 @@ if ((-not (Test-Path $ico)) -and (Test-Path $logo)) {
 # 5. PyInstaller freeze ----------------------------------------------------
 Write-Host "==> Freezing with PyInstaller" -ForegroundColor Cyan
 Push-Location $backend
-poetry run pyinstaller (Join-Path $here "cinefin.spec") `
-    --noconfirm `
-    --distpath (Join-Path $here "dist") `
-    --workpath (Join-Path $here "build")
+Invoke-Checked {
+    poetry run pyinstaller (Join-Path $here "cinefin.spec") `
+        --noconfirm `
+        --distpath (Join-Path $here "dist") `
+        --workpath (Join-Path $here "build")
+} "PyInstaller freeze"
 Pop-Location
+
+$bundle = Join-Path $here "dist\Cinefin"
+if (-not (Test-Path (Join-Path $bundle "Cinefin.exe"))) {
+    throw "PyInstaller did not produce $bundle\Cinefin.exe — check the freeze log above"
+}
 
 # 6. Inno Setup installer --------------------------------------------------
 Write-Host "==> Building installer with Inno Setup" -ForegroundColor Cyan
-iscc "/DAppVersion=$Version" (Join-Path $here "installer.iss")
+Invoke-Checked { iscc "/DAppVersion=$Version" (Join-Path $here "installer.iss") } "Inno Setup"
 
 Write-Host "==> Done. Installer in $(Join-Path $here 'Output')" -ForegroundColor Green
