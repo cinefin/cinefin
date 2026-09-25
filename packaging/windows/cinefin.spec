@@ -62,6 +62,17 @@ hiddenimports = (
         "httptools",
         "PIL",
         "pystray",
+        # Django loads these from settings by dotted string at request time, so
+        # PyInstaller's static analysis can't see them and (unlike cinefin.api,
+        # picked up by the Django app hook) collect_submodules can miss them.
+        "cinefin.urls",
+        "cinefin.wsgi",
+        "cinefin.asgi",
+        "cinefin.context_processors",
+        "cinefin.log_buffer",
+        "cinefin.middleware",
+        "cinefin.middleware.installer_redirect",
+        "cinefin.middleware.auth_gate",
     ]
 )
 
