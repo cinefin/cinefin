@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
 
 REPO = os.path.abspath(os.path.join(SPECPATH, "..", ".."))
 BACKEND = os.path.join(REPO, "backend")
@@ -41,9 +41,13 @@ _ffmpeg = os.path.join(SPECPATH, "ffmpeg")
 if os.path.isdir(_ffmpeg):
     datas.append((_ffmpeg, "ffmpeg"))
 
-# Django/ninja ship templates + static as package data.
+binaries = []
+
+# Django/ninja ship templates + static as package data; certifi ships the CA
+# bundle used for every outbound HTTPS call (Plex/Jellyfin/TMDB/ratings/posters).
 datas += collect_data_files("django")
 datas += collect_data_files("ninja")
+datas += collect_data_files("certifi")
 
 # cinefin has lots of dynamically imported modules (sync plugins, ratings
 # providers, management commands, migrations); collect the whole tree. Django,
@@ -78,10 +82,24 @@ hiddenimports = (
     ]
 )
 
+# Packages that load bundled data, native libs or dynamic submodules at runtime
+# and that PyInstaller can otherwise miss — collect EVERYTHING (data + binaries +
+# hidden imports) so the app's features work without another rebuild:
+#   tzdata     — the zoneinfo database (Windows has none; USE_TZ needs it)
+#   escpos     — capabilities.json (ticket printing)
+#   pymediainfo— the MediaInfo native library on the Windows wheel
+#   zeroconf   — compiled Cython extensions (playout-host discovery)
+#   pytz / dateutil — bundled tz data
+for _pkg in ("tzdata", "escpos", "pymediainfo", "zeroconf", "pytz", "dateutil"):
+    _d, _b, _h = collect_all(_pkg)
+    datas += _d
+    binaries += _b
+    hiddenimports += _h
+
 a = Analysis(
     ["cinefin_tray.py"],
     pathex=[BACKEND, SPECPATH],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

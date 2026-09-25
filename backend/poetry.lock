@@ -1259,7 +1259,7 @@ files = [
     {file = "tzdata-2026.4-py2.py3-none-any.whl", hash = "sha256:c2169a8b0a7a5e9674da5a135ccdfb2b3e671b333ed9fed17b41f73c34476e81"},
     {file = "tzdata-2026.4.tar.gz", hash = "sha256:f1b8bd365d8d210c55353f4d7f8d6d8561c0ba50d704b700d195a9424bba0d79"},
 ]
-markers = {main = "sys_platform == \"win32\" or platform_system == \"Windows\"", dev = "platform_system == \"Windows\""}
+markers = {dev = "platform_system == \"Windows\""}
 
 [[package]]
 name = "tzlocal"
@@ -1732,4 +1732,4 @@ ifaddr = ">=0.1.7"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.13"
-content-hash = "ff3bd7810760f88f8c8ab0b57de8fdc62fd82f95dcc5a18ad954134bd277eb05"
+content-hash = "28b0986137565e2c3c7ba124372c3fc58a1d9f26d445eaf3ede1b96249c4f8b6"

@@ -50,6 +50,7 @@ requests = "^2.32.3"
 zeroconf = "^0.151.0"
 ruff = "^0.16.1"
 uvicorn = {version = "^0.53", extras = ["standard"]}
+tzdata = "^2026.4"
 
 [tool.poetry.scripts]
 cinefin = "cinefin.cli:main"
