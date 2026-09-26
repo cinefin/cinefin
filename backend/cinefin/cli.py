@@ -24,6 +24,9 @@ DEFAULT_PORT = "8000"
 def _data_dir() -> Path:
     if os.environ.get("CINEFIN_USERDATA_DIR"):
         return Path(os.environ["CINEFIN_USERDATA_DIR"])
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return Path(base) / "Cinefin"
     xdg = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
     return Path(xdg) / "cinefin"
 

@@ -75,19 +75,20 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # Assemble the Windows installer from the wheel: a relocatable Python with the
+  # wheel pip-installed, ffmpeg and the tray, wrapped by Inno Setup. No SPA /
+  # backend build here and no freezing — just download + pip + iscc.
   windows:
     runs-on: windows-latest
+    needs: wheel
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v5
+      - uses: actions/download-artifact@v4
         with:
-          node-version: "20"
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - run: pipx install poetry
+          name: linux-wheel
+          path: dist-wheel
       - run: choco install innosetup --no-progress -y
       - name: Work out version
         id: v
@@ -100,7 +101,9 @@ jobs:
           fi
       - name: Build installer
         shell: pwsh
-        run: packaging/windows/build.ps1 -Version "${{ steps.v.outputs.version }}"
+        run: |
+          $whl = (Get-ChildItem dist-wheel\*.whl | Select-Object -First 1).FullName
+          packaging/windows/build.ps1 -Version "${{ steps.v.outputs.version }}" -Wheel $whl
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer

@@ -1,70 +1,63 @@
 # Cinefin — Windows build
 
-A lean native Windows package of the Cinefin **server**: a single frozen
-`Cinefin.exe` that runs the Django app under uvicorn and a minimal system-tray
-UI to manage it, wrapped in a GUI installer. Playout stays on the remote agent —
-this box is the server only.
+A native Windows package of the Cinefin **server**, built by **bundling a real
+Python** rather than freezing it: a relocatable Python with the `cinefin` wheel
+pip-installed, plus ffmpeg and a small tray, wrapped in a GUI installer. Because
+it's an ordinary Python environment, every data file / native lib / dynamic
+import resolves the way it does in dev — no PyInstaller spec, no hidden-imports,
+no per-dependency whack-a-mole. Playout stays on the remote agent; this box is
+the server only.
 
 ## What the user gets
 
 - **GUI installer** (`Cinefin-Setup-<version>.exe`, Inno Setup) — per-user, no
   admin. Start-Menu shortcut, optional "start at login", clean uninstaller.
-- **Tray app** — one icon (green = running, grey = stopped) with:
-  Open Cinefin · Start · Stop · Restart · Open logs · Open data folder ·
-  Run at login · Quit. Double-click / "Open Cinefin" opens `http://localhost:8000/app/`.
+- **Tray app** (`tray.py`, green = running / grey = stopped): Open Cinefin ·
+  Start · Stop · Restart · Open logs · Open data folder · Run at login · Quit.
 - **Data** in `%LOCALAPPDATA%\Cinefin` (SQLite db, media, secret key, logs) —
   survives uninstall/upgrade.
-- **Bundled** SPA build, app assets, contrib plugins, and static ffmpeg/ffprobe
-  (so certification/title cards work out of the box).
 
-## Architecture
+## How it's laid out
 
-`Cinefin.exe` is one binary dispatched by argv (`cinefin_tray.py`):
+The installer drops a self-contained tree under `%LOCALAPPDATA%\Programs\Cinefin`:
 
-| mode | what it does |
-|------|--------------|
-| *(none)* / `tray` | the tray app; spawns and manages the server child |
-| `serve` | configures Django (paths → bundle + `%LOCALAPPDATA%`) and runs uvicorn |
-| `migrate` | applies DB migrations, then exits |
+```
+python\      relocatable CPython 3.13 with the cinefin wheel + deps pip-installed
+ffmpeg\      static ffmpeg/ffprobe (cert/title cards)
+tray.py      the system tray
+cinefin.ico
+```
 
-The tray never imports Django — it runs `Cinefin.exe migrate` once, then
-`Cinefin.exe serve` as a child, so Stop/Restart just kill/respawn the child.
-The frozen app points Django at bundled data via `CINEFIN_FRONTEND_BUILD_DIR`,
-`CINEFIN_ASSETS_DIR`, `CINEFIN_PLUGINS_DIR` and `CINEFIN_USERDATA_DIR` (all
-env-overridable in `settings.py`), and prepends the bundled `ffmpeg\` to `PATH`.
+The shortcut runs `python\pythonw.exe tray.py`. The tray sets
+`CINEFIN_USERDATA_DIR=%LOCALAPPDATA%\Cinefin`, prepends `ffmpeg\` to `PATH`, and
+runs `python\pythonw.exe -m cinefin.cli serve` as a child (start/stop/restart =
+manage that child), redirecting its output to `logs\server.log`. `cinefin.cli`
+migrates then runs uvicorn — the same command the pipx package exposes.
 
 ## Releases
 
-The installer is built and published by `.github/workflows/release.yml`
-alongside the container:
-
-- push to `main` → attached to the rolling **`edge`** pre-release
-  (version = `git describe`);
-- tag `vX.Y.Z` → attached to that **release**.
-
-A manual `workflow_dispatch` run builds it (and the image) without publishing.
+Built and published by `.github/workflows/release.yml` alongside the container:
+the `windows` job **reuses the wheel** from the `wheel` job (no SPA/backend build
+on Windows), so it only downloads a Python, `pip install`s the wheel, grabs
+ffmpeg and runs Inno Setup. Attached to the rolling **`edge`** pre-release on
+`main` and to the **release** on a `vX.Y.Z` tag.
 
 ## Building locally
 
-Neither the build nor the artifact can be produced on Linux — build on Windows.
+Needs a Windows box with Inno Setup 6 (`iscc` on PATH) + internet. Build the
+wheel first (works on Linux/WSL/git-bash), then assemble:
 
-Prerequisites: Python 3.13 + Poetry, Node 20+, Inno Setup 6 (`iscc` on PATH).
-
+```bash
+bash packaging/pip/build-wheel.sh                      # -> backend/dist/cinefin3-<ver>-py3-none-any.whl
+```
 ```powershell
-pwsh packaging/windows/build.ps1            # -> packaging/windows/Output/Cinefin-Setup-<ver>.exe
+pwsh packaging/windows/build.ps1 -Wheel backend\dist\cinefin3-<ver>-py3-none-any.whl
+# -> packaging/windows/Output/Cinefin-Setup-<ver>.exe
 ```
 
-`build.ps1`: builds the SPA → installs backend deps + `pyinstaller`/`pystray` →
-`collectstatic` → downloads a static ffmpeg once → makes the icon → runs
-PyInstaller (`cinefin.spec`) → runs Inno Setup (`installer.iss`).
+`build.ps1` downloads a relocatable Python (python-build-standalone, latest
+`install_only`), `pip install`s the wheel + `pystray` into it, fetches a static
+ffmpeg, generates the icon, and runs Inno Setup — no PyInstaller.
 
-## Tuning points (validate on Windows)
-
-Freezing Django + uvicorn always needs a pass on a real Windows box:
-
-- **Missing modules** at runtime → add to `hiddenimports` in `cinefin.spec`
-  (dynamically imported: sync plugins, ratings providers, DB backends,
-  uvicorn/websockets internals). `collect_submodules` covers most of the tree.
-- **Missing package data** (a template/static file 404s) → add to `datas`.
-- ffmpeg source is BtbN's static build; pin a release tag in `build.ps1` if you
-  want reproducibility instead of `latest`.
+> ffmpeg comes from BtbN's `latest` static build; pin a release tag in
+> `build.ps1` if you want reproducibility.

@@ -1,102 +1,78 @@
 <#
-Build the Cinefin Windows installer end-to-end. Run on Windows from the repo
-root (or anywhere — paths are resolved relative to this script).
+Assemble the Cinefin Windows package WITHOUT freezing: a relocatable Python
+(python-build-standalone) with the cinefin wheel pip-installed into it, plus
+ffmpeg and the tray, wrapped by Inno Setup. Because it's a real Python env,
+every data file / native lib / dynamic import resolves normally — no PyInstaller
+spec, no hidden-imports.
 
-Prerequisites:
-  - Python 3.13 + Poetry            (backend deps)
-  - Node 20+                        (SPA build)
-  - Inno Setup 6 (iscc on PATH)     (GUI installer)   https://jrsoftware.org/isdl.php
-  - Internet access                 (downloads a static ffmpeg once)
+Inputs:
+  -Wheel    path to cinefin3-*.whl (built by packaging/pip/build-wheel.sh / the
+            `wheel` CI job). Required.
+  -Version  installer version (default: from backend/pyproject.toml).
 
-Usage:
-  pwsh packaging/windows/build.ps1                 # version from backend/pyproject
-  pwsh packaging/windows/build.ps1 -Version 0.36.0
+Prereqs: Inno Setup 6 (iscc on PATH), tar (built into Windows 10+), internet.
+
+Usage (local):
+  bash packaging/pip/build-wheel.sh                       # -> backend/dist/*.whl
+  pwsh packaging/windows/build.ps1 -Wheel backend/dist/cinefin3-0.36.0-py3-none-any.whl
 #>
 [CmdletBinding()]
-param([string]$Version = "")
+param([string]$Wheel = "", [string]$Version = "")
 
 $ErrorActionPreference = "Stop"
-
-# PowerShell does NOT abort on a native command's non-zero exit — check it
-# explicitly after each, so a failed SPA build / PyInstaller freeze stops here
-# with the real error instead of cascading to a misleading "no files" at iscc.
-function Invoke-Checked {
-    param([Parameter(Mandatory)][scriptblock]$Cmd, [string]$What)
-    & $Cmd
-    if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" }
-}
+function Invoke-Checked { param([scriptblock]$Cmd, [string]$What) & $Cmd; if ($LASTEXITCODE -ne 0) { throw "$What failed (exit $LASTEXITCODE)" } }
 
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Resolve-Path (Join-Path $here "..\..")
-$backend = Join-Path $repo "backend"
-$frontend = Join-Path $repo "frontend"
 
+if (-not $Wheel) { throw "-Wheel is required (build it: bash packaging/pip/build-wheel.sh)" }
+$Wheel = (Resolve-Path $Wheel).Path
 if (-not $Version) {
-    $m = Select-String -Path (Join-Path $backend "pyproject.toml") -Pattern '^version\s*=\s*"(.+)"'
+    $m = Select-String -Path (Join-Path $repo "backend\pyproject.toml") -Pattern '^version\s*=\s*"(.+)"'
     $Version = if ($m) { $m.Matches[0].Groups[1].Value } else { "0.0.0" }
 }
-Write-Host "==> Building Cinefin $Version" -ForegroundColor Cyan
+Write-Host "==> Packaging Cinefin $Version from $Wheel" -ForegroundColor Cyan
 
-# 1. SPA build -------------------------------------------------------------
-Write-Host "==> Building the SPA" -ForegroundColor Cyan
-Push-Location $frontend
-Invoke-Checked { npm ci } "npm ci"
-Invoke-Checked { npm run build } "SPA build"
-Pop-Location
+$stage = Join-Path $here "stage"
+Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
-# 2. Backend deps + build tools -------------------------------------------
-Write-Host "==> Installing backend + build deps" -ForegroundColor Cyan
-Push-Location $backend
-Invoke-Checked { poetry install --only main } "poetry install"
-Invoke-Checked { poetry run pip install pyinstaller pystray } "pip install build tools"
-# collectstatic populates cinefin/staticfiles (bundled + served by WhiteNoise)
-Invoke-Checked { poetry run python manage.py collectstatic --no-input --clear } "collectstatic"
-Pop-Location
+# 1. Relocatable Python (python-build-standalone, latest install_only) ------
+Write-Host "==> Fetching a relocatable Python" -ForegroundColor Cyan
+$rel = Invoke-RestMethod "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+$asset = $rel.assets |
+    Where-Object { $_.name -match 'cpython-3\.13\.\d+\+.*-x86_64-pc-windows-msvc-install_only\.tar\.gz$' } |
+    Select-Object -First 1
+if (-not $asset) { throw "no cpython-3.13 windows install_only asset found" }
+$pytar = Join-Path $env:TEMP "cpython.tar.gz"
+Invoke-WebRequest $asset.browser_download_url -OutFile $pytar
+tar -xzf $pytar -C $stage          # -> $stage\python\
+$py = Join-Path $stage "python\python.exe"
+
+# 2. Install cinefin + the tray dep into it --------------------------------
+Write-Host "==> Installing the wheel" -ForegroundColor Cyan
+Invoke-Checked { & $py -m pip install --no-input --no-warn-script-location $Wheel pystray } "pip install"
 
 # 3. ffmpeg (static win64) -------------------------------------------------
-$ffdir = Join-Path $here "ffmpeg"
-if (-not (Test-Path (Join-Path $ffdir "ffmpeg.exe"))) {
-    Write-Host "==> Fetching static ffmpeg" -ForegroundColor Cyan
-    New-Item -ItemType Directory -Force -Path $ffdir | Out-Null
-    $zip = Join-Path $env:TEMP "ffmpeg-win64.zip"
-    $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-    Invoke-WebRequest -Uri $url -OutFile $zip
-    $tmp = Join-Path $env:TEMP "ffmpeg-extract"
-    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-    Expand-Archive -Path $zip -DestinationPath $tmp
-    Get-ChildItem -Path $tmp -Recurse -Include ffmpeg.exe, ffprobe.exe | ForEach-Object {
-        Copy-Item $_.FullName -Destination $ffdir -Force
-    }
+Write-Host "==> Fetching static ffmpeg" -ForegroundColor Cyan
+$ffdir = Join-Path $stage "ffmpeg"
+New-Item -ItemType Directory -Force -Path $ffdir | Out-Null
+$ffzip = Join-Path $env:TEMP "ffmpeg-win64.zip"
+Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" -OutFile $ffzip
+$fftmp = Join-Path $env:TEMP "ffmpeg-extract"
+Remove-Item -Recurse -Force $fftmp -ErrorAction SilentlyContinue
+Expand-Archive -Path $ffzip -DestinationPath $fftmp
+Get-ChildItem -Path $fftmp -Recurse -Include ffmpeg.exe, ffprobe.exe | ForEach-Object { Copy-Item $_.FullName $ffdir -Force }
+
+# 4. Tray + icon -----------------------------------------------------------
+Copy-Item (Join-Path $here "tray.py") $stage
+$mark = Join-Path $here "cinefin-mark-light.png"    # the Cinefin brand mark
+if (Test-Path $mark) {
+    & $py (Join-Path $here "make_icon.py") $mark (Join-Path $stage "cinefin.ico")
 }
 
-# 4. Icon (from logo.png, if present) -------------------------------------
-$ico = Join-Path $here "cinefin.ico"
-$logo = Join-Path $repo "logo.png"
-if ((-not (Test-Path $ico)) -and (Test-Path $logo)) {
-    Write-Host "==> Generating icon" -ForegroundColor Cyan
-    Push-Location $backend
-    poetry run python -c "from PIL import Image; Image.open(r'$logo').save(r'$ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
-    Pop-Location
-}
-
-# 5. PyInstaller freeze ----------------------------------------------------
-Write-Host "==> Freezing with PyInstaller" -ForegroundColor Cyan
-Push-Location $backend
-Invoke-Checked {
-    poetry run pyinstaller (Join-Path $here "cinefin.spec") `
-        --noconfirm `
-        --distpath (Join-Path $here "dist") `
-        --workpath (Join-Path $here "build")
-} "PyInstaller freeze"
-Pop-Location
-
-$bundle = Join-Path $here "dist\Cinefin"
-if (-not (Test-Path (Join-Path $bundle "Cinefin.exe"))) {
-    throw "PyInstaller did not produce $bundle\Cinefin.exe — check the freeze log above"
-}
-
-# 6. Inno Setup installer --------------------------------------------------
+# 5. Installer -------------------------------------------------------------
 Write-Host "==> Building installer with Inno Setup" -ForegroundColor Cyan
-Invoke-Checked { iscc "/DAppVersion=$Version" (Join-Path $here "installer.iss") } "Inno Setup"
+Invoke-Checked { iscc "/DAppVersion=$Version" "/DStageDir=$stage" (Join-Path $here "installer.iss") } "Inno Setup"
 
 Write-Host "==> Done. Installer in $(Join-Path $here 'Output')" -ForegroundColor Green
