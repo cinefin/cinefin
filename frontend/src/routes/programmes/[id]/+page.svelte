@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { fly } from 'svelte/transition';
 	import {
 		ArrowLeft,
 		CalendarPlus,
@@ -12,6 +13,7 @@
 		PanelLeftOpen,
 		Pencil,
 		RefreshCw,
+		SlidersHorizontal,
 		Trash2,
 		Upload
 	} from '@lucide/svelte';
@@ -41,6 +43,7 @@
 	import TracksDialog from '$lib/programmes/detail-TracksDialog.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import { invalidate } from '$lib/invalidate';
+	import { playout } from '$lib/stores/playout.svelte';
 
 	type ProgrammeDetail = components['schemas']['ProgrammeDetailSchema'];
 	type DesignSummary = components['schemas']['DesignSummarySchema'];
@@ -250,6 +253,10 @@
 	}
 
 	let cueing = $state(false);
+	// Reflect the live playout state so the console link survives a reload and
+	// shows for a programme cued from elsewhere — not just right after this click.
+	$effect(() => playout.subscribe());
+	const isCued = $derived(!isNew && playout.status?.programme?.id === programmeId);
 
 	async function confirmRegen(): Promise<void> {
 		const ok = await confirmDlg?.confirm(
@@ -268,7 +275,9 @@
 		if (ok) await deleteProgramme();
 	}
 
-	async function cueAndOpenConsole() {
+	// Cue only — no nav. The 'Open console' link is the separate second beat,
+	// revealed once this programme is the loaded one (see isCued).
+	async function cue() {
 		if (cueing) return;
 		cueing = true;
 		try {
@@ -279,12 +288,18 @@
 			);
 			const warnings = data?.warnings ?? [];
 			if (warnings.length) {
-				// Hand warnings to the remote page — a toast here is lost in the nav.
-				sessionStorage.setItem('playout:preflightWarnings', JSON.stringify(warnings));
+				const n = warnings.length;
+				showToast(
+					`Cued. ${n} item${n === 1 ? ' is' : 's are'} unreachable and will be skipped: ` +
+						warnings.slice(0, 3).join('; ') +
+						(n > 3 ? '…' : ''),
+					'warning'
+				);
 			}
-			void goto(`${base}/remote`);
+			await playout.refresh();
 		} catch (e) {
 			showToast(e instanceof Error ? e.message : 'Failed to cue programme', 'error');
+		} finally {
 			cueing = false;
 		}
 	}
@@ -404,16 +419,41 @@
 							</span>
 						</p>
 
-						<Button
-							variant="primary"
-							class="mt-4 w-full"
-							disabled={cueing}
-							title="Cue in playout (doesn't start) and open the console"
-							onclick={() => void cueAndOpenConsole()}
-						>
-							<Upload size={14} />
-							{cueing ? 'Cueing…' : 'Cue & open console'}
-						</Button>
+						{#if isCued}
+							<button
+								type="button"
+								class="mt-4 inline-flex h-8 w-full items-center justify-center gap-1.5
+									rounded-md border border-success/40 bg-success/10 px-3.5 text-[0.84375rem]
+									font-medium text-success transition-colors hover:bg-success/15
+									active:brightness-90 disabled:pointer-events-none disabled:opacity-45"
+								disabled={cueing}
+								title="Re-cue this programme in playout"
+								onclick={() => void cue()}
+							>
+								<Check size={14} />
+								{cueing ? 'Cueing…' : 'Cued'}
+							</button>
+							<a
+								href="{base}/remote"
+								class="mt-2 flex w-full items-center justify-center gap-1.5 py-1 text-sm
+									text-accent transition-colors hover:underline"
+								title="Open the playout console"
+								transition:fly={{ y: 4, duration: 150 }}
+							>
+								<SlidersHorizontal size={14} /> Open console
+							</a>
+						{:else}
+							<Button
+								variant="primary"
+								class="mt-4 w-full"
+								disabled={cueing}
+								title="Cue this programme in playout (doesn't start playback)"
+								onclick={() => void cue()}
+							>
+								<Upload size={14} />
+								{cueing ? 'Cueing…' : 'Cue'}
+							</Button>
+						{/if}
 
 						<div
 							class="mt-2 flex divide-x divide-border overflow-hidden rounded-md
