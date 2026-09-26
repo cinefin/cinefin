@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 48" width="96" height="128" role="img" aria-label="Cinefin">
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M0 0h36v48H0V0Zm3 3h30v42H3V3Z" fill="#8b929e"/>
+  <g fill="#8b929e">
+    <rect x="6" y="6" width="4" height="6"/><rect x="6" y="16" width="4" height="6"/>
+    <rect x="6" y="26" width="4" height="6"/><rect x="6" y="36" width="4" height="6"/>
+    <rect x="26" y="6" width="4" height="6"/><rect x="26" y="16" width="4" height="6"/>
+    <rect x="26" y="26" width="4" height="6"/><rect x="26" y="36" width="4" height="6"/>
+  </g>
+  <rect x="13" y="6" width="10" height="10" fill="#FF2F4D"/>
+  <rect x="13" y="19" width="10" height="10" fill="#25E88A"/>
+  <rect x="13" y="32" width="10" height="10" fill="#3A7BFF"/>
+</svg>

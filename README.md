@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" alt="" height="110">
+  <img src="logo.svg" alt="Cinefin" height="120">
 </p>
 
 <h1 align="center">Cinefin</h1>
@@ -7,51 +7,67 @@
 <p align="center"><em>A theater at home.</em></p>
 
 <p align="center">
-  <a href="https://github.com/cinefin/cinefin/actions/workflows/ci.yml"><img src="https://github.com/cinefin/cinefin/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/cinefin/cinefin/releases"><img src="https://img.shields.io/github/v/release/cinefin/cinefin?sort=semver" alt="Latest release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_v3-blue.svg" alt="License: AGPL v3"></a>
+  <a href="https://github.com/cinefin/cinefin/actions/workflows/ci.yml"><img src="https://github.com/cinefin/cinefin/actions/workflows/ci.yml/badge.svg" alt="CI"></a> 
+  <a href="https://github.com/cinefin/cinefin/releases/latest"><img src="https://img.shields.io/github/v/release/cinefin/cinefin?sort=semver" alt="Latest release"></a>
   <a href="https://github.com/cinefin/cinefin/pkgs/container/cinefin"><img src="https://img.shields.io/badge/ghcr.io-cinefin-2496ED?logo=docker&logoColor=white" alt="Container image"></a>
-  <a href="https://github.com/cinefin/cinefin/releases/latest"><img src="https://img.shields.io/badge/Windows-installer-0078D6?logo=windows&logoColor=white" alt="Windows installer"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL_v3-blue.svg" alt="License: AGPL v3"></a>
 </p>
 
-Turn your digital film collection into functioning theater! Cinefin manages
-and plays trailers, ratings cards, custom pre-roll and all sorts of user
-media. Build out programmes, schedule screenings, and run a theater at home.
+<p align="center">
+  <a href="https://docs.cinefin.dev"><b>Documentation</b></a> ·
+  <a href="https://github.com/cinefin/cinefin/releases/latest"><b>Download</b></a> ·
+  <a href="https://github.com/cinefin/cinefin-playout"><b>Playout agent</b></a>
+</p>
 
-Free and open-source software. Cinefin is designed for home use, not commercial installations.
+---
 
-## Current features
+Turn your living room into a functioning theater. Cinefin uses your Jellyfin
+or Plex media library to build and schedule theater programmes by fetching 
+trailers, managing custom pre-roll media, and running home automation commands. 
+It even prints tickets!
 
-- **Sync your movie libraries** from Plex and Jellyfin
-- **Builds programmes**: trailers, pre-roll, home automation, movies
-- **Playout via MPV**: the player comes embedded, or connect your own
-  instance (local or network)
-- **Configurable trailer matching** on the genre, year and certification of
-  upcoming movies
-- Can be used with **BBFC or MPAA ratings cards**
-- **Design and load title cards** for screenings
-- **Home Assistant and generic REST integration** for home automation
-- **Runs screenings on a schedule**
-- **Kiosk mode** for front of house
-- **Remote control** from your phone
-- **Prints tickets** on a thermal printer(!)
+## Features
 
-## Quick start (Docker)
+- **Library sync** from Plex and Jellyfin
+- **Programmes** sequence trailers, custom media, ratings cards, commands and the features
+- **Smart trailers** match on genre, year and certification of what's showing
+- **Playout via MPV** embedded, or connect your own (local or network)
+- **Ratings cards** for BBFC or MPAA
+- **Home automation** - Home Assistant and generic REST supported
+- **Scheduling** - run screenings automatically
+- **Kiosk mode** for front of house, **remote control** from your phone
+- **Ticket printing** on ESC/POS thermal printers
 
-**Full documentation and a user guide are currently being worked on and will be released shortly**
+## Download & run
 
-Docker is the easiest way to run the Cinefin server. From the repo root:
+Pick one of the options below, then open
+<http://localhost:8000> and follow the setup wizard. All your data lives under `./userdata`.
+
+### Docker (recommended)
 
 ```bash
 cd docker
 CINEFIN_SERVER_URL='http://localhost:8000' docker compose up -d --build
 ```
 
-Then open <http://localhost:8000> and follow the setup wizard. Cinefin creates
-and migrates its database on first start; all your data lives in `./userdata`.
+### Linux — pip / pipx
 
-Change `CINEFIN_SERVER_URL` if you are using a different domain/port.
+Install `ffmpeg` using your distro's package manager
 
-You will need to either run the the [Playout agent](https://github.com/cinefin/cinefin-playout) or an instance of [MPV](https://mpv.io) with a JSON-IPC socket file configured using ` --input-ipc-server`.
+Grab the latest `cinefin3-*.whl` from the
+[**releases page**](https://github.com/cinefin/cinefin/releases/latest):
 
+```bash
+pipx install ./cinefin3-<version>-py3-none-any.whl   # paste the release URL
+cinefin                                              # migrate, then serve on :8000
+```
 
+> [!NOTE]
+> Playback needs a player: run the
+> [**Playout agent**](https://github.com/cinefin/cinefin-playout) on your cinema
+> box, or point Cinefin at your own [MPV](https://mpv.io) instance started with
+> `--input-ipc-server`. See the [docs](https://docs.cinefin.dev) for setup.
+
+## License
+
+[AGPL v3](LICENSE). Cinefin is for home use — not commercial cinema installations.
