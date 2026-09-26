@@ -143,6 +143,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for the pending-changes list
       - uses: actions/download-artifact@v4
         with:
           name: windows-installer
@@ -151,6 +154,18 @@ jobs:
         with:
           name: linux-wheel
           path: dist-wheel
+      - name: Build the edge notes (the one-liner + changes pending since the last release)
+        run: |
+          set -euo pipefail
+          base="$(git tag --list 'v*' --sort=-version:refname | head -n1)"
+          {
+            echo "Rolling build of the latest \`main\` (\`${GITHUB_SHA::8}\`) — unstable. Docker image: \`${REGISTRY}/${IMAGE_NAME,,}:edge\`."
+            echo
+            echo "## Pending changes${base:+ since ${base}}"
+            echo
+            scripts/changelog.sh HEAD 20
+          } > "${RUNNER_TEMP}/notes.md"
+          cat "${RUNNER_TEMP}/notes.md"
       - name: Refresh the rolling "edge" pre-release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -162,7 +177,7 @@ jobs:
             --prerelease --latest=false \
             --target "$GITHUB_SHA" \
             --title "Latest dev build (edge)" \
-            --notes "Rolling build of the latest \`main\` (\`${GITHUB_SHA::8}\`) — unstable. Docker image: \`${REGISTRY}/${IMAGE_NAME,,}:edge\`." \
+            --notes-file "${RUNNER_TEMP}/notes.md" \
             dist-win/*.exe dist-wheel/*.whl
 
   release:
