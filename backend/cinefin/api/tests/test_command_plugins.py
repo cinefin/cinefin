@@ -382,3 +382,46 @@ class TestSettingsMigration:
         assert "integrations" not in row.data
         assert row.data["plugins"]["homeassistant"] == {"url": "http://ha", "token": "t"}
         assert row.data["cinema"] == {"name": "X"}
+
+
+class TestSystemProvider:
+    """The first-party 'system' provider dispatches a fixed set of internal actions."""
+
+    def test_actions_are_a_select(self):
+        field = plugins.get_provider("system").fields[0]
+        assert field.type == "select"
+        assert "Restart the player" in field.choices
+        assert "Reset to the idle ident" in field.choices
+
+    def test_restart_player_calls_the_agent(self, monkeypatch):
+        from cinefin.api.services.playout_agent_service import playout_agent_service
+
+        calls = []
+        monkeypatch.setattr(playout_agent_service, "restart_mpv", lambda: calls.append(True) or {})
+        ok, message, _ = plugins.get_provider("system").run({"action": "Restart the player"}, {})
+        assert ok is True and calls == [True] and message == "player restarted"
+
+    def test_reset_ident_reports_reachability(self, monkeypatch):
+        from cinefin.api import mpv_service as mpv_mod
+
+        monkeypatch.setattr(mpv_mod.mpv_service, "reset", lambda: True)
+        ok, _, _ = plugins.get_provider("system").run({"action": "Reset to the idle ident"}, {})
+        assert ok is True
+
+        monkeypatch.setattr(mpv_mod.mpv_service, "reset", lambda: False)
+        ok, message, _ = plugins.get_provider("system").run({"action": "Reset to the idle ident"}, {})
+        assert ok is False and message == "could not reach the player"
+
+    def test_unknown_action_fails_cleanly(self):
+        ok, message, _ = plugins.get_provider("system").run({"action": "nope"}, {})
+        assert ok is False and message == "unknown action"
+
+    def test_service_error_becomes_a_failed_command(self, monkeypatch):
+        from cinefin.api.services.playout_agent_service import playout_agent_service
+
+        def boom():
+            raise RuntimeError("agent unreachable")
+
+        monkeypatch.setattr(playout_agent_service, "restart_mpv", boom)
+        ok, message, detail = plugins.get_provider("system").run({"action": "Restart the player"}, {})
+        assert ok is False and message == "action failed" and "agent unreachable" in detail
