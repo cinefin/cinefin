@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "cinefin3"
-version = "0.36.0"
+version = "0.1.0"
 description = ""
 authors = ["Cinefin contributors"]
 license = "AGPL-3.0-or-later"

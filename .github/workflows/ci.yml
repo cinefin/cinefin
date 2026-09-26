@@ -1,8 +1,9 @@
 # Lint + test on every pull request and push to main.
 #
-# The SPA (frontend/) is svelte-check'd and built, then the backend is linted
-# (ruff) and tested (pytest). Building the SPA here also lets test_spa.py
-# exercise the /app serving view in the pytest step.
+# The job installs the toolchains, then hands off to the Makefile: `make setup`
+# (poetry + npm deps) and `make check` (SPA build + ruff lint/format + pytest).
+# CI runs the SAME `make` targets you run locally, so the two can't drift — the
+# language-specific detail lives in the Makefile, not this file.
 name: CI
 
 on:
@@ -24,13 +25,6 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: SPA check + build
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run check
-          npm run build
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -46,17 +40,7 @@ jobs:
         run: pip install --quiet "poetry>=2.2"
 
       - name: Install dependencies
-        working-directory: backend
-        run: poetry install
+        run: make setup
 
-      - name: Ruff lint
-        working-directory: backend
-        run: poetry run ruff check cinefin/ manage.py ../contrib
-
-      - name: Ruff format check
-        working-directory: backend
-        run: poetry run ruff format --check cinefin/ ../contrib
-
-      - name: Tests
-        working-directory: backend
-        run: poetry run pytest -q
+      - name: Lint + build + test
+        run: make check

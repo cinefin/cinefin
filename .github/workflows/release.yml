@@ -1,21 +1,25 @@
 name: Release
 
-# Build and publish the container image and the Windows installer.
+# Build and publish the container image, the pip/pipx wheel, and (edge only) the
+# Windows installer.
 #
-#   push to main    -> :edge image + rolling "edge" pre-release
-#   push tag vX.Y.Z -> :X.Y.Z + :latest image + a GitHub release
-#   manual run      -> builds both, publishes nothing
+#   push to main    -> :edge image + rolling "edge" PRE-RELEASE (wheel + Windows)
+#   push tag vX.Y.Z -> :X.Y.Z + :latest image + a STABLE release (wheel only)
+#   manual run      -> builds, publishes nothing
 #
-# Both the edge pre-release and the tagged release carry the Windows installer.
+# Windows is EDGE-ONLY on purpose: the installer ships on the rolling edge
+# pre-release for testing, never attached to a tagged stable release yet.
+# The version is the git tag — no file is hand-edited: the image takes it as a
+# build-arg, and the wheel job stamps pyproject from the tag before `poetry build`.
 # Auth is the built-in GITHUB_TOKEN — no secrets to configure.
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
-    # Docs-only pushes to main don't need an image/installer build. A release
-    # tag sits on a real code commit, so this won't skip a release; force one
-    # any time with the manual "Run workflow" button.
+    # Docs-only pushes to main don't need a build. A release tag sits on a real
+    # code commit, so this won't skip a release; force one any time with the
+    # manual "Run workflow" button.
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -79,6 +83,8 @@ jobs:
   # wheel pip-installed, ffmpeg and the tray, wrapped by Inno Setup. No SPA /
   # backend build here and no freezing — just download + pip + iscc.
   windows:
+    # EDGE ONLY: build the installer on main / manual runs, never on a tag.
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     needs: wheel
     steps:
@@ -93,12 +99,7 @@ jobs:
       - name: Work out version
         id: v
         shell: bash
-        run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo edge)" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "version=$(git describe --tags --always --dirty 2>/dev/null || echo edge)" >> "$GITHUB_OUTPUT"
       - name: Build installer
         shell: pwsh
         run: |
@@ -122,6 +123,12 @@ jobs:
         with:
           python-version: "3.13"
       - run: pipx install poetry
+      - name: Stamp the wheel version from the tag
+        # The git tag is the source of truth. On a tag build, set pyproject's
+        # version to the tag so the wheel filename/metadata match — ephemeral,
+        # never committed. Edge builds keep the baseline version in pyproject.
+        if: github.ref_type == 'tag'
+        run: cd backend && poetry version "${GITHUB_REF_NAME#v}"
       - name: Build the pip/pipx wheel
         run: packaging/pip/build-wheel.sh
       - uses: actions/upload-artifact@v4
@@ -160,20 +167,32 @@ jobs:
 
   release:
     runs-on: ubuntu-latest
-    needs: [image, windows, wheel]
+    needs: [image, wheel] # no Windows on a stable release
     if: github.ref_type == 'tag'
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          name: windows-installer
-          path: dist-win
+          fetch-depth: 0 # full history + tags for the changelog
       - uses: actions/download-artifact@v4
         with:
           name: linux-wheel
           path: dist-wheel
-      - name: Create the GitHub release
+      - name: Build the changelog for this release
+        # Shared, identical to cinefin-playout's — the single source of truth for
+        # the notes so the forges can't drift.
+        run: |
+          set -euo pipefail
+          {
+            echo "## Changes"
+            echo
+            scripts/changelog.sh "${GITHUB_REF_NAME}"
+            echo
+            echo "Docker image: \`${REGISTRY}/${IMAGE_NAME,,}:${GITHUB_REF_NAME#v}\`"
+          } > "${RUNNER_TEMP}/notes.md"
+          cat "${RUNNER_TEMP}/notes.md"
+      - name: Create the GitHub release (stable)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -181,5 +200,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            dist-win/*.exe dist-wheel/*.whl
+            --notes-file "${RUNNER_TEMP}/notes.md" \
+            dist-wheel/*.whl
