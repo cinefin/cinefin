@@ -135,6 +135,13 @@ INSTALLED_APPS = [
 # CINEFIN_LOG_LEVEL=DEBUG in the environment to get playback/event chatter.
 CINEFIN_LOG_LEVEL = os.environ.get("CINEFIN_LOG_LEVEL", "INFO").upper()
 
+# uvicorn's access log is one line per HTTP request — pure noise on a home box
+# where the SPA polls status endpoints every second. Silenced by default; set
+# CINEFIN_ACCESS_LOG=1 to restore it (routed through our handlers, so the in-app
+# log viewer catches it too). The pip/Windows launcher honours the same var
+# directly via uvicorn's access_log flag (see cli.py).
+CINEFIN_ACCESS_LOG = os.environ.get("CINEFIN_ACCESS_LOG") == "1"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -178,6 +185,12 @@ LOGGING = {
         "plexapi": {"level": "WARNING"},
         "urllib3": {"level": "WARNING"},
         "yt_dlp": {"level": "WARNING"},
+        # Per-request access log — off by default (see CINEFIN_ACCESS_LOG above).
+        "uvicorn.access": {
+            "handlers": ["console", "ringbuffer"] if CINEFIN_ACCESS_LOG else [],
+            "level": "INFO" if CINEFIN_ACCESS_LOG else "WARNING",
+            "propagate": False,
+        },
     },
 }
 

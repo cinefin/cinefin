@@ -79,6 +79,8 @@ def run_serve() -> int:
         host=os.environ.get("CINEFIN_HOST", DEFAULT_HOST),
         port=int(os.environ.get("CINEFIN_PORT", DEFAULT_PORT)),
         log_level="info",
+        # Per-request access log is noise by default; CINEFIN_ACCESS_LOG=1 restores it.
+        access_log=os.environ.get("CINEFIN_ACCESS_LOG") == "1",
     )
     return 0
 
