@@ -23,6 +23,12 @@ export interface CommandRef {
 	name: string;
 }
 
+/** A pre-show cue: a command plus the seconds before scheduled start it fires (0 = at start). */
+export interface PreshowCue {
+	command: number;
+	lead: number;
+}
+
 /** Keys match the backend payload field names so field-level save errors map 1:1. */
 export interface MainDraft {
 	cinema_name: string;
@@ -50,7 +56,7 @@ export interface MainDraft {
 	subtitle_use_margins: boolean;
 	subtitle_bold: boolean;
 	playout_server_url: string;
-	preshow_commands: number[];
+	preshow_commands: PreshowCue[];
 	accent_color: string;
 	display_time_format: string;
 	kiosk_layout: string;
@@ -261,7 +267,10 @@ export class SettingsStore {
 				subtitle_use_margins: !!s.subtitle_use_margins,
 				subtitle_bold: !!s.subtitle_bold,
 				playout_server_url: s.playout_server_url ?? '',
-				preshow_commands: (s.preshow_commands ?? []).slice(),
+				preshow_commands: (s.preshow_commands ?? []).map((c) => ({
+					command: c.command,
+					lead: c.lead ?? 0
+				})),
 				accent_color: s.accent_color || DEFAULT_ACCENT,
 				display_time_format: s.display_time_format === '12h' ? '12h' : '24h',
 				kiosk_layout: s.kiosk_layout ?? 'wall',

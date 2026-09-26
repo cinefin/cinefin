@@ -374,6 +374,57 @@ def run_programme(request: HttpRequest):
     )
 
 
+class PreshowCueInfoSchema(Schema):
+    command: int = Field(..., description="Command ID")
+    name: str = Field(..., description="Command name")
+    lead: int = Field(..., description="Seconds before scheduled start it fires (0 = at start)")
+
+
+class PreshowDataSchema(Schema):
+    count: int = Field(..., description="Number of configured pre-show cues")
+    cues: list[PreshowCueInfoSchema] = Field(default_factory=list, description="Configured cues, in order")
+
+
+class PreshowResponseSchema(SuccessResponseSchema):
+    data: PreshowDataSchema
+
+
+class PreshowRunDataSchema(Schema):
+    fired: int = Field(..., description="How many commands were fired")
+
+
+class PreshowRunResponseSchema(SuccessResponseSchema):
+    data: PreshowRunDataSchema
+
+
+@playout_api.get("/preshow", response={200: PreshowResponseSchema})
+def get_preshow(request: HttpRequest):
+    """The configured pre-show cues (for the remote's manual trigger)."""
+    from cinefin.api.models import Command
+    from cinefin.api.services import preshow
+
+    cue_list = preshow.cues()
+    names = dict(Command.objects.filter(id__in=[c for c, _ in cue_list]).values_list("id", "name"))
+    cues = [
+        PreshowCueInfoSchema(command=cid, name=names.get(cid, f"Command {cid}"), lead=lead)
+        for cid, lead in cue_list
+        if cid in names
+    ]
+    return Status(200, PreshowResponseSchema(data=PreshowDataSchema(count=len(cues), cues=cues)))
+
+
+@playout_api.post("/preshow/run", response={200: PreshowRunResponseSchema})
+def run_preshow(request: HttpRequest):
+    """Fire the whole pre-show sequence now, in order — independent of starting a programme."""
+    from cinefin.api.services import preshow
+
+    fired = preshow.fire_all()
+    return Status(
+        200,
+        PreshowRunResponseSchema(message=f"Fired {fired} pre-show command(s)", data=PreshowRunDataSchema(fired=fired)),
+    )
+
+
 @playout_api.get(
     "/status", response={200: PlayoutStatusResponseSchema, 422: ErrorResponseSchema, 500: ErrorResponseSchema}
 )

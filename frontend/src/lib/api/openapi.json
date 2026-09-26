@@ -7001,6 +7001,148 @@
         "title": "PluginFailureSchema",
         "type": "object"
       },
+      "PreshowCueInfoSchema": {
+        "properties": {
+          "command": {
+            "description": "Command ID",
+            "title": "Command",
+            "type": "integer"
+          },
+          "lead": {
+            "description": "Seconds before scheduled start it fires (0 = at start)",
+            "title": "Lead",
+            "type": "integer"
+          },
+          "name": {
+            "description": "Command name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command",
+          "name",
+          "lead"
+        ],
+        "title": "PreshowCueInfoSchema",
+        "type": "object"
+      },
+      "PreshowCueSchema": {
+        "properties": {
+          "command": {
+            "description": "Command ID to run",
+            "title": "Command",
+            "type": "integer"
+          },
+          "lead": {
+            "default": 0,
+            "description": "Seconds before scheduled start to fire it (0 = at the show start)",
+            "title": "Lead",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "PreshowCueSchema",
+        "type": "object"
+      },
+      "PreshowDataSchema": {
+        "properties": {
+          "count": {
+            "description": "Number of configured pre-show cues",
+            "title": "Count",
+            "type": "integer"
+          },
+          "cues": {
+            "description": "Configured cues, in order",
+            "items": {
+              "$ref": "#/components/schemas/PreshowCueInfoSchema"
+            },
+            "title": "Cues",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "PreshowDataSchema",
+        "type": "object"
+      },
+      "PreshowResponseSchema": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PreshowDataSchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "PreshowResponseSchema",
+        "type": "object"
+      },
+      "PreshowRunDataSchema": {
+        "properties": {
+          "fired": {
+            "description": "How many commands were fired",
+            "title": "Fired",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fired"
+        ],
+        "title": "PreshowRunDataSchema",
+        "type": "object"
+      },
+      "PreshowRunResponseSchema": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PreshowRunDataSchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "PreshowRunResponseSchema",
+        "type": "object"
+      },
       "PreviewTrailerItemSchema": {
         "properties": {
           "already_downloaded": {
@@ -9616,9 +9758,9 @@
             "type": "string"
           },
           "preshow_commands": {
-            "description": "Command IDs run before a scheduled programme plays",
+            "description": "Commands run before a scheduled programme plays, each with a lead time",
             "items": {
-              "type": "integer"
+              "$ref": "#/components/schemas/PreshowCueSchema"
             },
             "title": "Preshow Commands",
             "type": "array"
@@ -13119,7 +13261,7 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "integer"
+                  "$ref": "#/components/schemas/PreshowCueSchema"
                 },
                 "type": "array"
               },
@@ -13127,7 +13269,7 @@
                 "type": "null"
               }
             ],
-            "description": "Command IDs run before a scheduled programme plays",
+            "description": "Commands run before a scheduled programme plays, each with a lead time",
             "title": "Preshow Commands"
           },
           "ratings_system": {
@@ -19204,6 +19346,62 @@
           }
         ],
         "summary": "Control Playlist",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/preshow": {
+      "get": {
+        "description": "The configured pre-show cues (for the remote's manual trigger).",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_get_preshow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreshowResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Get Preshow",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/preshow/run": {
+      "post": {
+        "description": "Fire the whole pre-show sequence now, in order \u2014 independent of starting a programme.",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_run_preshow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreshowRunResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Run Preshow",
         "tags": [
           "Playout"
         ]

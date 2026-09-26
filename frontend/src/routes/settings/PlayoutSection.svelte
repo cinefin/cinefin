@@ -353,12 +353,19 @@
 	function addPreshow() {
 		const id = parseInt(preshowPick, 10);
 		preshowPick = '';
-		if (!id || store.main.preshow_commands.includes(id)) return;
-		store.main.preshow_commands = [...store.main.preshow_commands, id];
+		if (!id || store.main.preshow_commands.some((c) => c.command === id)) return;
+		store.main.preshow_commands = [...store.main.preshow_commands, { command: id, lead: 0 }];
 	}
 
 	function removePreshow(id: number) {
-		store.main.preshow_commands = store.main.preshow_commands.filter((c) => c !== id);
+		store.main.preshow_commands = store.main.preshow_commands.filter((c) => c.command !== id);
+	}
+
+	function setPreshowLead(id: number, value: string) {
+		const lead = Math.max(0, Math.round(Number(value) || 0));
+		store.main.preshow_commands = store.main.preshow_commands.map((c) =>
+			c.command === id ? { ...c, lead } : c
+		);
 	}
 
 	const subtitleInputCls =
@@ -750,10 +757,10 @@
 							>
 						</h3>
 						<p class="mt-0.5 max-w-2xl text-xs text-muted">
-							Commands run in order at the start of every <strong class="text-text"
-								>scheduled</strong
-							>
-							screening - dimming lights, waking the projector. Manual starts skip them.
+							Commands run for every <strong class="text-text">scheduled</strong> screening - dimming
+							lights, waking the projector. Each fires its set number of seconds before the start
+							(0 = at the start). Manual starts skip them; run the sequence by hand from the
+							<a href="{base}/remote" class="text-accent hover:underline">remote</a>.
 						</p>
 					</div>
 					<Field
@@ -763,16 +770,27 @@
 					>
 						{#if store.main.preshow_commands.length}
 							<div class="mb-3 max-w-xl divide-y divide-border rounded-md border border-border">
-								{#each store.main.preshow_commands as id (id)}
+								{#each store.main.preshow_commands as cue (cue.command)}
 									<div class="flex items-center gap-2 px-3 py-1.5 text-sm">
 										<Terminal size={13} class="shrink-0 text-muted" />
-										<span class="min-w-0 flex-1 truncate">{store.commandName(id)}</span>
+										<span class="min-w-0 flex-1 truncate">{store.commandName(cue.command)}</span>
+										<label class="flex shrink-0 items-center gap-1.5 text-xs text-muted">
+											<input
+												type="number"
+												min="0"
+												step="1"
+												class="w-16 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 text-right font-mono text-xs"
+												value={cue.lead}
+												oninput={(e) => setPreshowLead(cue.command, e.currentTarget.value)}
+											/>
+											s before
+										</label>
 										<button
 											type="button"
 											class="shrink-0 rounded-sm p-0.5 text-muted hover:bg-surface-3 hover:text-danger"
 											title="Remove command"
 											aria-label="Remove command"
-											onclick={() => removePreshow(id)}
+											onclick={() => removePreshow(cue.command)}
 										>
 											<X size={14} />
 										</button>

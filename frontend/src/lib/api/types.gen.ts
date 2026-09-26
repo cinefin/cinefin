@@ -1469,6 +1469,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/playout/preshow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Preshow
+         * @description The configured pre-show cues (for the remote's manual trigger).
+         */
+        get: operations["cinefin_api_ninja_views_playout_ninja_get_preshow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/playout/preshow/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Preshow
+         * @description Fire the whole pre-show sequence now, in order — independent of starting a programme.
+         */
+        post: operations["cinefin_api_ninja_views_playout_ninja_run_preshow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/playout/reset": {
         parameters: {
             query?: never;
@@ -7165,6 +7205,89 @@ export interface components {
              */
             source: string;
         };
+        /** PreshowCueInfoSchema */
+        PreshowCueInfoSchema: {
+            /**
+             * Command
+             * @description Command ID
+             */
+            command: number;
+            /**
+             * Lead
+             * @description Seconds before scheduled start it fires (0 = at start)
+             */
+            lead: number;
+            /**
+             * Name
+             * @description Command name
+             */
+            name: string;
+        };
+        /** PreshowCueSchema */
+        PreshowCueSchema: {
+            /**
+             * Command
+             * @description Command ID to run
+             */
+            command: number;
+            /**
+             * Lead
+             * @description Seconds before scheduled start to fire it (0 = at the show start)
+             * @default 0
+             */
+            lead: number;
+        };
+        /** PreshowDataSchema */
+        PreshowDataSchema: {
+            /**
+             * Count
+             * @description Number of configured pre-show cues
+             */
+            count: number;
+            /**
+             * Cues
+             * @description Configured cues, in order
+             */
+            cues?: components["schemas"]["PreshowCueInfoSchema"][];
+        };
+        /** PreshowResponseSchema */
+        PreshowResponseSchema: {
+            data: components["schemas"]["PreshowDataSchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PreshowRunDataSchema */
+        PreshowRunDataSchema: {
+            /**
+             * Fired
+             * @description How many commands were fired
+             */
+            fired: number;
+        };
+        /** PreshowRunResponseSchema */
+        PreshowRunResponseSchema: {
+            data: components["schemas"]["PreshowRunDataSchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
         /** PreviewTrailerItemSchema */
         PreviewTrailerItemSchema: {
             /**
@@ -8598,9 +8721,9 @@ export interface components {
             playout_server_url: string;
             /**
              * Preshow Commands
-             * @description Command IDs run before a scheduled programme plays
+             * @description Commands run before a scheduled programme plays, each with a lead time
              */
-            preshow_commands?: number[];
+            preshow_commands?: components["schemas"]["PreshowCueSchema"][];
             /**
              * Ratings System
              * @description Ratings classification system: BBFC or MPAA
@@ -10369,9 +10492,9 @@ export interface components {
             playout_server_url?: string | null;
             /**
              * Preshow Commands
-             * @description Command IDs run before a scheduled programme plays
+             * @description Commands run before a scheduled programme plays, each with a lead time
              */
-            preshow_commands?: number[] | null;
+            preshow_commands?: components["schemas"]["PreshowCueSchema"][] | null;
             /**
              * Ratings System
              * @description Ratings classification system: BBFC or MPAA
@@ -14253,6 +14376,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_get_preshow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreshowResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_run_preshow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreshowRunResponseSchema"];
                 };
             };
         };

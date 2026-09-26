@@ -11,6 +11,7 @@ from cinefin.api.models import Bumper, Settings
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 from cinefin.api.services import config_check_service
+from cinefin.api.services import preshow as _preshow
 from cinefin.api.utils import branding
 from cinefin.api.utils.assets import system_ident_stream_url
 
@@ -26,6 +27,11 @@ class BumperSchema(Schema):
 class CinemaIdentSchema(Schema):
     id: int = Field(description="Cinema ident unique identifier")
     title: str = Field(description="Cinema ident title")
+
+
+class PreshowCueSchema(Schema):
+    command: int = Field(description="Command ID to run")
+    lead: int = Field(default=0, description="Seconds before scheduled start to fire it (0 = at the show start)")
 
 
 class SettingsDataSchema(Schema):
@@ -63,8 +69,8 @@ class SettingsDataSchema(Schema):
         default="", description="Base URL the playout host uses to fetch streamed media from Cinefin"
     )
 
-    preshow_commands: list[int] = Field(
-        default_factory=list, description="Command IDs run before a scheduled programme plays"
+    preshow_commands: list[PreshowCueSchema] = Field(
+        default_factory=list, description="Commands run before a scheduled programme plays, each with a lead time"
     )
 
     cinema_web_logo_url: str | None = Field(default=None, description="Navbar logo URL (None = default mark)")
@@ -138,8 +144,8 @@ class UpdateSettingsSchema(Schema):
         default=None, description="Base URL the playout host uses to fetch streamed media from Cinefin"
     )
 
-    preshow_commands: list[int] | None = Field(
-        default=None, description="Command IDs run before a scheduled programme plays"
+    preshow_commands: list[PreshowCueSchema] | None = Field(
+        default=None, description="Commands run before a scheduled programme plays, each with a lead time"
     )
 
     ratings_system: str | None = Field(default=None, description="Ratings classification system: BBFC or MPAA")
@@ -238,7 +244,7 @@ def _build_settings_response(all_settings: dict, updated_at: str) -> SettingsDat
         subtitle_use_margins=bool(subtitles.get("use_margins", True)),
         subtitle_bold=bool(subtitles.get("bold", False)),
         playout_server_url=all_settings.get("playout", {}).get("server_url", ""),
-        preshow_commands=all_settings.get("scheduler", {}).get("preshow_commands", []),
+        preshow_commands=[{"command": c, "lead": lead} for c, lead in _preshow.cues()],
         cinema_web_logo_url=branding.web_logo_url(all_settings.get("cinema", {}).get("web_logo_path")),
         accent_color=branding.valid_accent_color(all_settings.get("display", {}).get("accent_color")),
         display_time_format=("12h" if all_settings.get("display", {}).get("time_format") == "12h" else "24h"),
@@ -407,12 +413,13 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         if field_name == "preshow_commands":
             from cinefin.api.models import Command
 
-            valid = set(Command.objects.filter(id__in=value).values_list("id", flat=True))
+            ids = [c.command for c in value]
+            valid = set(Command.objects.filter(id__in=ids).values_list("id", flat=True))
             seen, cleaned = set(), []
-            for cid in value:
-                if cid in valid and cid not in seen:
-                    seen.add(cid)
-                    cleaned.append(cid)
+            for cue in value:
+                if cue.command in valid and cue.command not in seen:
+                    seen.add(cue.command)
+                    cleaned.append({"command": cue.command, "lead": max(0, cue.lead)})
             value = cleaned
         Settings.set(settings_key, value)
 

@@ -3,6 +3,7 @@
 	// plus GET /commands/list?show_on_remote=true.
 	import {
 		Captions,
+		Clapperboard,
 		Cpu,
 		Disc3,
 		Gauge,
@@ -455,6 +456,22 @@
 		return (data?.commands ?? []) as unknown as RemoteCommand[];
 	});
 	let executingId = $state<number | null>(null);
+
+	const preshowCues = query(async () => await unwrap(api.GET('/api/v2/playout/preshow')));
+	let firingPreshow = $state(false);
+
+	async function runPreshow(): Promise<void> {
+		if (firingPreshow) return;
+		firingPreshow = true;
+		try {
+			const data = await unwrap(api.POST('/api/v2/playout/preshow/run'));
+			toast(`Fired ${data.fired} pre-show command${data.fired === 1 ? '' : 's'}`, 'success');
+		} catch (err) {
+			toast(`Pre-show failed: ${(err as Error).message}`, 'error');
+		} finally {
+			firingPreshow = false;
+		}
+	}
 
 	async function executeCommand(cmd: RemoteCommand): Promise<void> {
 		if (executingId != null) return;
@@ -916,7 +933,7 @@
 			</div>
 		</details>
 
-		{#if commands.data?.length}
+		{#if commands.data?.length || preshowCues.data?.count}
 			<details class="panel" bind:open={commandsOpen}>
 				<summary class="phone-summary sm:hidden">
 					<span class="inline-flex items-center gap-1.5">
@@ -925,8 +942,23 @@
 				</summary>
 				<div class="p-4">
 					<p class="panel-label mb-2 hidden sm:flex"><SquareTerminal size={12} /> Commands</p>
+					{#if preshowCues.data?.count}
+						<div class="mb-3 flex items-center justify-between gap-2 border-b border-border pb-3">
+							<span class="text-xs text-muted">
+								{preshowCues.data.count} pre-show command{preshowCues.data.count === 1 ? '' : 's'}
+							</span>
+							<Button
+								size="sm"
+								disabled={firingPreshow}
+								onclick={() => void runPreshow()}
+							>
+								<Clapperboard size={14} />
+								{firingPreshow ? 'Running…' : 'Run pre-show'}
+							</Button>
+						</div>
+					{/if}
 					<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-						{#each commands.data as cmd (cmd.id)}
+						{#each commands.data ?? [] as cmd (cmd.id)}
 							{@const ProviderIcon = providerIcon(cmd.provider_icon)}
 							<button
 								type="button"

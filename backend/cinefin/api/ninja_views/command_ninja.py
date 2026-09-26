@@ -21,7 +21,6 @@ from cinefin.api.models import (
     Command,
     ProgrammeBlock,
     ProgrammeTemplateItem,
-    Settings,
 )
 from cinefin.api.schemas.base import (
     ErrorResponseSchema,
@@ -259,7 +258,9 @@ def _command_usage(commands: list[Command]) -> dict[int, CommandUsageSchema]:
     ) + Counter(
         ProgrammeTemplateItem.objects.filter(credits_command_id__in=ids).values_list("credits_command_id", flat=True)
     )
-    preshow_ids = {i for i in (Settings.get("scheduler.preshow_commands") or []) if isinstance(i, int)}
+    from cinefin.api.services import preshow
+
+    preshow_ids = set(preshow.command_ids())
 
     return {
         command_id: CommandUsageSchema(

@@ -124,7 +124,8 @@ def execute_schedule(schedule):
     if not mpv_service.load_programme(programme):
         raise RuntimeError("Failed to load programme into playout system")
 
-    # Pre-show commands fire inside start_programme with preshow=True — scheduled runs only.
+    # At-start pre-show cues (lead 0) fire inside start_programme with preshow=True — scheduled
+    # runs only; lead-time cues already fired earlier in _prefire during the run-up.
     time.sleep(_cfg("SCHEDULER_PREROLL_SECONDS", 3))
     if not mpv_service.start_programme(preshow=True):
         raise RuntimeError("Failed to start playback")
@@ -184,11 +185,50 @@ def recover_orphans():
             logger.warning("Reconciled orphaned 'running' schedule %s -> missed", s.id)
 
 
+# Advance pre-show cues fired this run-up, per schedule: {schedule_id: {command_id, …}}.
+# In-memory (single process); a restart mid-run-up may refire or skip a cue — acceptable.
+_prefired: dict[int, set[int]] = {}
+
+
+def _prefire(now):
+    """Fire lead-time pre-show cues at start_time − lead, ahead of the show.
+
+    Cues with lead 0 fire at programme start (in start_programme); only lead > 0
+    cues are staged here during the run-up to an upcoming scheduled screening."""
+    from cinefin.api.services import preshow
+
+    advance = preshow.advance_cues()
+    if not advance:
+        _prefired.clear()
+        return
+
+    window = timedelta(seconds=max(lead for _, lead in advance))
+    upcoming = ProgrammeSchedule.objects.filter(status="scheduled", start_time__gt=now, start_time__lte=now + window)
+    live: set[int] = set()
+    for s in upcoming:
+        live.add(s.id)
+        done = _prefired.setdefault(s.id, set())
+        due = [cid for cid, lead in advance if cid not in done and s.start_time - timedelta(seconds=lead) <= now]
+        if due:
+            preshow.fire(due)
+            done.update(due)
+            logger.info("Fired %d pre-show cue(s) for schedule %s", len(due), s.id)
+
+    # Drop tracking for schedules that have started, been cancelled, or aged out.
+    for sid in [sid for sid in _prefired if sid not in live]:
+        del _prefired[sid]
+
+
 def tick():
     """Run one scheduler pass. Returns a summary dict."""
     now = timezone.now()
     grace = timedelta(minutes=_cfg("SCHEDULER_GRACE_MINUTES", 15))
     fired = missed = completed = 0
+
+    try:
+        _prefire(now)
+    except Exception:  # noqa: BLE001 - a cue error must never block schedule execution
+        logger.exception("Pre-show pre-fire pass failed")
 
     # running -> completed once end passed. Guard on positive runtime: a zero/unknown
     # runtime makes end_time() == start_time, marking a just-claimed row 'completed' next tick.

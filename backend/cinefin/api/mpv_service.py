@@ -6,7 +6,6 @@ import time
 from . import playout_timing
 from .models import (
     Bumper,
-    Command,
     MoviePlayback,
     Playlist,
     PlaylistItem,
@@ -799,19 +798,11 @@ class MPVService:
             logger.info(f"Hold '{name}' superseded (playback moved on); not advancing")
 
     def _run_preshow_commands(self):
-        """Fire the configured pre-show commands (Settings → Scheduler) in order."""
+        """Fire the at-start pre-show cues (lead 0). Advance cues fire earlier, in the schedule runner."""
         try:
-            ids = [i for i in (Settings.get("scheduler.preshow_commands") or []) if isinstance(i, int)]
-            if not ids:
-                return
-            by_id = {c.id: c for c in Command.objects.filter(id__in=ids)}
-            missing = [i for i in ids if i not in by_id]
-            if missing:
-                logger.warning(f"Pre-show command(s) {missing} no longer exist; skipping")
+            from cinefin.api.services import preshow
 
-            from cinefin.api.services import command_runner
-
-            command_runner.execute_many_sequential([by_id[i] for i in ids if i in by_id], trigger="preshow")
+            preshow.fire_at_start()
         except Exception:
             logger.exception("Failed to start pre-show commands")
 
