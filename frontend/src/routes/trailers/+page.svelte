@@ -24,6 +24,7 @@
 	import { query } from '$lib/api/query.svelte';
 	import { liveRefresh } from '$lib/live.svelte';
 	import { sortIndicator, toggleSort, type FilterControl, type SortSpec } from '$lib/filters';
+	import { formatSize, formatTime } from '$lib/format';
 	import { replaceState } from '$app/navigation';
 	import { JobStream, unwrapLoose, type ApiJob, type JobEvent, jobIsActive } from '$lib/jobs';
 	import { showToast } from '$lib/toast.svelte';
@@ -56,6 +57,7 @@
 		year: number | null;
 		month: number | null;
 		duration: number | null;
+		file_size: number | null;
 		content_rating: string | null;
 		rating_ok: boolean;
 		tmdbid: number | null;
@@ -473,7 +475,9 @@
 	const sortCols: { key: string; label: string; defaultDesc?: boolean }[] = [
 		{ key: 'title', label: 'Title' },
 		{ key: 'year', label: 'Year', defaultDesc: true },
-		{ key: 'content_rating', label: 'Cert' }
+		{ key: 'content_rating', label: 'Cert' },
+		{ key: 'duration', label: 'Duration', defaultDesc: true },
+		{ key: 'file_size', label: 'Size', defaultDesc: true }
 	];
 
 	function headerSort(key: string, defaultDesc?: boolean) {
@@ -1480,6 +1484,12 @@
 									{:else}
 										<span class="text-warning">-</span>
 									{/if}
+								</td>
+								<td class="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-muted">
+									{t.duration ? formatTime(t.duration) : ''}
+								</td>
+								<td class="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-muted">
+									{formatSize(t.file_size)}
 								</td>
 								<td class="max-w-56 truncate px-3 py-1.5 text-xs text-muted">
 									{(t.genres ?? []).join(', ')}

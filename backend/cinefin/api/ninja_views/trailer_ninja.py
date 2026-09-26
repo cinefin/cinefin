@@ -643,13 +643,15 @@ def _valid_ratings() -> set:
     return Settings.get_valid_ratings()
 
 
-def _trailer_row(t, exists, valid):
+def _trailer_row(t, exists, valid, file_size=0):
     return {
         "id": t.id,
         "title": t.title,
         "year": t.year,
         "month": t.month,
         "duration": t.duration,
+        # Trailers don't store a size (only Movie does), so it's read live from the file.
+        "file_size": file_size,
         "content_rating": t.content_rating,
         "rating_ok": bool(t.content_rating) and t.content_rating in valid,
         "tmdbid": t.tmdbid,
@@ -692,8 +694,19 @@ def trailer_library(
         base = base.filter(trailer_tags__id=tag)
     if rating_issue:
         base = base.filter(Q(content_rating="") | ~Q(content_rating__in=valid))
-    allowed_sorts = {"-year", "year", "title", "-title", "content_rating", "-content_rating"}
-    order = sort if sort in allowed_sorts else "-year"
+    # duration is a real column; file_size is read live from the file, so it's sorted in Python below.
+    allowed_sorts = {
+        "-year",
+        "year",
+        "title",
+        "-title",
+        "content_rating",
+        "-content_rating",
+        "duration",
+        "-duration",
+    }
+    size_sort = sort in ("file_size", "-file_size")
+    order = "-year" if size_sort else (sort if sort in allowed_sorts else "-year")
     base = base.distinct().order_by(order, "title").prefetch_related("genres", "trailer_tags")
 
     all_rows = list(Trailer.objects.values("file_path", "content_rating"))
@@ -709,13 +722,18 @@ def trailer_library(
 
     rows = []
     for t in base:
-        exists = bool(t.file_path and os.path.exists(usermedia_abs_path(t.file_path)))
+        abs_path = usermedia_abs_path(t.file_path) if t.file_path else ""
+        exists = bool(abs_path and os.path.exists(abs_path))
         if missing and exists:
             continue
-        rows.append((t, exists))
+        size = os.path.getsize(abs_path) if exists else 0
+        rows.append((t, exists, size))
+
+    if size_sort:
+        rows.sort(key=lambda r: r[2], reverse=sort.startswith("-"))
 
     page = rows[offset : offset + limit]
-    trailers = [_trailer_row(t, exists, valid) for (t, exists) in page]
+    trailers = [_trailer_row(t, exists, valid, size) for (t, exists, size) in page]
 
     return _ok(
         {
@@ -740,8 +758,9 @@ def trailer_library(
 
 
 def _trailer_detail(t, valid):
-    exists = bool(t.file_path and os.path.exists(usermedia_abs_path(t.file_path)))
-    data = _trailer_row(t, exists, valid)
+    abs_path = usermedia_abs_path(t.file_path) if t.file_path else ""
+    exists = bool(abs_path and os.path.exists(abs_path))
+    data = _trailer_row(t, exists, valid, os.path.getsize(abs_path) if exists else 0)
     data["certificates"] = t.certificates or {}
     data["rating_lookups"] = t.rating_lookups or {}
     movie = t.associated_movie

@@ -28,7 +28,7 @@
 	import { Query, query } from '$lib/api/query.svelte';
 	import { unwrapLoose } from '$lib/jobs';
 	import type { components } from '$lib/api/types.gen';
-	import { formatRuntime } from '$lib/format';
+	import { formatRuntime, formatSize } from '$lib/format';
 	import { showToast } from '$lib/toast.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import { display } from '$lib/display.svelte';
@@ -488,7 +488,8 @@
 		{ key: 'title', label: 'Title' },
 		{ key: 'year', label: 'Year', defaultDesc: true },
 		{ key: 'runtime', label: 'Runtime', defaultDesc: true },
-		{ key: 'date_added', label: 'Added', defaultDesc: true }
+		{ key: 'date_added', label: 'Added', defaultDesc: true },
+		{ key: 'file_size', label: 'Size', defaultDesc: true }
 	];
 
 	function headerSort(key: string, defaultDesc?: boolean) {
@@ -1069,6 +1070,9 @@
 						</td>
 						<td class="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-muted">
 							{movie.date_added ? new Date(movie.date_added).toLocaleDateString() : ''}
+						</td>
+						<td class="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-muted">
+							{formatSize(movie.file_size)}
 						</td>
 						<td class="px-3 py-1.5">
 							<span class="inline-flex items-center gap-1">

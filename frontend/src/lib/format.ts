@@ -50,3 +50,10 @@ export function formatRuntime(minutes: number): string {
 	const rest = m % 60;
 	return rest ? `${h} h ${rest} min` : `${h} h`;
 }
+
+/** Bytes → "1.4 GB" / "480 MB" (blank for 0/unknown). */
+export function formatSize(bytes: number | null | undefined): string {
+	if (!bytes) return '';
+	const gb = bytes / 1024 ** 3;
+	return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
+}
