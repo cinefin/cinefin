@@ -1,9 +1,13 @@
-; Cinefin Windows installer (Inno Setup 6). Built by build.ps1, which passes
-; /DAppVersion. Per-user install (no admin): the app lives under the user's
-; local programs dir and "run at login" uses HKCU, so nothing needs elevation.
+; Cinefin Windows installer (Inno Setup 6). Packages the staged tree built by
+; build.ps1 (a relocatable Python with cinefin pip-installed, ffmpeg, the tray).
+; Per-user install (no admin): app under the user's local programs dir, "run at
+; login" via HKCU. build.ps1 passes /DAppVersion and /DStageDir.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
+#endif
+#ifndef StageDir
+  #define StageDir "stage"
 #endif
 
 [Setup]
@@ -12,7 +16,6 @@ AppName=Cinefin
 AppVersion={#AppVersion}
 AppPublisher=Cinefin
 DefaultDirName={localappdata}\Programs\Cinefin
-DefaultGroupName=Cinefin
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=Output
@@ -20,25 +23,23 @@ OutputBaseFilename=Cinefin-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=cinefin.ico
-UninstallDisplayIcon={app}\Cinefin.exe
+SetupIconFile={#StageDir}\cinefin.ico
+UninstallDisplayIcon={app}\python\pythonw.exe
 
 [Tasks]
 Name: "startuplogin"; Description: "Start Cinefin automatically when I log in"; Flags: unchecked
 
 [Files]
-; The whole PyInstaller one-folder bundle.
-Source: "dist\Cinefin\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\Cinefin"; Filename: "{app}\Cinefin.exe"
-Name: "{userdesktop}\Cinefin"; Filename: "{app}\Cinefin.exe"; Tasks: startuplogin
-; Startup shortcut (created only if the task is chosen).
-Name: "{userstartup}\Cinefin"; Filename: "{app}\Cinefin.exe"; Tasks: startuplogin
+; Launch the tray with the bundled windowless interpreter.
+Name: "{group}\Cinefin"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\tray.py"""; WorkingDir: "{app}"; IconFilename: "{app}\cinefin.ico"
+Name: "{userstartup}\Cinefin"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\tray.py"""; WorkingDir: "{app}"; Tasks: startuplogin
 
 [Run]
-Filename: "{app}\Cinefin.exe"; Description: "Launch Cinefin now"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\tray.py"""; WorkingDir: "{app}"; Description: "Launch Cinefin now"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Remove the frozen app; user data under %LOCALAPPDATA%\Cinefin is left intact.
+; Remove the app; user data under %LOCALAPPDATA%\Cinefin is left intact.
 Type: filesandordirs; Name: "{app}"
