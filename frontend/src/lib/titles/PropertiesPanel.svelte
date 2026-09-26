@@ -379,7 +379,7 @@
 			</label>
 			<div class={label}>
 				Font
-				<FontPicker {fonts} value={sel.font || 'Arial'} onpick={(f) => set('font', f)} />
+				<FontPicker {fonts} value={sel.font || 'Inter'} onpick={(f) => set('font', f)} />
 			</div>
 			<label class={label}>
 				Font size

@@ -17,6 +17,7 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "1.48.0",
+		"konva": "^10.7.0",
 		"openapi-fetch": "0.17.0"
 	},
 	"devDependencies": {

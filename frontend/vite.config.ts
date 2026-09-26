@@ -10,7 +10,9 @@ export default defineConfig({
 		proxy: {
 			'/api': 'http://localhost:8000',
 			'/media': 'http://localhost:8000',
-			'/stream': 'http://localhost:8000'
+			'/stream': 'http://localhost:8000',
+			// The title-card @font-face files are Django static assets.
+			'/static': 'http://localhost:8000'
 		}
 	}
 });

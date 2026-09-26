@@ -62,7 +62,7 @@
 	// The canvas engine mutates element objects in place; `tick` is bumped on
 	// every change and the panels take fresh snapshots per tick.
 	let tick = $state(0);
-	let canvasEl = $state<HTMLCanvasElement | null>(null);
+	let stageEl = $state<HTMLDivElement | null>(null);
 	let containerEl = $state<HTMLDivElement | null>(null);
 	let editor = $state<TitleCanvasEditor | null>(null);
 
@@ -143,14 +143,16 @@
 
 	// Create the engine once the canvas is in the DOM (after load resolves).
 	$effect(() => {
-		if (!canvasEl || editor) return;
-		const ed = new TitleCanvasEditor(canvasEl, host);
+		if (!stageEl || editor) return;
+		const ed = new TitleCanvasEditor(stageEl, host);
 		editor = ed;
 		ed.loadConfig(initialConfig);
 		ed.calculateOptimalZoom(containerEl?.clientWidth ?? 840);
 		ed.render();
-		// Bundled fonts load async — re-render once ready so text metrics use the real faces.
-		void document.fonts.ready.then(() => ed.render());
+		// Konva paints text to a canvas, which never triggers @font-face loading, so
+		// document.fonts.ready would resolve with the bundled faces still absent.
+		// Request each family explicitly, then re-render with the real metrics.
+		void loadTitleFonts().then(() => ed.render());
 	});
 
 	onDestroy(() => {
@@ -376,6 +378,13 @@
 		ctxMenu = null;
 	}
 
+	// The bundled title-card faces (the @font-face set below / PIL's BUNDLED_FONTS).
+	const TITLE_FONTS = ['Bebas Neue', 'Courier Prime', 'Inter', 'Oswald', 'Playfair Display'];
+	function loadTitleFonts(): Promise<unknown> {
+		if (typeof document === 'undefined' || !('fonts' in document)) return Promise.resolve();
+		return Promise.allSettled(TITLE_FONTS.map((f) => document.fonts.load(`48px "${f}"`)));
+	}
+
 	const addButtons = [
 		{ type: 'poster', label: 'Movie poster', icon: Image },
 		{ type: 'text', label: 'Text label', icon: Type },
@@ -480,7 +489,7 @@
 
 				<div bind:this={containerEl} class="overflow-auto bg-bg p-2 text-center">
 					<div class="relative inline-block border border-border">
-						<canvas bind:this={canvasEl} width="1920" height="1080" class="block bg-black"></canvas>
+						<div bind:this={stageEl} class="block bg-black"></div>
 						{#if serverPreviewUrl}
 							<img
 								src={serverPreviewUrl}

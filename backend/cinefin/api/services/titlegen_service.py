@@ -33,6 +33,12 @@ BUNDLED_FONTS = {
     "Playfair Display": "PlayfairDisplay.ttf",
 }
 
+# The default face for text, and unbundled sans names that would otherwise fall
+# back to DejaVu here (and to a system font in the browser) — mapped to a bundled
+# face so the card and the editor's WYSIWYG preview stay identical everywhere.
+DEFAULT_FONT = "Inter"
+BUNDLED_ALIASES = {"Arial": "Inter", "Helvetica": "Inter", "sans-serif": "Inter"}
+
 # System fonts worth probing for in the discovery endpoint — the legacy
 # editor list. Only ones PIL can actually load are ever offered.
 SYSTEM_FONT_CANDIDATES = [
@@ -228,7 +234,7 @@ class TitleGenService:
         if not text:
             return
 
-        font_name = element.get("font", "Arial")
+        font_name = element.get("font") or DEFAULT_FONT
         font_size = int(element.get("size", 48))
         font = self._load_font(font_name, font_size)
 
@@ -375,6 +381,7 @@ class TitleGenService:
     @staticmethod
     def _resolve_font_path(font_name: str) -> str | None:
         """Resolve a font name to a loadable file, or None if nothing resolves."""
+        font_name = BUNDLED_ALIASES.get(font_name, font_name)
         bundled = BUNDLED_FONTS.get(font_name)
         if bundled:
             path = bundled_fonts_dir() / bundled
