@@ -167,6 +167,22 @@ class TestWSMPVSurface:
         finally:
             player.terminate()
 
+    def test_bind_property_observer_unobserves_first(self, stub):
+        """The agent's mpv outlives Cinefin and ids restart at 1 each session, so
+        a dead session leaves a twin observer under the same id. Subscribing must
+        unobserve that id before observing, or every change dispatches N times."""
+        player = _ws_controller(stub)
+        try:
+            oid = player.bind_property_observer("time-pos", lambda name, data: None)
+            _wait(lambda: ["observe_property", oid, "time-pos"] in stub.received_commands)
+            assert ["unobserve_property", oid] in stub.received_commands
+            # Unobserve must come BEFORE the observe for the same id.
+            assert stub.received_commands.index(["unobserve_property", oid]) < stub.received_commands.index(
+                ["observe_property", oid, "time-pos"]
+            )
+        finally:
+            player.terminate()
+
     def test_callback_may_issue_command_without_deadlock(self, stub):
         """A callback that issues a reentrant command must not deadlock the reader."""
         stub.property_values["time-pos"] = 1.0

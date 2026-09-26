@@ -121,12 +121,15 @@ class WSMPV:
         """Re-register property observers after a reconnect (mpv drops them).
 
         Runs on the reader thread, so it must NOT block on replies (the reader is
-        what delivers them) — send the observe_property frames fire-and-forget.
+        what delivers them) — send the frames fire-and-forget. Unobserve first for
+        the same reason as the initial subscribe (see bind_property_observer): the
+        agent's mpv may still carry a stale observer under this id.
         """
         with self._observer_lock:
             observers = list(self._observers.items())
         for observer_id, (name, _cb) in observers:
             try:
+                self._send_fire_and_forget({"command": ["unobserve_property", observer_id]})
                 self._send_fire_and_forget({"command": ["observe_property", observer_id, name]})
             except Exception as e:  # noqa: BLE001 — best effort; loop resumes on next reconnect
                 logger.error("WSMPV re-subscribe of %s failed: %s", name, e)
@@ -293,6 +296,15 @@ class WSMPV:
             observer_id = self._observer_id
             self._observer_id += 1
             self._observers[observer_id] = (name, callback)
+        # The agent's mpv outlives Cinefin, and observer ids restart at 1 each
+        # session, so a prior session that died without unobserving leaves a
+        # twin registered under this same id — mpv doesn't dedupe, so every
+        # change would then dispatch N times. Clear the id first (a no-op on a
+        # fresh mpv) so exactly one observer per property survives.
+        try:
+            self.command("unobserve_property", observer_id)
+        except MPVError:
+            pass  # nothing registered under this id yet — expected on a fresh mpv
         self.command("observe_property", observer_id, name)
         return observer_id
 
