@@ -341,7 +341,6 @@
 		note={data.disk?.detail}
 		tone={diskTone}
 		icon={HardDrive}
-		href="{base}/system"
 	/>
 	<StatTile
 		label="Last sync"

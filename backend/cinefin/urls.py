@@ -70,8 +70,8 @@ _SPA_REDIRECTS = {
     "title-template-editor/": "/app/titles",
     "schedules/": "/app/schedules",
     "commands/": "/app/commands",
-    "about/": "/app/system",
-    "health/": "/app/system",
+    "about/": "/app/",
+    "health/": "/app/",
     # The library source is Settings now — a library takes ONE server, which is
     # configuration rather than something managed from the film grid.
     "sync/": "/app/settings?tab=library",

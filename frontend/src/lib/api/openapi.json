@@ -3062,37 +3062,6 @@
         "title": "HealthActionSchema",
         "type": "object"
       },
-      "HealthCheckResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/HealthCheckSchema",
-            "description": "The re-run check result"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
-          },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "HealthCheckResponseSchema",
-        "type": "object"
-      },
       "HealthCheckSchema": {
         "properties": {
           "action": {
@@ -22172,53 +22141,6 @@
           }
         ],
         "summary": "Get Health",
-        "tags": [
-          "System"
-        ]
-      }
-    },
-    "/api/v2/system/health/checks/{key}": {
-      "get": {
-        "operationId": "cinefin_api_ninja_views_system_ninja_rerun_health_check",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "title": "Key",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HealthCheckResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Not Found"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Rerun Health Check",
         "tags": [
           "System"
         ]
