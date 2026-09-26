@@ -7,9 +7,29 @@
 name: CI
 
 on:
+  # Skip non-code changes (docs, readme, CI/workflow config, shell tooling) — they
+  # can't affect the build or tests. Kept in step with release.yml's paths-ignore.
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".dockerignore"
+      - ".github/**"
+      - ".gitea/**"
+      - "scripts/**"
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".dockerignore"
+      - ".github/**"
+      - ".gitea/**"
+      - "scripts/**"
 
 jobs:
   lint-and-test:

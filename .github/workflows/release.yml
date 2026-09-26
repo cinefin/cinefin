@@ -17,14 +17,18 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    # Docs-only pushes to main don't need a build. A release tag sits on a real
-    # code commit, so this won't skip a release; force one any time with the
-    # manual "Run workflow" button.
+    # Non-code pushes to main (docs, readme, CI/workflow config, shell tooling)
+    # don't need a build. A release tag sits on a real code commit, so this won't
+    # skip a release; force one any time with the manual "Run workflow" button.
     paths-ignore:
       - "**.md"
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+      - ".dockerignore"
+      - ".github/**"
+      - ".gitea/**"
+      - "scripts/**"
   workflow_dispatch:
 
 env:
