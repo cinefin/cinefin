@@ -120,10 +120,11 @@
 	}
 
 	async function loadReferenceLists(): Promise<void> {
-		const [commands, tags, trailerTags] = await Promise.allSettled([
+		const [commands, tags, trailerTags, ratings] = await Promise.allSettled([
 			unwrap(api.GET('/api/v2/commands/list')),
 			unwrap(api.GET('/api/v2/media/tags', { params: { query: { per_page: 100 } } })),
-			unwrap(api.GET('/api/v2/trailers/tags'))
+			unwrap(api.GET('/api/v2/trailers/tags')),
+			unwrap(api.GET('/api/v2/movies/ratings-options'))
 		]);
 		if (commands.status === 'fulfilled') ctx.commands = commands.value.commands;
 		else console.error('Commands not available:', commands.reason);
@@ -134,6 +135,9 @@
 				trailerTags.value as unknown as { tags: { id: number; name: string }[] }
 			).tags;
 		else console.error('Trailer tags not available:', trailerTags.reason);
+		// Certificate options follow the active ratings scheme (BBFC/MPAA), in order.
+		if (ratings.status === 'fulfilled') ctx.certifications = ratings.value.ratings ?? [];
+		else console.error('Ratings options not available:', ratings.reason);
 	}
 
 	async function addItem(type: string): Promise<void> {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Dices, Film, Plus, X } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
+	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import ConfigField from '../ConfigField.svelte';
 	import ConfigForm from '../ConfigForm.svelte';
 	import ConfigSelect from '../ConfigSelect.svelte';
@@ -119,11 +120,12 @@
 		});
 	}
 
-	let matchText = $state<string | null>(null);
+	type Match = { text: string; colour: 'green' | 'amber' | 'red' | 'neutral'; pending?: boolean };
+	let match = $state<Match | null>(null);
 	let matchSeq = 0;
 	$effect(() => {
 		if (ctx.mode !== 'programme' || isBoundToRandom) {
-			matchText = null;
+			match = null;
 			return;
 		}
 		// Read everything reactive up front so the effect re-runs on any change.
@@ -138,17 +140,22 @@
 		const count = block.content.count || 3;
 
 		const seq = ++matchSeq;
-		matchText = 'Checking…';
+		match = { text: 'Checking…', colour: 'neutral', pending: true };
 		const timer = setTimeout(async () => {
 			try {
 				const data = await unwrap(api.GET('/api/v2/trailers/match-test', { params: { query } }));
 				if (seq !== matchSeq) return;
 				const n = data.matched;
-				if (n === 0) matchText = 'No trailers match - nothing will play here';
-				else if (n >= count) matchText = `${n} trailer${n === 1 ? '' : 's'} match`;
-				else matchText = `Only ${n} of ${count} match - the rest of the slot stays empty`;
+				if (n === 0) match = { text: 'No trailers match — nothing will play here', colour: 'red' };
+				else if (n >= count)
+					match = { text: `${n} trailer${n === 1 ? '' : 's'} match`, colour: 'green' };
+				else
+					match = {
+						text: `Only ${n} of ${count} match — the rest of the slot stays empty`,
+						colour: 'amber'
+					};
 			} catch {
-				if (seq === matchSeq) matchText = null;
+				if (seq === matchSeq) match = null;
 			}
 		}, 300);
 		return () => clearTimeout(timer);
@@ -156,46 +163,63 @@
 
 	const checkCls = 'inline-flex items-center gap-1.5 text-sm text-text';
 	const chip = 'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs transition-colors';
-	const colHead = 'mb-2 block text-xs font-medium text-muted';
 	const fieldLabel = 'mb-1 block text-xs font-medium text-muted';
-	const fieldHint = 'mt-1 text-xs text-faint';
+	const fieldHint = 'mt-1 text-[11px] text-faint';
 </script>
 
 {#if ctx.mode === 'template'}
-	<ConfigForm>
-		<ConfigField label="For feature">
-			<ConfigSelect
-				value={block.content.bound_to_feature ? String(block.content.bound_to_feature) : ''}
-				options={featureOptions}
-				placeholder="Select..."
-				onchange={(v) => set('bound_to_feature', v === '' ? null : parseInt(v, 10))}
-			/>
-		</ConfigField>
-		<ConfigField label="Tag">
-			<ConfigSelect
-				value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
-				options={tagOptions}
-				placeholder="Any"
-				onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
-			/>
-		</ConfigField>
-		<ConfigField label="Number of trailers">
-			<NumberInput
-				value={block.content.count || 3}
-				min={1}
-				max={10}
-				onchange={(v) => set('count', v ?? 3)}
-			/>
-		</ConfigField>
-		<ConfigField label="Year tolerance (±)">
-			<NumberInput
-				value={block.content.year_delta || 5}
-				min={1}
-				max={20}
-				onchange={(v) => set('year_delta', v ?? 5)}
-			/>
-		</ConfigField>
-		<ConfigField label="Match on" wide>
+	<!-- Sibling of the programme-mode bar below: same labelled-field rhythm. A
+	     template rule has no concrete criteria — it matches each feature at
+	     build time — so it carries the match toggles + tolerance, no footer. -->
+	<div class="max-w-3xl space-y-3.5">
+		<div class="flex flex-wrap items-start gap-x-5 gap-y-3">
+			<div>
+				<span class={fieldLabel}>For feature</span>
+				<ConfigSelect
+					value={block.content.bound_to_feature ? String(block.content.bound_to_feature) : ''}
+					class="!w-32"
+					options={featureOptions}
+					placeholder="Select…"
+					onchange={(v) => set('bound_to_feature', v === '' ? null : parseInt(v, 10))}
+				/>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Trailers</span>
+				<NumberInput
+					value={block.content.count || 3}
+					min={1}
+					max={10}
+					class="!w-20"
+					onchange={(v) => set('count', v ?? 3)}
+				/>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Year tolerance ±</span>
+				<NumberInput
+					value={block.content.year_delta || 5}
+					min={1}
+					max={20}
+					class="!w-20"
+					onchange={(v) => set('year_delta', v ?? 5)}
+				/>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Tag</span>
+				<ConfigSelect
+					value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
+					class="!w-36"
+					options={tagOptions}
+					placeholder="Any"
+					onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
+				/>
+			</div>
+		</div>
+
+		<div>
+			<span class={fieldLabel}>Match the feature on</span>
 			<div class="flex flex-wrap items-center gap-x-4 gap-y-1">
 				<label class={checkCls}>
 					<input
@@ -222,8 +246,11 @@
 					/> Year
 				</label>
 			</div>
-		</ConfigField>
-	</ConfigForm>
+			<p class={fieldHint}>
+				Trailers share the chosen feature's attributes — year within ± the tolerance.
+			</p>
+		</div>
+	</div>
 {:else if isBoundToRandom}
 	<ConfigForm>
 		<ConfigField label="Reference movie" wide>
@@ -249,170 +276,163 @@
 		</ConfigField>
 	</ConfigForm>
 {:else}
-	<div class="max-w-2xl">
-		<div class="grid gap-x-6 gap-y-6 sm:grid-cols-2">
-			<section class="min-w-0 space-y-4">
-				<h4 class={colHead}>Reference (optional)</h4>
-
-				<div class="min-w-0">
-					<div class="flex flex-wrap items-center gap-2">
-						{#if refMovie}
-							<span class="inline-flex items-center gap-1.5 text-sm">
-								<Film size={13} class="text-muted" />{refMovie.title}
-							</span>
-							<button
-								type="button"
-								class="text-xs text-accent hover:underline"
-								onclick={() => void pickReference()}>Change</button
-							>
-							<button
-								type="button"
-								class="text-xs text-muted hover:text-danger"
-								onclick={() => set('reference_movie_id', null)}>Clear</button
-							>
-						{:else}
-							<button
-								type="button"
-								class="inline-flex items-center gap-1.5 rounded-sm border border-border-strong bg-surface-2 px-2.5 py-1 text-sm hover:bg-surface-3"
-								onclick={() => void pickReference()}
-							>
-								<Film size={13} /> Choose movie…
-							</button>
-						{/if}
-					</div>
-					<p class={fieldHint}>Seeds the criteria and ranks the picks; not a filter.</p>
-				</div>
-
-				<div class="min-w-0">
-					<span class={fieldLabel}>Number of trailers</span>
-					<NumberInput
-						value={block.content.count || 3}
-						min={1}
-						max={10}
-						class="!w-20"
-						onchange={(v) => set('count', v ?? 3)}
-					/>
-				</div>
-			</section>
-
-			<section class="min-w-0 space-y-4">
-				<h4 class={colHead}>Criteria</h4>
-
-				<div class="min-w-0">
-					<span class={fieldLabel}>Genres</span>
-					<div class="min-w-0 space-y-1.5">
-						<div class="flex flex-wrap items-center gap-1.5">
-							{#if !selectedGenreIds.length}
-								<span class="text-xs text-faint">Any genre</span>
-							{:else}
-								{#each selectedGenreIds as id (id)}
-									<span class="{chip} bg-accent/15 text-accent">
-										{genreName(id)}
-										<button type="button" aria-label="Remove genre" onclick={() => removeGenre(id)}>
-											<X size={11} />
-										</button>
-									</span>
-								{/each}
-							{/if}
-							{#if addableGenres.length}
-								<ConfigSelect
-									value=""
-									class="!h-7 !w-auto !pr-6 text-xs"
-									options={addableGenres.map((g) => ({ value: String(g.id), label: g.name }))}
-									placeholder="+ add"
-									onchange={(v) => v && addGenre(parseInt(v, 10))}
-								/>
-							{/if}
-						</div>
-						{#if seedGenres.length}
-							<div class="flex flex-wrap items-center gap-1.5">
-								<span class="text-xs text-faint">From {refMovie?.title ?? 'reference'}:</span>
-								{#each seedGenres as id (id)}
-									<button
-										type="button"
-										class="{chip} bg-surface-3 text-muted hover:text-text"
-										onclick={() => addGenre(id)}
-									>
-										<Plus size={10} />{genreName(id)}
-									</button>
-								{/each}
-							</div>
-						{/if}
-					</div>
-					<p class={fieldHint}>
-						Best effort - a trailer must share at least one; those matching more rank first.
-					</p>
-				</div>
-
-				<div class="min-w-0">
-					<span class={fieldLabel}>Certificate ceiling</span>
-					<div class="flex min-w-0 flex-wrap items-center gap-2">
-						<ConfigSelect
-							value={block.content.certificate_ceiling || ''}
-							class="!w-28"
-							options={certOptions}
-							placeholder="No limit"
-							onchange={(v) => set('certificate_ceiling', v)}
-						/>
-						{#if refCert && refCert !== block.content.certificate_ceiling}
-							<button
-								type="button"
-								class="{chip} bg-surface-3 text-muted hover:text-text"
-								onclick={() => set('certificate_ceiling', refCert)}
-							>
-								<Plus size={10} />{refCert}
-							</button>
-						{/if}
-					</div>
-					<p class={fieldHint}>Never above this rating.</p>
-				</div>
-
-				<div class="min-w-0">
-					<span class={fieldLabel}>Year range</span>
-					<div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-						<NumberInput
-							value={block.content.year_from ?? null}
-							min={1900}
-							max={2100}
-							placeholder="From"
-							class="!w-[4.5rem]"
-							onchange={(v) => set('year_from', v)}
-						/>
-						<span class="text-faint">-</span>
-						<NumberInput
-							value={block.content.year_to ?? null}
-							min={1900}
-							max={2100}
-							placeholder="To"
-							class="!w-[4.5rem]"
-							onchange={(v) => set('year_to', v)}
-						/>
-						{#if refYear}
-							<button
-								type="button"
-								class="{chip} bg-surface-3 text-muted hover:text-text"
-								onclick={seedFromReferenceYear}
-							>
-								<Plus size={10} />{refYear - seedYearWindow}-{refYear + seedYearWindow}
-							</button>
-						{/if}
-					</div>
-				</div>
-
-				<div class="min-w-0">
-					<span class={fieldLabel}>Tag</span>
-					<ConfigSelect
-						value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
-						options={tagOptions}
-						placeholder="Any"
-						onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
-					/>
-				</div>
-			</section>
+	<div class="max-w-3xl space-y-3.5">
+		<!-- Seed line: the reference is a modifier over everything, not a column. -->
+		<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+			{#if refMovie}
+				<span class="text-xs font-medium text-muted">Seed</span>
+				<span class="inline-flex items-center gap-1.5">
+					<Film size={13} class="text-muted" />{refMovie.title}
+				</span>
+				<span class="text-faint">·</span>
+				<button
+					type="button"
+					class="text-xs text-accent hover:underline"
+					onclick={() => void pickReference()}>Change</button
+				>
+				<button
+					type="button"
+					class="text-xs text-muted hover:text-danger"
+					onclick={() => set('reference_movie_id', null)}>Clear</button
+				>
+				<span class="text-xs text-faint">— seeds the criteria and ranks the picks, not a filter</span
+				>
+			{:else}
+				<button
+					type="button"
+					class="inline-flex items-center gap-1.5 rounded-sm border border-border-strong bg-surface-2 px-2.5 py-1 text-sm hover:bg-surface-3"
+					onclick={() => void pickReference()}
+				>
+					<Film size={13} /> Seed from a movie…
+				</button>
+				<span class="text-xs text-faint">optional — seeds the criteria and ranks the picks</span>
+			{/if}
 		</div>
 
-		{#if matchText}
-			<p class="mt-6 text-center text-xs text-faint">{matchText}</p>
+		<!-- Criteria as one wrapping bar of labelled fields. -->
+		<div class="flex flex-wrap items-start gap-x-5 gap-y-3">
+			<div class="min-w-[15rem] grow">
+				<span class={fieldLabel}>Genres</span>
+				<div class="flex flex-wrap items-center gap-1.5">
+					{#if !selectedGenreIds.length}
+						<span class="text-xs text-faint">Any genre</span>
+					{:else}
+						{#each selectedGenreIds as id (id)}
+							<span class="{chip} bg-accent/15 text-accent">
+								{genreName(id)}
+								<button type="button" aria-label="Remove genre" onclick={() => removeGenre(id)}>
+									<X size={11} />
+								</button>
+							</span>
+						{/each}
+					{/if}
+					{#if addableGenres.length}
+						<ConfigSelect
+							value=""
+							class="!h-7 !w-auto !pr-6 text-xs"
+							options={addableGenres.map((g) => ({ value: String(g.id), label: g.name }))}
+							placeholder="+ add"
+							onchange={(v) => v && addGenre(parseInt(v, 10))}
+						/>
+					{/if}
+					{#each seedGenres as id (id)}
+						<button
+							type="button"
+							class="{chip} bg-surface-3 text-muted hover:text-text"
+							title="From {refMovie?.title ?? 'reference'}"
+							onclick={() => addGenre(id)}
+						>
+							<Plus size={10} />{genreName(id)}
+						</button>
+					{/each}
+				</div>
+				<p class={fieldHint}>A trailer needs at least one; more shared rank first.</p>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Certificate ≤</span>
+				<div class="flex items-center gap-1.5">
+					<ConfigSelect
+						value={block.content.certificate_ceiling || ''}
+						class="!w-24"
+						options={certOptions}
+						placeholder="No limit"
+						onchange={(v) => set('certificate_ceiling', v)}
+					/>
+					{#if refCert && refCert !== block.content.certificate_ceiling}
+						<button
+							type="button"
+							class="{chip} bg-surface-3 text-muted hover:text-text"
+							title="From {refMovie?.title ?? 'reference'}"
+							onclick={() => set('certificate_ceiling', refCert)}
+						>
+							<Plus size={10} />{refCert}
+						</button>
+					{/if}
+				</div>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Trailers</span>
+				<NumberInput
+					value={block.content.count || 3}
+					min={1}
+					max={10}
+					class="!w-20"
+					onchange={(v) => set('count', v ?? 3)}
+				/>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Year range</span>
+				<div class="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+					<NumberInput
+						value={block.content.year_from ?? null}
+						min={1900}
+						max={2100}
+						placeholder="From"
+						class="!w-[4.5rem]"
+						onchange={(v) => set('year_from', v)}
+					/>
+					<span class="text-faint">–</span>
+					<NumberInput
+						value={block.content.year_to ?? null}
+						min={1900}
+						max={2100}
+						placeholder="To"
+						class="!w-[4.5rem]"
+						onchange={(v) => set('year_to', v)}
+					/>
+					{#if refYear}
+						<button
+							type="button"
+							class="{chip} bg-surface-3 text-muted hover:text-text"
+							title="From {refMovie?.title ?? 'reference'}"
+							onclick={seedFromReferenceYear}
+						>
+							<Plus size={10} />{refYear - seedYearWindow}-{refYear + seedYearWindow}
+						</button>
+					{/if}
+				</div>
+			</div>
+
+			<div>
+				<span class={fieldLabel}>Tag</span>
+				<ConfigSelect
+					value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
+					class="!w-36"
+					options={tagOptions}
+					placeholder="Any"
+					onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
+				/>
+			</div>
+		</div>
+
+		<!-- The payoff: promoted from a faint centred line to a status lamp. -->
+		{#if match}
+			<div class="border-t border-border pt-2.5">
+				<StatusLamp colour={match.colour} pending={match.pending}>{match.text}</StatusLamp>
+			</div>
 		{/if}
 	</div>
 {/if}

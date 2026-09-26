@@ -144,7 +144,7 @@
 	}
 
 	async function loadReferenceLists(): Promise<void> {
-		const [movies, commands, tags, trailerTags, genres] = await Promise.allSettled([
+		const [movies, commands, tags, trailerTags, genres, ratings] = await Promise.allSettled([
 			unwrap(
 				api.GET('/api/v2/movies/list', {
 					params: { query: { per_page: 100, sort: 'title', order: 'asc' } }
@@ -153,11 +153,11 @@
 			unwrap(api.GET('/api/v2/commands/list')),
 			unwrap(api.GET('/api/v2/media/tags', { params: { query: { per_page: 100 } } })),
 			unwrap(api.GET('/api/v2/trailers/tags')),
-			unwrap(api.GET('/api/v2/movies/genres'))
+			unwrap(api.GET('/api/v2/movies/genres')),
+			unwrap(api.GET('/api/v2/movies/ratings-options'))
 		]);
 		if (movies.status === 'fulfilled') {
 			ctx.movies = movies.value.items.map((m) => ({ id: m.id, title: m.title }));
-			ctx.certifications = movies.value.filters.certifications;
 		} else console.error('Movies not available:', movies.reason);
 		if (commands.status === 'fulfilled') ctx.commands = commands.value.commands;
 		else console.error('Commands not available:', commands.reason);
@@ -170,6 +170,10 @@
 		else console.error('Trailer tags not available:', trailerTags.reason);
 		if (genres.status === 'fulfilled') ctx.genres = genres.value;
 		else console.error('Genres not available:', genres.reason);
+		// Certificate ceilings come from the active ratings scheme (BBFC/MPAA), in
+		// order — not from whatever certs happen to be in the library.
+		if (ratings.status === 'fulfilled') ctx.certifications = ratings.value.ratings ?? [];
+		else console.error('Ratings options not available:', ratings.reason);
 	}
 
 	// Turn the host's items into blocks, filling each movie block's track lists
