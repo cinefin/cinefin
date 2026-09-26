@@ -177,16 +177,6 @@ class ApiConfig(AppConfig):
 
             logging.getLogger(__name__).exception("Failed to start schedule runner")
 
-        # Opt-in telemetry — a daily anonymous heartbeat (no-op unless enabled).
-        try:
-            from .services import telemetry_service
-
-            telemetry_service.start()
-        except Exception:  # noqa: BLE001
-            import logging
-
-            logging.getLogger(__name__).exception("Failed to start telemetry")
-
         # Trailer jobs run on ad-hoc threads (no resumable worker), so any left
         # "running" by a crash/restart must be marked failed on boot. Run it off
         # the init path — querying the DB inside ready() is discouraged.

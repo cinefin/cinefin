@@ -62,7 +62,6 @@
 	let adminUsername = $state('admin');
 	let adminPassword = $state('');
 	let adminPasswordConfirm = $state('');
-	let telemetryEnabled = $state(false);
 	let step1Error = $state('');
 	// True once setup is finalised (POST /installer/complete). Re-submitting
 	// step 1 after that must NOT call /complete again (it 400s) — persist the
@@ -183,9 +182,9 @@
 		void (finalized ? saveStep1AndContinue() : finalizeSetup());
 	}
 
-	// Re-visited step 1: name/ratings/telemetry go through the regular settings
-	// endpoint (the session is authenticated post-finalise); the admin password
-	// can't be changed here.
+	// Re-visited step 1: name/ratings go through the regular settings endpoint
+	// (the session is authenticated post-finalise); the admin password can't be
+	// changed here.
 	async function saveStep1AndContinue() {
 		step1Error = '';
 		completing = true;
@@ -194,8 +193,7 @@
 				api.POST('/api/v2/settings/', {
 					body: {
 						cinema_name: cinemaName.trim(),
-						ratings_system: ratingsSystem,
-						telemetry_enabled: telemetryEnabled
+						ratings_system: ratingsSystem
 					}
 				})
 			);
@@ -218,12 +216,10 @@
 			admin_username?: string;
 			admin_password?: string;
 			start_sync: boolean;
-			telemetry_enabled: boolean;
 		} = {
 			cinema_name: name,
 			ratings_system: ratingsSystem,
-			start_sync: false,
-			telemetry_enabled: telemetryEnabled
+			start_sync: false
 		};
 		if (adminPassword) {
 			body.admin_password = adminPassword;
@@ -670,20 +666,6 @@
 								Any password you like - this is a single-user home system.
 							</p>
 						</div>
-					</section>
-
-					<section class="border border-border bg-surface-1 p-4">
-						<label class="flex items-start gap-2 text-sm text-text">
-							<input type="checkbox" bind:checked={telemetryEnabled} class="mt-0.5 accent-accent" />
-							<span>
-								Share anonymous usage telemetry
-								<span class="mt-0.5 block text-xs text-faint">
-									Optional. Sends one anonymous daily heartbeat — Cinefin version and configuration
-									shape only, never your library, URLs or credentials. You can change this any time
-									in Settings → Telemetry.
-								</span>
-							</span>
-						</label>
 					</section>
 
 					{#if step1Error}

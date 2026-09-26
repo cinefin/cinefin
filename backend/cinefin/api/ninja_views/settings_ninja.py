@@ -87,11 +87,6 @@ class SettingsDataSchema(Schema):
     kiosk_content_source: str = Field(default="flagged", description="Films shown: flagged, all or scheduled")
     kiosk_show_showtimes: bool = Field(default=True, description="Show next showtimes on poster-wall tiles")
 
-    telemetry_enabled: bool = Field(default=False, description="Opt-in anonymous daily telemetry heartbeat")
-    telemetry_host: str = Field(default="", description="Aptabase host (blank = disabled)")
-    telemetry_app_key: str = Field(default="", description="Aptabase App-Key")
-    telemetry_install_id: str = Field(default="", description="Anonymous install id (read-only, blank until opt-in)")
-
     updated_at: str = Field(description="Last update timestamp")
     default_cinema_ident: CinemaIdentSchema | None = Field(default=None, description="Default cinema ident details")
 
@@ -168,10 +163,6 @@ class UpdateSettingsSchema(Schema):
     kiosk_night_end: str | None = Field(default=None, description="Night hours end (HH:MM)")
     kiosk_content_source: str | None = Field(default=None, description="Films shown: flagged, all or scheduled")
     kiosk_show_showtimes: bool | None = Field(default=None, description="Showtimes on poster-wall tiles")
-
-    telemetry_enabled: bool | None = Field(default=None, description="Opt-in anonymous daily telemetry heartbeat")
-    telemetry_host: str | None = Field(default=None, description="Aptabase host (blank = disabled)")
-    telemetry_app_key: str | None = Field(default=None, description="Aptabase App-Key")
 
 
 class TestIdentSchema(Schema):
@@ -262,10 +253,6 @@ def _build_settings_response(all_settings: dict, updated_at: str) -> SettingsDat
         kiosk_night_end=all_settings.get("kiosk", {}).get("night_end", "08:00"),
         kiosk_content_source=all_settings.get("kiosk", {}).get("content_source", "flagged"),
         kiosk_show_showtimes=bool(all_settings.get("kiosk", {}).get("show_showtimes", True)),
-        telemetry_enabled=bool(all_settings.get("telemetry", {}).get("enabled", False)),
-        telemetry_host=all_settings.get("telemetry", {}).get("host", ""),
-        telemetry_app_key=all_settings.get("telemetry", {}).get("app_key", ""),
-        telemetry_install_id=all_settings.get("telemetry", {}).get("install_id", ""),
         updated_at=updated_at,
         default_cinema_ident=default_ident,
     )
@@ -336,9 +323,6 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         "kiosk_night_end": "kiosk.night_end",
         "kiosk_content_source": "kiosk.content_source",
         "kiosk_show_showtimes": "kiosk.show_showtimes",
-        "telemetry_enabled": "telemetry.enabled",
-        "telemetry_host": "telemetry.host",
-        "telemetry_app_key": "telemetry.app_key",
     }
 
     # Each failure carries the offending field in details.field so the UI can highlight it.
@@ -383,13 +367,6 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
             raise ValidationError(
                 "Streaming base URL must start with http:// or https://",
                 details={"field": "playout_server_url"},
-            )
-
-    if data.telemetry_host is not None and data.telemetry_host.strip():
-        if not re.match(r"^https?://", data.telemetry_host.strip()):
-            raise ValidationError(
-                "Telemetry host must start with http:// or https://",
-                details={"field": "telemetry_host"},
             )
 
     kiosk_choices = {
@@ -438,12 +415,6 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
                     cleaned.append(cid)
             value = cleaned
         Settings.set(settings_key, value)
-
-    # Mint the anonymous install id the first time telemetry is switched on.
-    if data.telemetry_enabled:
-        from cinefin.api.services import telemetry_service
-
-        telemetry_service.ensure_install_id()
 
     if data.ratings_system and data.ratings_system != previous_ratings_system:
         from cinefin.api.ratings.service import denormalize_certificates

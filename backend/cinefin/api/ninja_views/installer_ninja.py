@@ -52,7 +52,6 @@ class CompleteInput(Schema):
     start_sync: bool = Field(False, description="Kick off an initial sync of the new source")
     admin_username: str | None = Field(None, description="Admin username (defaults to 'admin')")
     admin_password: str | None = Field(None, description="Admin password; blank leaves authentication off")
-    telemetry_enabled: bool = Field(False, description="Opt in to anonymous daily telemetry (version + config shape)")
 
 
 class MessageResponse(Schema):
@@ -188,12 +187,6 @@ def complete_setup(request, payload: CompleteInput):
                     libraries=ms.libraries or "Films,Movies",
                     enabled=True,
                 )
-
-            if payload.telemetry_enabled:
-                from ..services import telemetry_service
-
-                Settings.set("telemetry.enabled", True)
-                telemetry_service.ensure_install_id()
 
             Settings.set("setup.completed", True)
             Settings.set("setup.wizard_step", 2)

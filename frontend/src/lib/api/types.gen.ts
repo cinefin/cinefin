@@ -4261,12 +4261,6 @@ export interface components {
              * @default false
              */
             start_sync: boolean;
-            /**
-             * Telemetry Enabled
-             * @description Opt in to anonymous daily telemetry (version + config shape)
-             * @default false
-             */
-            telemetry_enabled: boolean;
         };
         /** ControlPlayoutDataSchema */
         ControlPlayoutDataSchema: {
@@ -8662,30 +8656,6 @@ export interface components {
              */
             subtitle_use_margins: boolean;
             /**
-             * Telemetry App Key
-             * @description Aptabase App-Key
-             * @default
-             */
-            telemetry_app_key: string;
-            /**
-             * Telemetry Enabled
-             * @description Opt-in anonymous daily telemetry heartbeat
-             * @default false
-             */
-            telemetry_enabled: boolean;
-            /**
-             * Telemetry Host
-             * @description Aptabase host (blank = disabled)
-             * @default
-             */
-            telemetry_host: string;
-            /**
-             * Telemetry Install Id
-             * @description Anonymous install id (read-only, blank until opt-in)
-             * @default
-             */
-            telemetry_install_id: string;
-            /**
              * Ticket Date Format
              * @description Date format (preset strftime)
              * @default %d/%m/%Y
@@ -10447,21 +10417,6 @@ export interface components {
              * @description Keep subtitles inside the video margins
              */
             subtitle_use_margins?: boolean | null;
-            /**
-             * Telemetry App Key
-             * @description Aptabase App-Key
-             */
-            telemetry_app_key?: string | null;
-            /**
-             * Telemetry Enabled
-             * @description Opt-in anonymous daily telemetry heartbeat
-             */
-            telemetry_enabled?: boolean | null;
-            /**
-             * Telemetry Host
-             * @description Aptabase host (blank = disabled)
-             */
-            telemetry_host?: string | null;
             /**
              * Ticket Date Format
              * @description Date format (preset strftime)

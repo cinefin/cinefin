@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { display } from '$lib/display.svelte';
 	import {
-		Activity,
 		Check,
 		Database,
 		Film,
@@ -34,7 +33,6 @@
 	import LibrarySourceSection from './LibrarySourceSection.svelte';
 	import PlayoutSection from './PlayoutSection.svelte';
 	import SecuritySection from './SecuritySection.svelte';
-	import TelemetrySection from './TelemetrySection.svelte';
 	import TicketsSection from './TicketsSection.svelte';
 
 	const store = new SettingsStore();
@@ -53,7 +51,6 @@
 		| 'appearance'
 		| 'plugins'
 		| 'security'
-		| 'telemetry'
 		| 'backup';
 
 	interface NavItem {
@@ -83,7 +80,6 @@
 				{ id: 'appearance', label: 'Appearance', icon: Palette },
 				{ id: 'plugins', label: 'Plugins', icon: Puzzle },
 				{ id: 'security', label: 'Security', icon: Lock },
-				{ id: 'telemetry', label: 'Telemetry', icon: Activity },
 				{ id: 'backup', label: 'Backup & restore', icon: Database }
 			]
 		}
@@ -134,10 +130,6 @@
 		security: {
 			title: 'Security',
 			blurb: 'Require a login to reach Cinefin, and mint API keys for programmatic access.'
-		},
-		telemetry: {
-			title: 'Telemetry',
-			blurb: 'Optionally share an anonymous daily heartbeat — version and configuration shape only.'
 		},
 		backup: {
 			title: 'Backup & restore',
@@ -248,8 +240,6 @@
 				<PluginsSection />
 			{:else if section === 'security'}
 				<SecuritySection {confirm} />
-			{:else if section === 'telemetry'}
-				<TelemetrySection {store} />
 			{:else if section === 'backup'}
 				<BackupSection {confirm} />
 			{/if}

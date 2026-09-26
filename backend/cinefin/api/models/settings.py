@@ -148,20 +148,6 @@ class Settings(models.Model):
             "filename_template": "{title} ({year}) [tmdb-{tmdbid}]",
             "folder_template": "{year}",
         },
-        "telemetry": {
-            # Opt-in only, default off. Sends an anonymous daily heartbeat
-            # (version + config shape, never library data) to an Aptabase
-            # endpoint. See services/telemetry_service.py and docs/TELEMETRY.md.
-            "enabled": False,
-            # Aptabase host + app key; blank host/key = never sends. Defaults to
-            # the project's collector; override to point at your own Aptabase.
-            "host": "https://telemetry.cinefin.dev",
-            "app_key": "A-SH-7539226158",
-            # Random UUID minted on first opt-in; the only per-install identifier.
-            "install_id": "",
-            # Epoch of the last successful send (daily-cadence guard).
-            "last_sent": 0,
-        },
     }
 
     class Meta:

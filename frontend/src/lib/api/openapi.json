@@ -1651,12 +1651,6 @@
             "description": "Kick off an initial sync of the new source",
             "title": "Start Sync",
             "type": "boolean"
-          },
-          "telemetry_enabled": {
-            "default": false,
-            "description": "Opt in to anonymous daily telemetry (version + config shape)",
-            "title": "Telemetry Enabled",
-            "type": "boolean"
           }
         },
         "required": [
@@ -9683,30 +9677,6 @@
             "title": "Subtitle Use Margins",
             "type": "boolean"
           },
-          "telemetry_app_key": {
-            "default": "",
-            "description": "Aptabase App-Key",
-            "title": "Telemetry App Key",
-            "type": "string"
-          },
-          "telemetry_enabled": {
-            "default": false,
-            "description": "Opt-in anonymous daily telemetry heartbeat",
-            "title": "Telemetry Enabled",
-            "type": "boolean"
-          },
-          "telemetry_host": {
-            "default": "",
-            "description": "Aptabase host (blank = disabled)",
-            "title": "Telemetry Host",
-            "type": "string"
-          },
-          "telemetry_install_id": {
-            "default": "",
-            "description": "Anonymous install id (read-only, blank until opt-in)",
-            "title": "Telemetry Install Id",
-            "type": "string"
-          },
           "ticket_date_format": {
             "default": "%d/%m/%Y",
             "description": "Date format (preset strftime)",
@@ -13273,42 +13243,6 @@
             ],
             "description": "Keep subtitles inside the video margins",
             "title": "Subtitle Use Margins"
-          },
-          "telemetry_app_key": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Aptabase App-Key",
-            "title": "Telemetry App Key"
-          },
-          "telemetry_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Opt-in anonymous daily telemetry heartbeat",
-            "title": "Telemetry Enabled"
-          },
-          "telemetry_host": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Aptabase host (blank = disabled)",
-            "title": "Telemetry Host"
           },
           "ticket_date_format": {
             "anyOf": [

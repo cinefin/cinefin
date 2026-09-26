@@ -64,9 +64,6 @@ export interface MainDraft {
 	kiosk_night_end: string;
 	kiosk_content_source: string;
 	kiosk_show_showtimes: boolean;
-	telemetry_enabled: boolean;
-	telemetry_host: string;
-	telemetry_app_key: string;
 }
 
 export interface TrailerDraft {
@@ -92,8 +89,7 @@ const FIELD_SECTIONS: Record<string, string> = {
 	playout_server_url: 'playout',
 	preshow_commands: 'playout',
 	accent_color: 'appearance',
-	display_time_format: 'appearance',
-	telemetry_host: 'telemetry'
+	display_time_format: 'appearance'
 };
 
 function emptyMain(): MainDraft {
@@ -136,10 +132,7 @@ function emptyMain(): MainDraft {
 		kiosk_night_start: '01:00',
 		kiosk_night_end: '08:00',
 		kiosk_content_source: 'flagged',
-		kiosk_show_showtimes: true,
-		telemetry_enabled: false,
-		telemetry_host: 'https://telemetry.cinefin.dev',
-		telemetry_app_key: ''
+		kiosk_show_showtimes: true
 	};
 }
 
@@ -170,8 +163,6 @@ export class SettingsStore {
 	commands = $state<CommandRef[]>([]);
 	namingTokens = $state<{ token: string; description: string }[]>([]);
 	webLogoUrl = $state<string | null>(null);
-	/** Read-only: the anonymous telemetry install id (blank until opt-in). */
-	telemetryInstallId = $state('');
 	updatedAt = $state('');
 	saving = $state(false);
 	/** Field rejected by the last save, for the inline highlight. */
@@ -241,7 +232,6 @@ export class SettingsStore {
 			this.bumpers = data.bumpers;
 			this.commands = commands;
 			this.webLogoUrl = s.cinema_web_logo_url ?? null;
-			this.telemetryInstallId = s.telemetry_install_id ?? '';
 			this.updatedAt = s.updated_at;
 			this.accentCleared = !s.accent_color;
 			this.main = {
@@ -284,10 +274,7 @@ export class SettingsStore {
 				kiosk_night_start: s.kiosk_night_start ?? '01:00',
 				kiosk_night_end: s.kiosk_night_end ?? '08:00',
 				kiosk_content_source: s.kiosk_content_source ?? 'flagged',
-				kiosk_show_showtimes: !!s.kiosk_show_showtimes,
-				telemetry_enabled: !!s.telemetry_enabled,
-				telemetry_host: s.telemetry_host ?? '',
-				telemetry_app_key: s.telemetry_app_key ?? ''
+				kiosk_show_showtimes: !!s.kiosk_show_showtimes
 			};
 			if (trailerData) {
 				const t = trailerData.settings ?? {};
@@ -361,10 +348,7 @@ export class SettingsStore {
 						kiosk_night_start: m.kiosk_night_start || '01:00',
 						kiosk_night_end: m.kiosk_night_end || '08:00',
 						kiosk_content_source: m.kiosk_content_source,
-						kiosk_show_showtimes: m.kiosk_show_showtimes,
-						telemetry_enabled: m.telemetry_enabled,
-						telemetry_host: m.telemetry_host.trim(),
-						telemetry_app_key: m.telemetry_app_key.trim()
+						kiosk_show_showtimes: m.kiosk_show_showtimes
 					}
 				})
 			);
