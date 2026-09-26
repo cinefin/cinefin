@@ -1287,6 +1287,106 @@
         "title": "CinemaIdentSchema",
         "type": "object"
       },
+      "ClearLibraryDataSchema": {
+        "properties": {
+          "deleted": {
+            "description": "Movies removed from the library",
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "in_use": {
+            "description": "How many of the removed movies were referenced by a programme or trailer rule",
+            "title": "In Use",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "deleted",
+          "in_use"
+        ],
+        "title": "ClearLibraryDataSchema",
+        "type": "object"
+      },
+      "ClearLibraryPreviewResponseSchema": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ClearLibrarySchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ClearLibraryPreviewResponseSchema",
+        "type": "object"
+      },
+      "ClearLibraryResponseSchema": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ClearLibraryDataSchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ClearLibraryResponseSchema",
+        "type": "object"
+      },
+      "ClearLibrarySchema": {
+        "properties": {
+          "in_use": {
+            "description": "How many of those are referenced by a programme or trailer rule",
+            "title": "In Use",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Movies currently in the library",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "in_use"
+        ],
+        "title": "ClearLibrarySchema",
+        "type": "object"
+      },
       "CommandBasicSchema": {
         "properties": {
           "id": {
@@ -16624,6 +16724,80 @@
         ]
       }
     },
+    "/api/v2/movies/clear-library": {
+      "get": {
+        "description": "Counts for the clear-library confirmation (total + how many are in use).",
+        "operationId": "cinefin_api_ninja_views_movies_ninja_clear_library_preview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClearLibraryPreviewResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Clear Library Preview",
+        "tags": [
+          "Movies"
+        ]
+      },
+      "post": {
+        "description": "Remove every movie from the library (DB only \u2014 playout is streaming, no files on disk).\n\nMovies referenced by a programme/trailer rule are SET_NULL, so those slots empty out\nrather than deleting the programme; the confirmation warns with `in_use`.",
+        "operationId": "cinefin_api_ninja_views_movies_ninja_clear_library",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClearLibraryResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Clear Library",
+        "tags": [
+          "Movies"
+        ]
+      }
+    },
     "/api/v2/movies/genres": {
       "get": {
         "operationId": "cinefin_api_ninja_views_movies_ninja_list_genres",
@@ -21996,6 +22170,16 @@
             "schema": {
               "title": "Source Id",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "delete_movies",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Delete Movies",
+              "type": "boolean"
             }
           }
         ],

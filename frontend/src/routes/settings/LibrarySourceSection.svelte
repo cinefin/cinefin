@@ -91,6 +91,7 @@
 		libraries: string;
 		enabled: boolean;
 		last_sync: string | null;
+		movie_count: number;
 	}
 	interface TheSource {
 		source: Source | null;
@@ -243,24 +244,74 @@
 		}
 	}
 
-	async function removeSource() {
+	// Removal opens a dialog so the operator can also delete the source's films
+	// (otherwise they stay, orphaned) — see confirmRemoveSource.
+	let removeOpen = $state(false);
+	let removeAlsoMovies = $state(false);
+	let removing = $state(false);
+
+	function removeSource() {
 		if (!source) return;
+		removeAlsoMovies = false;
+		removeOpen = true;
+	}
+
+	async function confirmRemoveSource() {
+		if (!source) return;
+		removing = true;
+		try {
+			const res = await unwrapLoose<{ movies_deleted?: number }>(
+				api.DELETE('/api/v2/sync/sources/{source_id}', {
+					params: { path: { source_id: source.id }, query: { delete_movies: removeAlsoMovies } }
+				})
+			);
+			const n = res?.movies_deleted ?? 0;
+			showToast(
+				removeAlsoMovies && n > 0
+					? `Library source removed and ${n} ${n === 1 ? 'film' : 'films'} deleted`
+					: 'Library source removed',
+				'success'
+			);
+			removeOpen = false;
+			void sourceQ.load();
+			invalidate('sync');
+			if (removeAlsoMovies) invalidate('movies');
+		} catch (e) {
+			showToast(toApiError(e).message || 'Could not remove the source', 'error');
+		} finally {
+			removing = false;
+		}
+	}
+
+	// Full wipe: delete every film in the library (any source, incl. orphans).
+	async function clearLibrary() {
+		let preview: { total: number; in_use: number };
+		try {
+			preview = await unwrap(api.GET('/api/v2/movies/clear-library'));
+		} catch (e) {
+			showToast(toApiError(e).message || 'Could not read the library', 'error');
+			return;
+		}
+		if (preview.total === 0) {
+			showToast('The library is already empty', 'info');
+			return;
+		}
+		const used =
+			preview.in_use > 0
+				? ` ${preview.in_use} ${preview.in_use === 1 ? 'is' : 'are'} used in programmes and will be removed from them.`
+				: '';
 		const ok = await confirm(
-			`Remove ${source.name}? Its films stay in your library but stop being synced, and you can then add a different server.`,
-			{ confirmLabel: 'Remove' }
+			`Delete all ${preview.total} ${preview.total === 1 ? 'film' : 'films'} from the library?${used} This cannot be undone.`,
+			{ confirmLabel: 'Delete all' }
 		);
 		if (!ok) return;
 		try {
-			await unwrapLoose(
-				api.DELETE('/api/v2/sync/sources/{source_id}', {
-					params: { path: { source_id: source.id } }
-				})
-			);
-			showToast('Library source removed', 'success');
+			const data = await unwrap(api.POST('/api/v2/movies/clear-library'));
+			showToast(`Deleted ${data.deleted} ${data.deleted === 1 ? 'film' : 'films'}`, 'success');
+			invalidate('movies');
 			void sourceQ.load();
-			invalidate('sync');
 		} catch (e) {
-			showToast(toApiError(e).message || 'Could not remove the source', 'error');
+			showToast(toApiError(e).message || 'Could not clear the library', 'error');
 		}
 	}
 
@@ -289,10 +340,17 @@
 		{ separator: true },
 		{ label: 'Edit source', icon: Pencil, onclick: openEdit, disabled: running },
 		{
+			label: 'Clear library…',
+			icon: Trash2,
+			danger: true,
+			onclick: () => void clearLibrary(),
+			disabled: running || busy !== ''
+		},
+		{
 			label: 'Remove source',
 			icon: Trash2,
 			danger: true,
-			onclick: () => void removeSource(),
+			onclick: () => removeSource(),
 			disabled: running
 		}
 	]);
@@ -776,5 +834,34 @@
 	{/if}
 	{#snippet footer()}
 		<Button onclick={() => (changesOpen = false)}>Close</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog bind:open={removeOpen} title="Remove library source" size="md">
+	{#if source}
+		<div class="space-y-3 p-4 text-sm">
+			<p>
+				Remove <span class="font-medium text-text">{source.name}</span>? You can then add a
+				different server.
+			</p>
+			<label class="flex items-start gap-2">
+				<input type="checkbox" bind:checked={removeAlsoMovies} class="mt-0.5" />
+				<span>
+					Also delete its {source.movie_count}
+					{source.movie_count === 1 ? 'film' : 'films'} from the library
+				</span>
+			</label>
+			<p class="text-xs text-muted">
+				{removeAlsoMovies
+					? 'The films are removed from the library and from any programmes that use them — this cannot be undone.'
+					: 'The films stay in your library but stop being synced.'}
+			</p>
+		</div>
+	{/if}
+	{#snippet footer()}
+		<Button onclick={() => (removeOpen = false)}>Cancel</Button>
+		<Button variant="danger" disabled={removing} onclick={() => void confirmRemoveSource()}>
+			{removing ? 'Removing…' : 'Remove'}
+		</Button>
 	{/snippet}
 </Dialog>

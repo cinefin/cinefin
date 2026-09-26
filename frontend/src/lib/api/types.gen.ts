@@ -804,6 +804,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/movies/clear-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Clear Library Preview
+         * @description Counts for the clear-library confirmation (total + how many are in use).
+         */
+        get: operations["cinefin_api_ninja_views_movies_ninja_clear_library_preview"];
+        put?: never;
+        /**
+         * Clear Library
+         * @description Remove every movie from the library (DB only — playout is streaming, no files on disk).
+         *
+         *     Movies referenced by a programme/trailer rule are SET_NULL, so those slots empty out
+         *     rather than deleting the programme; the confirmation warns with `in_use`.
+         */
+        post: operations["cinefin_api_ninja_views_movies_ninja_clear_library"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/movies/genres": {
         parameters: {
             query?: never;
@@ -4075,6 +4102,62 @@ export interface components {
              * @description Cinema ident title
              */
             title: string;
+        };
+        /** ClearLibraryDataSchema */
+        ClearLibraryDataSchema: {
+            /**
+             * Deleted
+             * @description Movies removed from the library
+             */
+            deleted: number;
+            /**
+             * In Use
+             * @description How many of the removed movies were referenced by a programme or trailer rule
+             */
+            in_use: number;
+        };
+        /** ClearLibraryPreviewResponseSchema */
+        ClearLibraryPreviewResponseSchema: {
+            data: components["schemas"]["ClearLibrarySchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ClearLibraryResponseSchema */
+        ClearLibraryResponseSchema: {
+            data: components["schemas"]["ClearLibraryDataSchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ClearLibrarySchema */
+        ClearLibrarySchema: {
+            /**
+             * In Use
+             * @description How many of those are referenced by a programme or trailer rule
+             */
+            in_use: number;
+            /**
+             * Total
+             * @description Movies currently in the library
+             */
+            total: number;
         };
         /** CommandBasicSchema */
         CommandBasicSchema: {
@@ -12530,6 +12613,64 @@ export interface operations {
             };
         };
     };
+    cinefin_api_ninja_views_movies_ninja_clear_library_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClearLibraryPreviewResponseSchema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_movies_ninja_clear_library: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClearLibraryResponseSchema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
     cinefin_api_ninja_views_movies_ninja_list_genres: {
         parameters: {
             query?: never;
@@ -16230,7 +16371,9 @@ export interface operations {
     };
     cinefin_api_ninja_views_sync_ninja_delete_source: {
         parameters: {
-            query?: never;
+            query?: {
+                delete_movies?: boolean;
+            };
             header?: never;
             path: {
                 source_id: number;

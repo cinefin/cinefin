@@ -112,11 +112,21 @@ class SyncManager:
         return source
 
     @classmethod
-    def delete_source(cls, source_id: int) -> None:
+    def delete_source(cls, source_id: int, delete_movies: bool = False) -> int:
+        """Remove a source. With delete_movies, also delete the films it synced (otherwise
+        they stay, orphaned via SET_NULL). Returns how many movies were deleted."""
         source = cls.get_source(source_id)
         if cls.has_active_job(source):
             raise ValidationError("Cannot delete a source while it is syncing", error_code="SYNC_IN_PROGRESS")
+        movies_deleted = 0
+        if delete_movies:
+            from cinefin.api.models import Movie
+
+            qs = Movie.objects.filter(sync_source=source)
+            movies_deleted = qs.count()
+            qs.delete()
         source.delete()
+        return movies_deleted
 
     @classmethod
     def test_connection(cls, source_id: int) -> dict[str, Any]:
@@ -241,6 +251,7 @@ class SyncManager:
             "libraries": source.libraries,
             "path_mappings": source.path_mappings or [],
             "enabled": source.enabled,
+            "movie_count": source.movies.count(),
             "last_sync": source.last_sync.isoformat() if source.last_sync else None,
             "is_syncing": bool(active),
             "active_job": cls.serialize_job(active, brief=True) if active else None,

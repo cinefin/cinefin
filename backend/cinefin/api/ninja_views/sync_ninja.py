@@ -91,9 +91,9 @@ def update_source(request, source_id: int, payload: SourceUpdateSchema):
 
 
 @sync_api.delete("/sources/{int:source_id}", tags=["Sync"])
-def delete_source(request, source_id: int):
-    SyncManager.delete_source(source_id)
-    return ok({"deleted": True})
+def delete_source(request, source_id: int, delete_movies: bool = False):
+    movies_deleted = SyncManager.delete_source(source_id, delete_movies=delete_movies)
+    return ok({"deleted": True, "movies_deleted": movies_deleted})
 
 
 @sync_api.post("/sources/{int:source_id}/test", tags=["Sync"])

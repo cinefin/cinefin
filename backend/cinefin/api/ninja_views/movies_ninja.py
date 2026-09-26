@@ -233,6 +233,24 @@ class BulkKioskResponseSchema(SuccessResponseSchema):
     data: BulkKioskDataSchema
 
 
+class ClearLibrarySchema(Schema):
+    total: int = Field(description="Movies currently in the library")
+    in_use: int = Field(description="How many of those are referenced by a programme or trailer rule")
+
+
+class ClearLibraryPreviewResponseSchema(SuccessResponseSchema):
+    data: ClearLibrarySchema
+
+
+class ClearLibraryDataSchema(Schema):
+    deleted: int = Field(description="Movies removed from the library")
+    in_use: int = Field(description="How many of the removed movies were referenced by a programme or trailer rule")
+
+
+class ClearLibraryResponseSchema(SuccessResponseSchema):
+    data: ClearLibraryDataSchema
+
+
 class MovieListFilters(Schema):
     search: str | None = Field(default=None, description="Search in title, director, or description")
     genre: str | None = Field(default=None, description="Filter by genre (comma-separated for multiple)")
@@ -561,6 +579,47 @@ def bulk_kiosk_movies(request: HttpRequest, payload: BulkKioskRequestSchema):
         BulkKioskResponseSchema(
             message=f"Kiosk display {status} for {updated} {noun}",
             data=BulkKioskDataSchema(updated=updated, missing=missing, kiosk_display=payload.kiosk_display),
+        ),
+    )
+
+
+def _movies_in_use_count() -> int:
+    """Distinct movies referenced by a programme block (feature) or a trailer rule."""
+    from cinefin.api.models import ProgrammeBlock, TrailerRule
+
+    used = set(ProgrammeBlock.objects.filter(movie__isnull=False).values_list("movie_id", flat=True))
+    used |= set(TrailerRule.objects.filter(reference_movie__isnull=False).values_list("reference_movie_id", flat=True))
+    return len(used)
+
+
+# Registered before /{movie_id} (string converter) so the literal path wins.
+@movies_api.get("/clear-library", response={200: ClearLibraryPreviewResponseSchema, 500: ErrorResponseSchema})
+def clear_library_preview(request: HttpRequest):
+    """Counts for the clear-library confirmation (total + how many are in use)."""
+    return Status(
+        200,
+        ClearLibraryPreviewResponseSchema(
+            message="Library summary",
+            data=ClearLibrarySchema(total=Movie.objects.count(), in_use=_movies_in_use_count()),
+        ),
+    )
+
+
+@movies_api.post("/clear-library", response={200: ClearLibraryResponseSchema, 500: ErrorResponseSchema})
+def clear_library(request: HttpRequest):
+    """Remove every movie from the library (DB only — playout is streaming, no files on disk).
+
+    Movies referenced by a programme/trailer rule are SET_NULL, so those slots empty out
+    rather than deleting the programme; the confirmation warns with `in_use`."""
+    in_use = _movies_in_use_count()
+    total = Movie.objects.count()
+    Movie.objects.all().delete()
+    noun = "movie" if total == 1 else "movies"
+    return Status(
+        200,
+        ClearLibraryResponseSchema(
+            message=f"{total} {noun} removed from library",
+            data=ClearLibraryDataSchema(deleted=total, in_use=in_use),
         ),
     )
 
