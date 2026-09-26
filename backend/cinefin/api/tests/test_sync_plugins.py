@@ -1,6 +1,6 @@
 """Native sync-plugin (Plex / Jellyfin) and trailer-service tests."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -366,19 +366,42 @@ def jellyfin_plugin(jellyfin_source, monkeypatch):
         "i2": jellyfin_detail("/films/delta.mkv", size=6_000),
     }
 
+    def _light(item):
+        return {k: item.get(k) for k in ("Id", "ProviderIds", "ImageTags", "Path")}
+
+    def _changed_since(item, since_iso):
+        since = JellyfinSource._parse_date(since_iso)
+        saved = JellyfinSource._parse_date(item.get("DateLastSaved") or "")
+        return saved is not None and since is not None and saved >= since
+
     def fake_get(url, headers=None, params=None, timeout=None):
+        # Auth must ride the version-portable Authorization header, never X-Emby-Token.
+        assert (headers or {}).get("Authorization", "").startswith("MediaBrowser ")
+        assert "X-Emby-Token" not in (headers or {})
+        params = params or {}
         path = url.replace("http://jf.invalid:8096", "")
         if path == "/System/Info":
-            return FakeResponse({"ServerName": "TestJF", "Version": "10.9"})
+            return FakeResponse({"ServerName": "TestJF", "Version": "12.1.0"})
         if path == "/Users":
             return FakeResponse([{"Id": "u1", "Name": "admin", "Policy": {"IsAdministrator": True}}])
         if path == "/Library/MediaFolders":
             return FakeResponse({"Items": [{"Name": "Films", "Id": "lib1", "CollectionType": "movies"}]})
-        if path == "/Users/u1/Items":
+        if path == "/Items":  # the item list (userId supplied as a query param)
+            assert params.get("userId") == "u1"
+            if params.get("Ids"):  # recovery by explicit ids → full items
+                wanted = set(params["Ids"].split(","))
+                return FakeResponse({"Items": [i for i in items if i["Id"] in wanted]})
+            if "EnableImages" in params:  # the light presence pass
+                rows = [_light(i) for i in items]
+                return FakeResponse({"Items": rows, "TotalRecordCount": len(rows)})
+            selected = items
+            if params.get("MinDateLastSaved"):  # the incremental delta
+                selected = [i for i in items if _changed_since(i, params["MinDateLastSaved"])]
             start = params.get("StartIndex", 0)
-            return FakeResponse({"Items": items[start:], "TotalRecordCount": len(items)})
+            return FakeResponse({"Items": selected[start:], "TotalRecordCount": len(selected)})
         for item_id, detail in details.items():
-            if path == f"/Users/u1/Items/{item_id}":
+            if path == f"/Items/{item_id}":  # per-item detail
+                assert params.get("userId") == "u1"
                 return FakeResponse(detail)
         raise AssertionError(f"Unexpected Jellyfin request: {path}")
 
@@ -390,6 +413,14 @@ def jellyfin_plugin(jellyfin_source, monkeypatch):
 
 
 class TestJellyfinPlugin:
+    def test_auth_uses_mediabrowser_authorization(self, jellyfin_source):
+        # Jellyfin 10.9+/12.x reject X-Emby-Token; the token must ride Authorization.
+        plugin = JellyfinSource(jellyfin_source)
+        auth = plugin.headers.get("Authorization", "")
+        assert auth.startswith("MediaBrowser ")
+        assert 'Token="tok"' in auth
+        assert "X-Emby-Token" not in plugin.headers
+
     def test_test_connection_success(self, jellyfin_plugin):
         ok, message = jellyfin_plugin.test_connection()
         assert ok is True
@@ -449,32 +480,63 @@ class TestJellyfinPlugin:
         assert all(total == 2 for _cur, total, _phase, _item in ctx.progress_calls)
         assert ctx.progress_calls[-1][0] == 2  # current reaches the total by the end
 
-    def test_apply_skips_unchanged(self, jellyfin_plugin):
-        jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+    def _mark_synced(self, source, when=datetime(2024, 3, 6, tzinfo=UTC)):
+        # Stand in for the engine stamping last_sync after a successful run, which is
+        # what puts the plugin into incremental (delta) mode on the next run.
+        source.last_sync = when
+        source.save(update_fields=["last_sync"])
+
+    def test_incremental_skips_unchanged(self, jellyfin_plugin, jellyfin_source):
+        jellyfin_plugin.apply(RecordingCtx(), "sync", {})  # initial full import
+        self._mark_synced(jellyfin_source)  # after the films' DateLastSaved (2024-03-05)
 
         ctx = RecordingCtx()
         counts = jellyfin_plugin.apply(ctx, "sync", {})
-        assert counts["skipped"] == 2
+        assert counts["skipped"] == 2  # delta empty → both confirmed present, unchanged
+        assert counts["added"] == 0 and counts["updated"] == 0
         assert Movie.objects.count() == 2
         assert not any("Added:" in m for m in ctx.messages())
-        assert ctx.progress_calls
-        assert ctx.progress_calls[-1][3] == "Unchanged: Delta"
 
-    def test_incremental_skips_present_films_without_datelastsaved(self, jellyfin_plugin):
-        """Real Jellyfin nulls DateLastSaved in list responses. Incremental must
-        still skip films we already have (present ⇒ skip), not reprocess them."""
-        for item in jellyfin_plugin.fake_items:
-            item.pop("DateLastSaved", None)
+    def test_incremental_fetches_only_changed(self, jellyfin_plugin, jellyfin_source):
         jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        self._mark_synced(jellyfin_source, datetime(2024, 3, 10, tzinfo=UTC))
+        # Gamma changed after the last sync; Delta did not.
+        jellyfin_plugin.fake_items[0]["DateLastSaved"] = "2024-03-20T10:00:00.0000000Z"
+
+        ctx = RecordingCtx()
+        counts = jellyfin_plugin.apply(ctx, "sync", {})
+        assert counts["updated"] == 1  # only Gamma re-ingested
+        assert counts["skipped"] == 1  # Delta unchanged
+        assert any("Changed: Gamma" in m for m in ctx.messages())
+
+    def test_incremental_prunes_orphan_via_presence_pass(self, jellyfin_plugin, jellyfin_source):
+        jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        self._mark_synced(jellyfin_source)
+        # The server drops Delta (i2) — nothing changed, so only the presence pass sees it gone.
+        jellyfin_plugin.fake_items[:] = [i for i in jellyfin_plugin.fake_items if i["Id"] != "i2"]
+        del jellyfin_plugin.fake_details["i2"]
 
         counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {})
-        assert counts["skipped"] == 2
-        assert counts["updated"] == 0 and counts["added"] == 0
+        assert counts["removed"] == 1
+        assert not Movie.objects.filter(jellyfin_item_id="i2").exists()
+        assert Movie.objects.filter(jellyfin_item_id="i1").exists()
 
-    def test_deep_reprocesses_present_films(self, jellyfin_plugin):
+    def test_incremental_recovers_present_but_missing_film(self, jellyfin_plugin, jellyfin_source):
+        jellyfin_plugin.apply(RecordingCtx(), "sync", {})  # imports i1 + i2
+        # Simulate i2 lost from our DB (e.g. a prior transient failure); it hasn't
+        # changed since, so the delta won't return it — only the presence pass will.
+        Movie.objects.filter(jellyfin_item_id="i2").delete()
+        self._mark_synced(jellyfin_source)
+
+        counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        assert counts["added"] == 1
+        assert Movie.objects.filter(jellyfin_item_id="i2").exists()  # recovered
+
+    def test_deep_reprocesses_present_films(self, jellyfin_plugin, jellyfin_source):
         jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        self._mark_synced(jellyfin_source)
         counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {"deep": True})
-        assert counts["skipped"] == 0
+        assert counts["skipped"] == 0  # deep ignores last_sync and re-crawls everything
         assert counts["updated"] == 2
 
     def test_apply_removes_orphans(self, jellyfin_plugin, jellyfin_source):
@@ -483,11 +545,12 @@ class TestJellyfinPlugin:
         assert counts["removed"] == 1
         assert not Movie.objects.filter(tmdbid=888).exists()
 
-    def test_apply_relinks_moved_file_on_skip(self, jellyfin_plugin):
+    def test_incremental_relinks_moved_file(self, jellyfin_plugin, jellyfin_source):
         jellyfin_plugin.apply(RecordingCtx(), "sync", {})
         gamma = Movie.objects.get(tmdbid=601)
         assert gamma.file_path == "/films/gamma.mkv"
 
+        self._mark_synced(jellyfin_source)  # unchanged since → delta empty, presence pass heals
         jellyfin_plugin.fake_items[0]["Path"] = "/movies/gamma.mkv"
         counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {})
 
@@ -960,7 +1023,7 @@ class TestUnmatchedReporting:
         assert counts["removed"] == 0
         assert Movie.objects.filter(title="Stray").exists()
 
-    def test_jellyfin_films_without_tmdb_are_imported(self, jellyfin_plugin):
+    def test_jellyfin_films_without_tmdb_are_imported(self, jellyfin_plugin, jellyfin_source):
         for item in jellyfin_plugin.fake_items:
             item["ProviderIds"] = {}
 
@@ -972,20 +1035,28 @@ class TestUnmatchedReporting:
         assert no_tmdb.count() == 2
         assert set(no_tmdb.values_list("jellyfin_item_id", flat=True)) == {"i1", "i2"}
 
+        jellyfin_source.last_sync = datetime(2024, 3, 6, tzinfo=UTC)
+        jellyfin_source.save(update_fields=["last_sync"])
         counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {})
         assert counts["skipped"] == 2
         assert Movie.objects.filter(tmdbid=0).count() == 2
 
 
 class TestJellyfinIncremental:
-    def test_second_run_skips_unchanged(self, jellyfin_plugin):
+    def _mark_synced(self, source):
+        source.last_sync = datetime(2024, 3, 6, tzinfo=UTC)  # after the fixtures' DateLastSaved
+        source.save(update_fields=["last_sync"])
+
+    def test_second_run_skips_unchanged(self, jellyfin_plugin, jellyfin_source):
         jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        self._mark_synced(jellyfin_source)
         counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {})
         assert counts["skipped"] == 2
         assert counts["added"] == 0 and counts["updated"] == 0
 
-    def test_deep_sync_reprocesses(self, jellyfin_plugin):
+    def test_deep_sync_reprocesses(self, jellyfin_plugin, jellyfin_source):
         jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        self._mark_synced(jellyfin_source)
         counts = jellyfin_plugin.apply(RecordingCtx(), "sync", {"deep": True})
         assert counts["updated"] == 2
         assert counts["skipped"] == 0

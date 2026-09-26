@@ -441,7 +441,7 @@
 		fName = types.find((t) => t.type_id === typeId)?.label ?? typeId;
 		fUrl = '';
 		fToken = '';
-		resetLibs('Films');
+		resetLibs('Movies');
 		formOpen = true;
 	}
 

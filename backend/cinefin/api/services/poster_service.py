@@ -60,4 +60,6 @@ def _jellyfin_request(movie) -> tuple[str, dict]:
         f"{base}/Items/{movie.jellyfin_item_id}/Images/Primary"
         f"?maxWidth={POSTER_WIDTH}&tag={quote(movie.poster_key, safe='')}"
     )
-    return url, {"X-Emby-Token": movie.sync_source.token}
+    from cinefin.api.utils.jellyfin import auth_header
+
+    return url, {"Authorization": auth_header(movie.sync_source.token)}

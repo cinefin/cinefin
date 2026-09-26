@@ -69,7 +69,9 @@ def _fetch_libraries(sync_type: str, url: str, token: str) -> list[str]:
     base = url.rstrip("/")
 
     if sync_type == "jellyfin":
-        headers = {"X-Emby-Token": token}
+        from ..utils.jellyfin import auth_header
+
+        headers = {"Authorization": auth_header(token)}
         session.get(f"{base}/System/Info", headers=headers, timeout=10).raise_for_status()
         resp = session.get(f"{base}/Library/VirtualFolders", headers=headers, timeout=10)
         resp.raise_for_status()

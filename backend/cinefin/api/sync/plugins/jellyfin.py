@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Generator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import requests
 from django.db import transaction
 
+from ...utils.jellyfin import auth_header as jellyfin_auth_header
 from ..base import SyncCancelled, SyncContext, SyncSourcePlugin
 from ..registry import register
 from .common import (
@@ -26,6 +27,13 @@ from .common import (
 
 logger = logging.getLogger("cinefin.sync")
 
+# Full fields for the items we actually ingest.
+_LIST_FIELDS = "ProviderIds,People,Genres,Overview,DateCreated,DateLastSaved,ImageTags,Path"
+# Just enough to prune orphans and self-heal art/paths, no per-item detail fetch.
+_PRESENCE_FIELDS = "ProviderIds,ImageTags,Path"
+# Cushion on the incremental "changed since last sync" window, for clock skew.
+_INCREMENTAL_BUFFER = timedelta(hours=1)
+
 
 @register
 class JellyfinSource(SyncSourcePlugin):
@@ -37,7 +45,7 @@ class JellyfinSource(SyncSourcePlugin):
     def __init__(self, source):
         super().__init__(source)
         self.base_url = source.url.rstrip("/")
-        self.headers = {"X-Emby-Token": source.token, "Accept": "application/json"}
+        self.headers = {"Authorization": jellyfin_auth_header(source.token), "Accept": "application/json"}
         self.user_id: str | None = None
 
     def _get(self, endpoint: str, params: dict | None = None, timeout: int = 30) -> dict | None:
@@ -104,8 +112,14 @@ class JellyfinSource(SyncSourcePlugin):
             ctx.check_cancelled()
             result = (
                 self._get(
-                    f"/Users/{self.user_id}/Items",
-                    {"ParentId": lib_id, "IncludeItemTypes": "Movie", "Recursive": True, "Limit": 1},
+                    "/Items",
+                    {
+                        "userId": self.user_id,
+                        "ParentId": lib_id,
+                        "IncludeItemTypes": "Movie",
+                        "Recursive": True,
+                        "Limit": 1,
+                    },
                     timeout=60,
                 )
                 or {}
@@ -113,7 +127,11 @@ class JellyfinSource(SyncSourcePlugin):
             total += result.get("TotalRecordCount", 0)
         return total
 
-    def _stream_movies(self, ctx: SyncContext, library_ids: dict[str, str]) -> Generator[dict]:
+    def _stream_movies(
+        self, ctx: SyncContext, library_ids: dict[str, str], min_date_last_saved: datetime | None = None
+    ) -> Generator[dict]:
+        """Full-field movie items. With min_date_last_saved, the server returns only
+        films saved since then (the incremental delta) instead of the whole library."""
         for lib_name, lib_id in library_ids.items():
             ctx.check_cancelled()
             ctx.info(f"Fetching from {lib_name}...")
@@ -122,14 +140,17 @@ class JellyfinSource(SyncSourcePlugin):
             while True:
                 ctx.check_cancelled()
                 params = {
+                    "userId": self.user_id,
                     "ParentId": lib_id,
                     "IncludeItemTypes": "Movie",
                     "Recursive": True,
-                    "Fields": "ProviderIds,People,Genres,Overview,DateCreated,DateLastSaved,ImageTags,Path",
+                    "Fields": _LIST_FIELDS,
                     "StartIndex": start,
                     "Limit": batch_size,
                 }
-                result = self._get(f"/Users/{self.user_id}/Items", params, timeout=60) or {}
+                if min_date_last_saved is not None:
+                    params["MinDateLastSaved"] = min_date_last_saved.isoformat()
+                result = self._get("/Items", params, timeout=60) or {}
                 items = result.get("Items", [])
                 total = result.get("TotalRecordCount", 0)
 
@@ -141,6 +162,45 @@ class JellyfinSource(SyncSourcePlugin):
                 start += len(items)
                 if start >= total:
                     break
+
+    def _list_present(self, ctx: SyncContext, library_ids: dict[str, str]) -> Generator[dict]:
+        """Light listing of every current movie (id + art tag + path). The incremental
+        path uses it to prune orphans and self-heal art/paths without the heavy fields
+        or a per-item detail fetch. Larger batches since each row is tiny."""
+        for lib_id in library_ids.values():
+            start, batch_size = 0, 500
+            while True:
+                ctx.check_cancelled()
+                params = {
+                    "userId": self.user_id,
+                    "ParentId": lib_id,
+                    "IncludeItemTypes": "Movie",
+                    "Recursive": True,
+                    "Fields": _PRESENCE_FIELDS,
+                    "EnableImages": False,
+                    "StartIndex": start,
+                    "Limit": batch_size,
+                }
+                result = self._get("/Items", params, timeout=60) or {}
+                items = result.get("Items", [])
+                total = result.get("TotalRecordCount", 0)
+                if not items:
+                    break
+                yield from items
+                start += len(items)
+                if start >= total:
+                    break
+
+    def _fetch_items_by_ids(self, ctx: SyncContext, item_ids: list[str]) -> list[dict]:
+        """Full-field items for specific ids — recovers films present on the server but
+        missing from our DB that the delta (MinDateLastSaved) wouldn't return."""
+        out: list[dict] = []
+        for i in range(0, len(item_ids), 100):
+            ctx.check_cancelled()
+            chunk = item_ids[i : i + 100]
+            result = self._get("/Items", {"userId": self.user_id, "Ids": ",".join(chunk), "Fields": _LIST_FIELDS}) or {}
+            out.extend(result.get("Items", []))
+        return out
 
     @staticmethod
     def _parse_date(date_str: str) -> datetime | None:
@@ -211,9 +271,10 @@ class JellyfinSource(SyncSourcePlugin):
 
         title = movie_data.get("Name", "Unknown")
         try:
-            # Detail fetch must use the user endpoint for full media info.
+            # Per-item detail (MediaSources/MediaStreams) via the version-portable
+            # /Items/{id} route; userId supplies the user context the old route carried.
             item_id = movie_data["Id"]
-            detail = self._get(f"/Users/{self.user_id}/Items/{item_id}") or {}
+            detail = self._get(f"/Items/{item_id}", {"userId": self.user_id}) or {}
             media_sources = detail.get("MediaSources", [])
 
             if not media_sources:
@@ -317,6 +378,31 @@ class JellyfinSource(SyncSourcePlugin):
             ctx.error(f"Failed {title}: {e}")
             return None
 
+    def _ingest(self, ctx: SyncContext, movie_data: dict, changes: RunChanges, seen_tmdb_ids: set[int]) -> bool:
+        """Process one full-field item into the library. Returns True on failure.
+
+        Isolated so one bad film never aborts the sync; records the outcome on ``changes``."""
+        title = movie_data.get("Name", "Unknown")
+        remote_updated = self._parse_date(movie_data.get("DateLastSaved") or movie_data.get("DateCreated", ""))
+        try:
+            tmdb_id = self._extract_tmdb_id(movie_data)
+            # No TMDB match: import anyway keyed on the item id (tmdbid stays 0);
+            # a later agent fix + re-sync fills in the tmdbid.
+            if not tmdb_id:
+                changes.record("unmatched", f"{title} ({movie_data.get('ProductionYear', '?')})")
+            else:
+                seen_tmdb_ids.add(tmdb_id)
+            outcome = self._process_movie(ctx, movie_data, tmdb_id, remote_updated)
+            if outcome is None:
+                return True
+            changes.record(outcome, title)
+            return False
+        except SyncCancelled:
+            raise
+        except Exception as e:  # noqa: BLE001
+            ctx.error(f"Skipped {title}: {e}")
+            return True
+
     def apply(self, ctx: SyncContext, operation: str, params: dict[str, Any]) -> dict[str, int]:
         from django.db.models import Q
 
@@ -332,82 +418,84 @@ class JellyfinSource(SyncSourcePlugin):
                 ctx.error("No valid libraries found")
                 raise RuntimeError("No valid libraries found")
 
-            ctx.info(f"Syncing: {', '.join(lib_ids.keys())}{' (deep sync)' if deep else ''}")
+            # Incremental delta: ask the server (MinDateLastSaved) for only the films
+            # saved since our last sync — a fraction of a full re-list, and it now also
+            # catches metadata/file changes to existing films. A prior sync is required;
+            # the first run and deep syncs crawl everything. The buffer absorbs clock skew.
+            threshold = None if deep or not self.source.last_sync else self.source.last_sync - _INCREMENTAL_BUFFER
+            delta = threshold is not None
+            mode = "deep sync" if deep else "incremental" if delta else "full sync"
+            ctx.info(f"Syncing: {', '.join(lib_ids.keys())} ({mode})")
 
-            # The stream is paginated, so learn the total up front for real progress.
+            # Full-library total: the progress denominator (and it primes the connection).
             total = self._count_movies(ctx, lib_ids)
 
             changes = RunChanges()
             seen_item_ids: set[str] = set()
             seen_tmdb_ids: set[int] = set()
-            processed = 0
-            skipped = 0
-            failed = 0
+            processed_ids: set[str] = set()
+            processed = unchanged = failed = 0
 
-            for movie_data in self._stream_movies(ctx, lib_ids):
+            # 1) Ingest the changed set (delta) or the whole library (full/deep).
+            for movie_data in self._stream_movies(ctx, lib_ids, min_date_last_saved=threshold):
                 ctx.check_cancelled()
                 processed += 1
-                title = movie_data.get("Name", "Unknown")
                 item_id = movie_data.get("Id", "")
                 seen_item_ids.add(item_id)
-                # Jellyfin's list responses always null DateLastSaved (it's only
-                # populated on the item detail), so there is no cheap per-item
-                # "modified" stamp to diff. Store DateCreated as the stamp for the
-                # record; the skip below keys on presence, not on it.
-                remote_updated = self._parse_date(movie_data.get("DateLastSaved") or movie_data.get("DateCreated", ""))
+                processed_ids.add(item_id)
+                if delta:
+                    ctx.info(f"Changed: {movie_data.get('Name', 'Unknown')}")
+                else:
+                    ctx.progress(processed, total, item=f"Processing: {movie_data.get('Name', 'Unknown')}")
+                if self._ingest(ctx, movie_data, changes, seen_tmdb_ids):
+                    failed += 1
 
-                # Incremental skip before the detail fetch: any film we already
-                # have is skipped outright — the listing offers no reliable change
-                # signal, so a fast sync means present ⇒ skip. Full re-scan (deep)
-                # reprocesses everything to pull in metadata and file changes.
-                existing = Movie.objects.filter(sync_source=self.source, jellyfin_item_id=item_id).first()
-                if existing:
-                    if existing.tmdbid:
-                        seen_tmdb_ids.add(existing.tmdbid)
-                    if not deep:
-                        skipped += 1
-                        # Art key rides along in the listing → posters self-heal without a deep sync.
-                        sync_poster_key(existing, movie_data.get("ImageTags", {}).get("Primary") or "")
-                        # Path rides along too, so heal a stale path even on a skip.
-                        new_path = apply_path_mappings(movie_data.get("Path", ""), self.source)
+            # 2) Incremental only: the delta skipped unchanged films, so enumerate all
+            # current ids cheaply — for orphan pruning, poster/path self-heal, and to
+            # recover any film present on the server but missing from our DB (e.g. one
+            # that failed a prior run and hasn't changed since).
+            if delta:
+                checked = 0
+                missing_ids: list[str] = []
+                for row in self._list_present(ctx, lib_ids):
+                    ctx.check_cancelled()
+                    checked += 1
+                    item_id = row.get("Id", "")
+                    seen_item_ids.add(item_id)
+                    if item_id in processed_ids:
+                        continue  # already ingested in the delta pass
+                    existing = Movie.objects.filter(sync_source=self.source, jellyfin_item_id=item_id).first()
+                    if existing:
+                        unchanged += 1
+                        if existing.tmdbid:
+                            seen_tmdb_ids.add(existing.tmdbid)
+                        # Art key + path ride along so posters/moved files self-heal without a deep sync.
+                        sync_poster_key(existing, row.get("ImageTags", {}).get("Primary") or "")
+                        new_path = apply_path_mappings(row.get("Path", ""), self.source)
                         if new_path and new_path != existing.file_path:
                             existing.file_path = new_path
                             existing.save(update_fields=["file_path"])
-                            ctx.info(f"Relinked moved file: {title}")
-                        # Advance the counter so a long unchanged tail doesn't freeze progress.
-                        ctx.progress(processed, total, item=f"Unchanged: {title}")
-                        continue
-
-                ctx.progress(processed, total, item=f"Processing: {title}")
-
-                # Isolate each movie: one failure must not abort the whole sync.
-                try:
-                    tmdb_id = self._extract_tmdb_id(movie_data)
-                    # No TMDB match: import anyway keyed on the item id (tmdbid stays 0);
-                    # a later agent fix + re-sync fills in the tmdbid.
-                    if not tmdb_id:
-                        changes.record("unmatched", f"{title} ({movie_data.get('ProductionYear', '?')})")
+                            ctx.info(f"Relinked moved file: {existing.title}")
                     else:
-                        seen_tmdb_ids.add(tmdb_id)
+                        missing_ids.append(item_id)
+                    ctx.progress(checked, total, item="Checking library…")
 
-                    outcome = self._process_movie(ctx, movie_data, tmdb_id, remote_updated)
-                    if outcome is None:
-                        failed += 1
-                    else:
-                        changes.record(outcome, title)
-                except SyncCancelled:
-                    raise
-                except Exception as e:  # noqa: BLE001
-                    failed += 1
-                    ctx.error(f"Skipped {title}: {e}")
-                    continue
+                if missing_ids:
+                    ctx.info(f"Recovering {len(missing_ids)} film(s) present on the server but not yet imported")
+                    for movie_data in self._fetch_items_by_ids(ctx, missing_ids):
+                        ctx.check_cancelled()
+                        if self._ingest(ctx, movie_data, changes, seen_tmdb_ids):
+                            failed += 1
+
+            skipped = unchanged
 
             # Prune orphans, scoped to THIS source. Refuse after an empty crawl
-            # (guards against mass-deletion on transient failure; an incomplete
-            # listing raises out of _stream_movies before reaching here). Rows carry
-            # the item id last seen under; legacy rows fall back to tmdbid.
-            # seen_item_ids is built from the LISTING (pre-processing), so a film that
-            # failed to process is still "present" and can't become a false orphan.
+            # (guards against mass-deletion on transient failure; an incomplete listing
+            # raises out of _stream_movies / _list_present before reaching here). Rows
+            # carry the item id last seen under; legacy rows fall back to tmdbid.
+            # seen_item_ids covers every id the server listed (the delta plus, for an
+            # incremental run, the light presence pass), so a film that failed to
+            # process is still "present" and can't become a false orphan.
             ctx.check_cancelled()
             if not seen_item_ids:
                 ctx.warn("Skipping orphan cleanup: no movies found (refusing to mass-delete)")
