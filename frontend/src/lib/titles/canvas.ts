@@ -115,7 +115,15 @@ export class TitleCanvasEditor {
 		this.#overlay = new Konva.Layer({ listening: false });
 		this.#stage.add(this.#content, this.#overlay);
 
-		const bg = new Konva.Rect({ x: 0, y: 0, width: CW, height: CH, fill: '#000000' });
+		// Non-listening so presses on empty canvas fall through to the stage (marquee / deselect).
+		const bg = new Konva.Rect({
+			x: 0,
+			y: 0,
+			width: CW,
+			height: CH,
+			fill: '#000000',
+			listening: false
+		});
 		this.#content.add(bg);
 
 		this.#tr = new Konva.Transformer({
