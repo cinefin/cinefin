@@ -30,7 +30,9 @@ logger = logging.getLogger("cinefin.sync")
 # Full fields for the items we actually ingest.
 _LIST_FIELDS = "ProviderIds,People,Genres,Overview,DateCreated,DateLastSaved,ImageTags,Path"
 # Just enough to prune orphans and self-heal art/paths, no per-item detail fetch.
-_PRESENCE_FIELDS = "ProviderIds,ImageTags,Path"
+# ImageTags is NOT an ItemFields value — it rides on the default EnableImages, so it
+# must not be suppressed on this listing or the art-key self-heal wipes poster keys.
+_PRESENCE_FIELDS = "ProviderIds,Path"
 # Cushion on the incremental "changed since last sync" window, for clock skew.
 _INCREMENTAL_BUFFER = timedelta(hours=1)
 
@@ -177,7 +179,6 @@ class JellyfinSource(SyncSourcePlugin):
                     "IncludeItemTypes": "Movie",
                     "Recursive": True,
                     "Fields": _PRESENCE_FIELDS,
-                    "EnableImages": False,
                     "StartIndex": start,
                     "Limit": batch_size,
                 }
@@ -469,8 +470,11 @@ class JellyfinSource(SyncSourcePlugin):
                         unchanged += 1
                         if existing.tmdbid:
                             seen_tmdb_ids.add(existing.tmdbid)
-                        # Art key + path ride along so posters/moved files self-heal without a deep sync.
-                        sync_poster_key(existing, row.get("ImageTags", {}).get("Primary") or "")
+                        # Art key + path ride along so posters/moved files self-heal without a deep
+                        # sync. Only touch the key when the row actually carried image info — an
+                        # absent ImageTags means "not reported", not "no poster", so never wipe on it.
+                        if "ImageTags" in row:
+                            sync_poster_key(existing, row["ImageTags"].get("Primary") or "")
                         new_path = apply_path_mappings(row.get("Path", ""), self.source)
                         if new_path and new_path != existing.file_path:
                             existing.file_path = new_path

@@ -12,7 +12,7 @@ from cinefin.api.services import trailer_service
 from cinefin.api.services.trailer_jobs import JobCancelled, JobContext
 from cinefin.api.services.trailer_service import TrailerCancelled, TrailerService
 from cinefin.api.sync.base import SyncCancelled
-from cinefin.api.sync.plugins.jellyfin import JellyfinSource
+from cinefin.api.sync.plugins.jellyfin import _PRESENCE_FIELDS, JellyfinSource
 from cinefin.api.sync.plugins.plex import PlexSource
 from cinefin.api.tests.factories import MovieFactory, TrailerFactory
 
@@ -366,8 +366,12 @@ def jellyfin_plugin(jellyfin_source, monkeypatch):
         "i2": jellyfin_detail("/films/delta.mkv", size=6_000),
     }
 
-    def _light(item):
-        return {k: item.get(k) for k in ("Id", "ProviderIds", "ImageTags", "Path")}
+    def _light(item, params):
+        row = {"Id": item.get("Id"), "ProviderIds": item.get("ProviderIds", {}), "Path": item.get("Path")}
+        # Real Jellyfin omits ImageTags when EnableImages is false (default true).
+        if params.get("EnableImages") is not False:
+            row["ImageTags"] = item.get("ImageTags", {})
+        return row
 
     def _changed_since(item, since_iso):
         since = JellyfinSource._parse_date(since_iso)
@@ -391,8 +395,8 @@ def jellyfin_plugin(jellyfin_source, monkeypatch):
             if params.get("Ids"):  # recovery by explicit ids → full items
                 wanted = set(params["Ids"].split(","))
                 return FakeResponse({"Items": [i for i in items if i["Id"] in wanted]})
-            if "EnableImages" in params:  # the light presence pass
-                rows = [_light(i) for i in items]
+            if params.get("Fields") == _PRESENCE_FIELDS:  # the light presence pass
+                rows = [_light(i, params) for i in items]
                 return FakeResponse({"Items": rows, "TotalRecordCount": len(rows)})
             selected = items
             if params.get("MinDateLastSaved"):  # the incremental delta
@@ -520,6 +524,22 @@ class TestJellyfinPlugin:
         assert counts["removed"] == 1
         assert not Movie.objects.filter(jellyfin_item_id="i2").exists()
         assert Movie.objects.filter(jellyfin_item_id="i1").exists()
+
+    def test_incremental_refreshes_poster_key_via_presence(self, jellyfin_plugin, jellyfin_source):
+        # Regression: the presence pass must receive ImageTags (not suppressed by
+        # EnableImages) so the poster-key self-heal refreshes rather than wipes it.
+        jellyfin_plugin.fake_items[0]["ImageTags"] = {"Primary": "tagA"}
+        jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        gamma = Movie.objects.get(tmdbid=601)
+        assert gamma.poster_key == "tagA"
+
+        # Art changes on the server; the film is otherwise unchanged since last sync,
+        # so only the presence pass sees it. The key must refresh, never blank out.
+        self._mark_synced(jellyfin_source)
+        jellyfin_plugin.fake_items[0]["ImageTags"] = {"Primary": "tagB"}
+        jellyfin_plugin.apply(RecordingCtx(), "sync", {})
+        gamma.refresh_from_db()
+        assert gamma.poster_key == "tagB"
 
     def test_incremental_recovers_present_but_missing_film(self, jellyfin_plugin, jellyfin_source):
         jellyfin_plugin.apply(RecordingCtx(), "sync", {})  # imports i1 + i2
