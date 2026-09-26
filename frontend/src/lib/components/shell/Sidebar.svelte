@@ -13,7 +13,6 @@
 		FolderOpen,
 		SquareTerminal,
 		Settings,
-		Activity,
 		Info,
 		LogOut,
 		PanelLeftClose,
@@ -75,8 +74,7 @@
 			label: 'System',
 			items: [
 				{ href: '/commands', label: 'Commands', icon: SquareTerminal },
-				{ href: '/settings', label: 'Settings', icon: Settings },
-				{ href: '/system', label: 'System', icon: Activity }
+				{ href: '/settings', label: 'Settings', icon: Settings }
 			]
 		}
 	];
@@ -178,28 +176,26 @@
 		{/each}
 	</nav>
 
-	<!-- Footer: running version (→ System page) and, when the auth gate is on,
-	     Log out. /logout/ is a plain Django view outside the SPA's base, so the
-	     link is a full navigation that lands on /login/. -->
+	<!-- Footer: running version, and — when the auth gate is on — Log out.
+	     /logout/ is a plain Django view outside the SPA's base, so the link is a
+	     full navigation that lands on /login/. -->
 	<div
 		class="flex border-t border-border text-xs {display.rail
 			? 'flex-col items-stretch'
 			: 'h-9 items-center gap-3 px-4'}"
 	>
-		<a
-			href="{base}/system"
-			class="flex items-center gap-1.5 text-faint hover:text-text {display.rail
+		<div
+			class="flex items-center gap-1.5 text-faint {display.rail
 				? 'h-9 justify-center'
 				: 'min-w-0 flex-1'}"
-			title={display.rail ? versionLabel : `${versionLabel} - system status`}
-			onclick={() => (open = false)}
+			title={versionLabel}
 		>
 			{#if display.rail}
 				<Info size={16} />
 			{:else}
 				<span class="truncate font-mono">{versionLabel}</span>
 			{/if}
-		</a>
+		</div>
 		{#if session.authActive}
 			<a
 				href="/logout/"
