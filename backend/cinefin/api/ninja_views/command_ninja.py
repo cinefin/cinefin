@@ -309,9 +309,28 @@ def _result_response(message: str, result: command_runner.CommandResult) -> Stat
     )
 
 
+def _ensure_system_commands() -> None:
+    """Keep the built-in 'system' commands present in the list so the operator never has
+    to create them — recreating any they deleted, derived from the provider's own actions.
+    No-op when the provider isn't loaded (e.g. tests with a temporary plugins dir)."""
+    from cinefin import plugins
+
+    provider = plugins.get_provider("system")
+    if provider is None:
+        return
+    action_field = next((f for f in provider.fields if f.key == "action"), None)
+    if action_field is None:
+        return
+    existing = set(Command.objects.filter(provider="system").values_list("config__action", flat=True))
+    for action in action_field.choices:
+        if action not in existing:
+            Command.objects.create(name=action, provider="system", config={"action": action})
+
+
 @command_api.get("/list", response={200: CommandListResponseSchema, 500: ErrorResponseSchema})
 def list_commands(request: HttpRequest, filters: CommandListFilters = Query(...)):
     """List all commands with optional filtering."""
+    _ensure_system_commands()
     commands = Command.objects.all().order_by("name")
 
     if filters.type:

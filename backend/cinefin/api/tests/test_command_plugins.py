@@ -425,3 +425,24 @@ class TestSystemProvider:
         monkeypatch.setattr(playout_agent_service, "restart_mpv", boom)
         ok, message, detail = plugins.get_provider("system").run({"action": "Restart the player"}, {})
         assert ok is False and message == "action failed" and "agent unreachable" in detail
+
+
+class TestSystemCommandSeeding:
+    """The system commands appear in the list on their own (no operator action, no migration)."""
+
+    def test_they_appear_and_are_list_only(self, client):
+        by_name = {c["name"]: c for c in client.get("/api/v2/commands/list").json()["data"]["commands"]}
+        assert "Restart the player" in by_name and "Reset to the idle ident" in by_name
+        assert by_name["Restart the player"]["provider"] == "system"
+        assert by_name["Restart the player"]["show_on_remote"] is False  # list only, not on the remote
+
+    def test_not_duplicated_across_loads(self, client):
+        client.get("/api/v2/commands/list")
+        client.get("/api/v2/commands/list")
+        assert Command.objects.filter(provider="system").count() == 2
+
+    def test_a_deleted_system_command_reappears(self, client):
+        client.get("/api/v2/commands/list")
+        Command.objects.get(provider="system", config__action="Restart the player").delete()
+        client.get("/api/v2/commands/list")
+        assert Command.objects.filter(provider="system", config__action="Restart the player").exists()
