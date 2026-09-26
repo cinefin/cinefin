@@ -64,6 +64,10 @@
 	let adminPasswordConfirm = $state('');
 	let telemetryEnabled = $state(false);
 	let step1Error = $state('');
+	// True once setup is finalised (POST /installer/complete). Re-submitting
+	// step 1 after that must NOT call /complete again (it 400s) — persist the
+	// editable fields via /settings and move on.
+	let finalized = $state(false);
 
 	let completing = $state(false); // step 1 finalise (POST /installer/complete)
 
@@ -129,6 +133,7 @@
 			// Offline status check — just show the form.
 		}
 
+		finalized = configured;
 		// Setup already done: normally leave, but honour an in-progress
 		// post-finalise step so a reload/closed browser doesn't lose it.
 		if (configured) {
@@ -173,7 +178,33 @@
 			step1Error = 'Passwords do not match';
 			return;
 		}
-		void finalizeSetup();
+		// Already finalised (came Back to step 1)? /complete would 400 — just
+		// persist the editable fields and continue.
+		void (finalized ? saveStep1AndContinue() : finalizeSetup());
+	}
+
+	// Re-visited step 1: name/ratings/telemetry go through the regular settings
+	// endpoint (the session is authenticated post-finalise); the admin password
+	// can't be changed here.
+	async function saveStep1AndContinue() {
+		step1Error = '';
+		completing = true;
+		try {
+			await mutate(
+				api.POST('/api/v2/settings/', {
+					body: {
+						cinema_name: cinemaName.trim(),
+						ratings_system: ratingsSystem,
+						telemetry_enabled: telemetryEnabled
+					}
+				})
+			);
+			goStep(2);
+		} catch (e) {
+			step1Error = errorMessage(e, 'Could not save changes. Please try again.');
+		} finally {
+			completing = false;
+		}
 	}
 
 	// End of step 1: one atomic POST /installer/complete that creates the
@@ -204,6 +235,7 @@
 			const result = await api.POST('/api/v2/installer/complete', { body });
 			if (result.error !== undefined || !result.data)
 				throw toApiError(result.error, result.response);
+			finalized = true;
 			goStep(2);
 		} catch (e) {
 			step1Error = errorMessage(e, 'Setup failed. Please try again.');
