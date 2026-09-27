@@ -262,38 +262,6 @@ def _check_sync_sources():
     return _check("sync_sources", "Sync sources", worst, detail, hint, action)
 
 
-# newest local paths per media model to spot-check; bounded for speed
-_MEDIA_FILE_SAMPLE = 250
-
-
-def _check_media_files():
-    from cinefin.api.models import Bumper, Movie
-
-    sampled = []
-    for model in (Movie, Bumper):
-        rows = (
-            model.objects.exclude(file_path="").order_by("-id").values_list("title", "file_path")[:_MEDIA_FILE_SAMPLE]
-        )
-        # Streaming URLs play over HTTP — there is no file on disk to check.
-        sampled.extend((t, p) for t, p in rows if not p.startswith(("http://", "https://")))
-
-    if not sampled:
-        return _check("media_files", "Media files", "info", "No local media file paths to check")
-
-    missing = [t for t, p in sampled if not os.path.exists(p)]
-    if not missing:
-        return _check("media_files", "Media files", "ok", f"All {len(sampled)} checked file paths exist on disk")
-    names = ", ".join(missing[:3]) + (f" (+{len(missing) - 3} more)" if len(missing) > 3 else "")
-    return _check(
-        "media_files",
-        "Media files",
-        "warn",
-        f"{len(missing)} of {len(sampled)} checked files are missing on disk: {names}",
-        "Files may have moved or a mount is absent — check the source's path mappings.",
-        action={"label": "Open the sync page", "href": "/app/sync"},
-    )
-
-
 _CHECKS = (
     _check_version,
     _check_mpv,
@@ -306,7 +274,6 @@ _CHECKS = (
     _check_auth,
     _check_ratings,
     _check_sync_sources,
-    _check_media_files,
 )
 
 # labels keyed by function name, so a raising check still reports a sensible one
@@ -322,7 +289,6 @@ _CHECK_LABELS = {
     "_check_auth": ("auth", "Authentication"),
     "_check_ratings": ("ratings", "Certificate lookups"),
     "_check_sync_sources": ("sync_sources", "Sync sources"),
-    "_check_media_files": ("media_files", "Media files"),
 }
 
 
