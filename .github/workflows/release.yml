@@ -31,6 +31,12 @@ on:
       - "scripts/**"
   workflow_dispatch:
 
+# A newer push to main supersedes an in-flight build, so racing runs can't leave
+# `edge` on an older commit. Tags are distinct refs, so releases never cancel.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
