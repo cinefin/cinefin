@@ -13,7 +13,6 @@
 		Ticket,
 		Tv
 	} from '@lucide/svelte';
-	import type { Component } from 'svelte';
 	import type { LucideIcon } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
@@ -87,6 +86,7 @@
 	const ALL_SECTIONS = NAV.flatMap((g) => g.items.map((i) => i.id));
 
 	const initialTab = page.url.searchParams.get('tab');
+	let ticketsTab = $state<'designs' | 'printer'>('designs');
 	let section = $state<Section>(
 		ALL_SECTIONS.includes(initialTab as Section) ? (initialTab as Section) : 'playout'
 	);
@@ -105,11 +105,12 @@
 		},
 		cinema: {
 			title: 'Theater',
-			blurb: "Your theater's identity and the certification cards shown before features."
+			blurb:
+				"Your theater's identity and seating, and the certification cards shown before features."
 		},
 		tickets: {
 			title: 'Tickets',
-			blurb: 'Auditorium size, the thermal printer, and reusable ticket designs.'
+			blurb: 'Ticket designs and the thermal printer they print on.'
 		},
 		kiosk: {
 			title: 'Kiosk display',
@@ -229,7 +230,7 @@
 			{:else if section === 'cinema'}
 				<CinemaSection {store} />
 			{:else if section === 'tickets'}
-				<TicketsSection {store} {confirm} />
+				<TicketsSection {store} {confirm} bind:tab={ticketsTab} />
 			{:else if section === 'kiosk'}
 				<KioskSection {store} />
 			{:else if section === 'library'}
@@ -246,28 +247,31 @@
 		</div>
 	</div>
 
-	<div
-		class="fixed right-0 bottom-0 left-0 z-20 border-t border-border bg-surface-1 {display.rail
-			? 'md:left-14'
-			: 'md:left-56'}"
-	>
-		<div class="flex items-center gap-2 px-4 py-2.5">
-			<Button variant="danger" onclick={reset}>
-				<RotateCcw size={14} /> Reset to defaults
-			</Button>
-			<span class="flex-1"></span>
-			{#if store.dirtyCount}
-				<span class="text-xs text-warning">
-					{store.dirtyCount} unsaved change{store.dirtyCount === 1 ? '' : 's'}
-				</span>
-			{/if}
-			<Button disabled={!store.dirtyCount || store.saving} onclick={discard}>
-				Discard changes
-			</Button>
-			<Button variant="primary" disabled={store.saving} onclick={save}>
-				<Check size={14} />
-				{store.saving ? 'Saving…' : 'Save changes'}
-			</Button>
+	<!-- The ticket designer auto-saves, so there is no Save bar to confuse it with. -->
+	{#if !(section === 'tickets' && ticketsTab === 'designs')}
+		<div
+			class="fixed right-0 bottom-0 left-0 z-20 border-t border-border bg-surface-1 {display.rail
+				? 'md:left-14'
+				: 'md:left-56'}"
+		>
+			<div class="flex items-center gap-2 px-4 py-2.5">
+				<Button variant="danger" onclick={reset}>
+					<RotateCcw size={14} /> Reset to defaults
+				</Button>
+				<span class="flex-1"></span>
+				{#if store.dirtyCount}
+					<span class="text-xs text-warning">
+						{store.dirtyCount} unsaved change{store.dirtyCount === 1 ? '' : 's'}
+					</span>
+				{/if}
+				<Button disabled={!store.dirtyCount || store.saving} onclick={discard}>
+					Discard changes
+				</Button>
+				<Button variant="primary" disabled={store.saving} onclick={save}>
+					<Check size={14} />
+					{store.saving ? 'Saving…' : 'Save changes'}
+				</Button>
+			</div>
 		</div>
-	</div>
+	{/if}
 {/if}

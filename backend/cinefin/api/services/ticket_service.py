@@ -316,12 +316,13 @@ def programme_features(programme) -> list[dict]:
 
 
 def render_ticket_ops(elements, ctx: dict) -> list[dict]:
-    """Design elements + context -> the dict ops shared by print and preview. rule/spacer expand to text; blank text is skipped."""
+    """Design elements + context -> the dict ops shared by print and preview. rule/spacer expand to text; blank text is skipped.
+    Each op carries `element` (its element's index) so the preview can map a line back to what made it."""
     tokens = {k: (ctx.get(k) or "") for k in DESIGN_TOKENS}
     ops: list[dict] = []
-    for el in elements or []:
+    for index, el in enumerate(elements or []):
         t = el.get("type")
-        style = _style_of(el)
+        style = {**_style_of(el), "element": index}
         if t == "text":
             value = _substitute_tokens(el.get("content", ""), tokens)
             if value.strip():
@@ -329,7 +330,7 @@ def render_ticket_ops(elements, ctx: dict) -> list[dict]:
         elif t == "rule":
             ops.append({"op": "text", "value": RULE, **style})
         elif t == "spacer":
-            ops.append({"op": "text", "value": "\n" * int(el.get("lines", 1) or 1)})
+            ops.append({"op": "text", "value": "\n" * int(el.get("lines", 1) or 1), "element": index})
         elif t == "image":
             path = _ticket_image_path(el)
             if path:
@@ -560,7 +561,7 @@ def preview_ticket_ops(elements, ctx: dict, *, width: int | None = None) -> tupl
     """JSON-safe styled-preview ops (+ printable width). Uses the print path's scaling math; images served via /tickets/preview/asset (bundled symbols aren't web-reachable)."""
     if width not in PRINTER_PROFILES:
         width = paper_width()
-    style_keys = ("align", "size", "bold", "invert")
+    style_keys = ("align", "size", "bold", "invert", "element")
     result: list[dict] = []
     for op in render_ticket_ops(elements, ctx):
         kind = op["op"]

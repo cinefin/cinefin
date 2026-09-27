@@ -169,6 +169,17 @@ export class SettingsStore {
 		});
 	}
 
+	/** Save a few fields at once, outside the page's Save bar (for surfaces that auto-save, like the
+	 *  ticket designer), and fold them into the baseline so they never show as unsaved changes. */
+	async saveFields(fields: Partial<MainDraft>, body: Record<string, unknown>): Promise<void> {
+		await mutate(api.POST('/api/v2/settings/', { body }));
+		Object.assign(this.main, fields);
+		if (!this.#baseline) return;
+		const base = JSON.parse(this.#baseline);
+		Object.assign(base.m, $state.snapshot(fields));
+		this.#baseline = JSON.stringify(base);
+	}
+
 	get dirtyKeys(): string[] {
 		if (!this.#baseline) return [];
 		const base = JSON.parse(this.#baseline) as {

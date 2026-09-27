@@ -134,6 +134,33 @@
 				<option value="MPAA">MPAA (US - G, PG, PG-13, R, NC-17)</option>
 			</Select>
 		</Field>
+		<div class="grid gap-4 sm:grid-cols-3">
+			<Field
+				label="Rows"
+				forId="set-rows"
+				hint="Lettered A-Z, max 26."
+				dirty={store.isDirty('ticket_total_rows')}
+				error={store.errorFor('ticket_total_rows')}
+			>
+				<Input id="set-rows" type="number" bind:value={store.main.ticket_total_rows} />
+			</Field>
+			<Field
+				label="Seats per row"
+				forId="set-seats"
+				dirty={store.isDirty('ticket_seats_per_row')}
+				error={store.errorFor('ticket_seats_per_row')}
+			>
+				<Input id="set-seats" type="number" bind:value={store.main.ticket_seats_per_row} />
+			</Field>
+			<Field label="Seats" hint="Tickets are allocated from these.">
+				<div class="flex h-9 items-center font-mono text-lg">
+					{(
+						(parseInt(store.main.ticket_total_rows, 10) || 0) *
+						(parseInt(store.main.ticket_seats_per_row, 10) || 0)
+					).toLocaleString()}
+				</div>
+			</Field>
+		</div>
 	</div>
 {:else if tab === 'cards'}
 	<div

@@ -1,10 +1,9 @@
 <script lang="ts">
-	import { Image, Plug, Plus, Receipt, RotateCcw, X } from '@lucide/svelte';
+	import { Plug, Receipt, RotateCcw } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { raw, type SettingsStore } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
-	import type { components } from '$lib/api/types.gen';
 	import type { CheckState } from '$lib/settings/types';
 
 	import Button from '$lib/components/ui/Button.svelte';
@@ -15,27 +14,20 @@
 	import CheckResult from './CheckResult.svelte';
 	import Field from './Field.svelte';
 	import TicketDesigner from './TicketDesigner.svelte';
-	import ImageLibrary from '$lib/components/ImageLibrary.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
+	// The Designs tab auto-saves; the page hides its Save bar there (bind `tab`).
 	interface Props {
 		store: SettingsStore;
 		confirm: ConfirmDialog['confirm'];
+		tab?: 'designs' | 'printer';
 	}
-	let { store, confirm }: Props = $props();
+	let { store, confirm, tab = $bindable('designs') }: Props = $props();
 
-	type Tab = 'boxoffice' | 'printer' | 'designs';
-	let tab = $state<Tab>('boxoffice');
-	const TABS: { id: Tab; label: string }[] = [
-		{ id: 'boxoffice', label: 'Box office' },
-		{ id: 'printer', label: 'Printer' },
-		{ id: 'designs', label: 'Designs' }
+	const TABS = [
+		{ id: 'designs', label: 'Designs' },
+		{ id: 'printer', label: 'Printer' }
 	];
-
-	const totalSeats = $derived(
-		(parseInt(store.main.ticket_total_rows, 10) || 0) *
-			(parseInt(store.main.ticket_seats_per_row, 10) || 0)
-	);
 
 	let printerResult = $state<CheckState>(null);
 	let printerBusy = $state(false);
@@ -87,13 +79,6 @@
 			printerBusy = false;
 		}
 	}
-
-	function addQrLink() {
-		store.main.ticket_qr_fun_links = [...store.main.ticket_qr_fun_links, ''];
-	}
-	function removeQrLink(i: number) {
-		store.main.ticket_qr_fun_links = store.main.ticket_qr_fun_links.filter((_, x) => x !== i);
-	}
 </script>
 
 <div class="space-y-4">
@@ -104,104 +89,7 @@
 		label="Ticket sections"
 	/>
 
-	{#if tab === 'boxoffice'}
-		<Card title="Auditorium">
-			<div class="grid max-w-xl gap-4 sm:grid-cols-3">
-				<Field
-					label="Rows"
-					forId="set-rows"
-					hint="Lettered A-Z, max 26."
-					dirty={store.isDirty('ticket_total_rows')}
-					error={store.errorFor('ticket_total_rows')}
-				>
-					<Input id="set-rows" type="number" bind:value={store.main.ticket_total_rows} />
-				</Field>
-				<Field
-					label="Seats per row"
-					forId="set-seats"
-					dirty={store.isDirty('ticket_seats_per_row')}
-					error={store.errorFor('ticket_seats_per_row')}
-				>
-					<Input id="set-seats" type="number" bind:value={store.main.ticket_seats_per_row} />
-				</Field>
-				<Field label="Total seats">
-					<div class="flex h-9 items-center font-mono text-lg">{totalSeats.toLocaleString()}</div>
-				</Field>
-			</div>
-		</Card>
-
-		<Card title="Images">
-			<Field
-				label="Image library"
-				hint="Images a ticket design's image element can print - pick them in the design editor."
-			>
-				<ImageLibrary library="tickets" />
-			</Field>
-		</Card>
-
-		<Card title="Ticket defaults">
-			<div class="grid max-w-xl gap-4 sm:grid-cols-2">
-				<Field
-					label="Date format"
-					forId="set-date-format"
-					dirty={store.isDirty('ticket_date_format')}
-					error={store.errorFor('ticket_date_format')}
-				>
-					<Select id="set-date-format" bind:value={store.main.ticket_date_format} class="w-full">
-						<option value="%d/%m/%Y">31/12/2026</option>
-						<option value="%m/%d/%Y">12/31/2026</option>
-						<option value="%Y-%m-%d">2026-12-31</option>
-						<option value="%a %d %b %Y">Thu 31 Dec 2026</option>
-					</Select>
-				</Field>
-				<Field
-					label="Time format"
-					forId="set-time-format"
-					hint="Used by the {'{date}'} / {'{time}'} tokens."
-					dirty={store.isDirty('ticket_time_format')}
-					error={store.errorFor('ticket_time_format')}
-				>
-					<Select id="set-time-format" bind:value={store.main.ticket_time_format} class="w-full">
-						<option value="%H:%M">19:30</option>
-						<option value="%I:%M %p">07:30 PM</option>
-					</Select>
-				</Field>
-			</div>
-
-			<div class="mt-4">
-				<Field
-					label="Surprise QR links"
-					hint={'Used by any QR element in "Surprise link" mode - one is picked at random per ticket. http(s) URLs; up to 50.'}
-					dirty={store.isDirty('ticket_qr_fun_links')}
-					error={store.errorFor('ticket_qr_fun_links')}
-				>
-					{#if !store.main.ticket_qr_fun_links.length}
-						<p class="mb-2 text-sm text-muted">
-							No links - surprise QR elements will print nothing
-						</p>
-					{:else}
-						<div class="mb-2 max-w-xl space-y-1.5">
-							{#each store.main.ticket_qr_fun_links as _, i (i)}
-								<div class="flex items-center gap-2">
-									<Input bind:value={store.main.ticket_qr_fun_links[i]} placeholder="https://…" />
-									<button
-										type="button"
-										class="shrink-0 rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-danger"
-										title="Remove link"
-										aria-label="Remove link"
-										onclick={() => removeQrLink(i)}
-									>
-										<X size={14} />
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
-					<Button size="sm" onclick={addQrLink}><Plus size={13} /> Add link</Button>
-				</Field>
-			</div>
-		</Card>
-	{:else if tab === 'printer'}
+	{#if tab === 'printer'}
 		<Card title="Printer">
 			<div class="grid max-w-xl gap-4 sm:grid-cols-2">
 				<Field
@@ -345,8 +233,6 @@
 			</div>
 		</Card>
 	{:else}
-		<Card title="Ticket design">
-			<TicketDesigner {confirm} />
-		</Card>
+		<TicketDesigner {store} {confirm} />
 	{/if}
 </div>

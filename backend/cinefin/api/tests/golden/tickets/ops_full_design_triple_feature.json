@@ -2,6 +2,7 @@
   {
     "align": "center",
     "bold": false,
+    "element": 0,
     "file": "logo.png",
     "invert": false,
     "op": "image",
@@ -11,6 +12,7 @@
   {
     "align": "center",
     "bold": true,
+    "element": 1,
     "invert": false,
     "op": "text",
     "size": "large",
@@ -19,6 +21,7 @@
   {
     "align": "center",
     "bold": false,
+    "element": 2,
     "invert": false,
     "op": "text",
     "size": "normal",
@@ -27,6 +30,7 @@
   {
     "align": "center",
     "bold": false,
+    "element": 3,
     "invert": true,
     "op": "text",
     "size": "normal",
@@ -35,6 +39,7 @@
   {
     "align": "center",
     "bold": true,
+    "element": 4,
     "invert": false,
     "op": "text",
     "size": "wide",
@@ -43,6 +48,7 @@
   {
     "align": "left",
     "bold": false,
+    "element": 6,
     "invert": false,
     "op": "text",
     "size": "normal",
@@ -51,6 +57,7 @@
   {
     "align": "center",
     "bold": false,
+    "element": 7,
     "invert": false,
     "op": "rating",
     "path": "<ASSETS>/ratings/BBFC/pos/15.png",
@@ -60,6 +67,7 @@
   {
     "align": "right",
     "bold": false,
+    "element": 8,
     "invert": false,
     "op": "text",
     "size": "tall",
@@ -68,6 +76,7 @@
   {
     "align": "center",
     "bold": false,
+    "element": 9,
     "invert": false,
     "op": "text",
     "size": "normal",
@@ -76,12 +85,14 @@
   {
     "align": "center",
     "bold": false,
+    "element": 10,
     "invert": false,
     "op": "text",
     "size": "normal",
     "value": "Show: \n"
   },
   {
+    "element": 11,
     "op": "text",
     "value": "\n\n"
   },
@@ -89,6 +100,7 @@
     "align": "center",
     "bold": false,
     "data": "T202",
+    "element": 12,
     "invert": false,
     "op": "barcode",
     "size": "normal"
@@ -97,6 +109,7 @@
     "align": "center",
     "bold": false,
     "data": "https://tickets.example/check/202",
+    "element": 13,
     "invert": false,
     "op": "qr",
     "size": 4
@@ -105,6 +118,7 @@
     "align": "center",
     "bold": false,
     "data": "https://cinefin.example/fun",
+    "element": 14,
     "invert": false,
     "op": "qr",
     "size": 6
@@ -112,6 +126,7 @@
   {
     "align": "center",
     "bold": false,
+    "element": 15,
     "invert": false,
     "op": "text",
     "size": "normal",
@@ -120,6 +135,7 @@
   {
     "align": "left",
     "bold": false,
+    "element": 16,
     "invert": false,
     "op": "text",
     "size": "normal",

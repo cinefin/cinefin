@@ -30,6 +30,8 @@ export interface TicketOpStyle {
 	size?: string;
 	bold?: boolean;
 	invert?: boolean;
+	/** Index of the design element that produced this op. */
+	element?: number;
 }
 export type TicketPreviewOp =
 	| ({ type: 'text'; value: string } & TicketOpStyle)

@@ -1,5 +1,7 @@
 <script lang="ts">
-	import ImageLibrary from '$lib/components/ImageLibrary.svelte';
+	// Ticket designs: pick a design, edit its elements (select one in the list or by clicking its
+	// line in the receipt preview), and the design-wide formats and surprise links. Everything
+	// here saves automatically — the settings page hides its Save bar on this tab.
 	import {
 		ArrowUpDown,
 		Barcode,
@@ -7,6 +9,7 @@
 		ChevronDown,
 		ChevronUp,
 		Copy,
+		Ellipsis,
 		Image,
 		Minus,
 		Plus,
@@ -18,21 +21,23 @@
 	} from '@lucide/svelte';
 	import type { LucideIcon } from '@lucide/svelte';
 	import { api } from '$lib/api/client';
-	import { raw } from '$lib/settings/form.svelte';
+	import { raw, type SettingsStore } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
-	import type { components } from '$lib/api/types.gen';
 	import type { TicketDesignMeta, TicketElement, TicketPreviewOp } from '$lib/settings/types';
-
-	import Button from '$lib/components/ui/Button.svelte';
+	import Card from '$lib/components/ui/Card.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
+	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import ImageLibrary from '$lib/components/ImageLibrary.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import Disclosure from './Disclosure.svelte';
 
 	interface Props {
+		store: SettingsStore;
 		confirm: ConfirmDialog['confirm'];
 	}
-	let { confirm }: Props = $props();
+	let { store, confirm }: Props = $props();
 
 	interface DesignSummary {
 		id: number;
@@ -98,13 +103,6 @@
 	let loading = $state(true);
 	let selectValue = $state('');
 	let designName = $state('');
-	let addOpen = $state(false);
-	let previewTab = $state<'styled' | 'text'>('styled');
-
-	let addWrap: HTMLDivElement | undefined = $state();
-	function onWindowClick(e: MouseEvent) {
-		if (addOpen && addWrap && !addWrap.contains(e.target as Node)) addOpen = false;
-	}
 
 	let savePending: ReturnType<typeof setTimeout> | null = null;
 	let previewPending: ReturnType<typeof setTimeout> | null = null;
@@ -160,10 +158,6 @@
 		schedulePreview();
 	}
 
-	function selectRow(i: number) {
-		selected = selected === i ? -1 : i;
-	}
-
 	function move(i: number, delta: number) {
 		if (!current) return;
 		const els = current.elements;
@@ -192,7 +186,6 @@
 
 	function add(el: TicketElement) {
 		if (!current) return;
-		addOpen = false;
 		const at = selected >= 0 ? selected + 1 : current.elements.length;
 		current.elements.splice(at, 0, el);
 		selected = at;
@@ -244,7 +237,6 @@
 		}
 	}
 
-	let previewLines = $state<string[]>([]);
 	let previewOps = $state<TicketPreviewOp[]>([]);
 	let paperWidth = $state(384);
 	let previewReady = $state(false);
@@ -262,7 +254,6 @@
 					body: { elements: $state.snapshot(current.elements) }
 				})
 			);
-			previewLines = data.data.lines ?? [];
 			previewOps = (data.data.ops ?? []) as unknown as TicketPreviewOp[];
 			paperWidth = data.data.paper_width ?? 384;
 			previewReady = true;
@@ -356,26 +347,77 @@
 		}
 	}
 
+	// The selected element's editor fields.
+	const val = (e: Event) => (e.currentTarget as HTMLInputElement).value;
+	const checked = (e: Event) => (e.currentTarget as HTMLInputElement).checked;
+	function patch(key: string, value: unknown) {
+		const target = current?.elements[selected] as Record<string, unknown> | undefined;
+		if (!target) return;
+		target[key] = value;
+		commit();
+	}
+
 	const alignments = $derived(meta?.alignments ?? ['center', 'left', 'right']);
 	const sizes = $derived(meta?.sizes ?? ['normal', 'wide', 'tall', 'large']);
 	const ratingScales = $derived(meta?.rating_scales ?? ['small', 'medium', 'large']);
 	const tokens = $derived(meta?.tokens ?? []);
 
+	const addItems: MenuItem[] = PRESETS.map((p) => ({
+		label: p.label,
+		icon: p.icon,
+		onclick: () => add(p.make())
+	}));
+	const designItems = $derived<MenuItem[]>([
+		{ label: 'New design', icon: Plus, onclick: () => void newDesign() },
+		{ label: 'Duplicate', icon: Copy, onclick: () => void duplicate() },
+		{
+			label: 'Set as default',
+			icon: Star,
+			disabled: !!current?.is_default,
+			onclick: () => void setDefault()
+		},
+		{ separator: true },
+		{
+			label: 'Delete',
+			icon: Trash2,
+			danger: true,
+			disabled: designs.length <= 1,
+			onclick: () => void deleteCurrent()
+		}
+	]);
+
+	// Design-wide settings — saved straight away, like the designs.
+	async function saveFields(fields: Parameters<SettingsStore['saveFields']>[0]) {
+		try {
+			await store.saveFields(fields, fields);
+			schedulePreview();
+		} catch (e) {
+			showToast(e instanceof Error ? e.message : 'Could not save', 'error');
+		}
+	}
+	const linkLines = (text: string) =>
+		text
+			.split('\n')
+			.map((l) => l.trim())
+			.filter(Boolean);
+
 	const cfgLabelCls = 'mb-1 block text-xs font-medium text-muted';
 	const cfgInputCls =
 		'w-full rounded-md border border-border-strong bg-surface-2 px-2 py-1.5 text-sm text-text focus:border-accent-dim';
+	const iconBtn =
+		'rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30';
 </script>
-
-<svelte:window onclick={onWindowClick} />
 
 {#if loading}
 	<Spinner label="Loading ticket designs…" />
 {:else if !current}
 	<p class="text-sm text-muted">No ticket designs could be loaded.</p>
-	<Button size="sm" class="mt-2" onclick={() => void loadDesigns()}>Try again</Button>
 {:else}
-	<div class="mb-3 flex flex-wrap items-center gap-2">
+	{@const el = current.elements[selected]}
+	<div class="mb-4 flex flex-wrap items-center gap-2">
+		<label for="td-design" class="sr-only">Design</label>
 		<Select
+			id="td-design"
 			bind:value={selectValue}
 			onchange={() => void selectDesign(parseInt(selectValue, 10))}
 			class="min-w-44"
@@ -384,386 +426,350 @@
 				<option value={String(d.id)}>{d.name}{d.is_default ? ' (default)' : ''}</option>
 			{/each}
 		</Select>
-		<Button size="sm" onclick={newDesign}><Plus size={13} /> New</Button>
-		<Button size="sm" onclick={duplicate}><Copy size={13} /> Duplicate</Button>
-		<Button size="sm" disabled={current.is_default} onclick={setDefault}>
-			<Star size={13} /> Set default
-		</Button>
-		<Button size="sm" variant="danger" disabled={designs.length <= 1} onclick={deleteCurrent}>
-			<Trash2 size={13} /> Delete
-		</Button>
-	</div>
-
-	<div class="mb-4 flex flex-wrap items-center gap-2">
-		<label class="text-xs font-medium text-muted" for="td-name">Name</label>
+		<label for="td-name" class="sr-only">Design name</label>
 		<Input
 			id="td-name"
 			bind:value={designName}
 			oninput={scheduleSave}
 			placeholder="Design name"
-			class="max-w-64"
+			class="max-w-56"
 		/>
 		{#if current.is_default}
-			<span
-				class="flex items-center gap-1 rounded-sm bg-accent/15 px-1.5 py-0.5 text-[0.7rem] font-medium text-accent"
-			>
-				<Star size={11} /> Default
-			</span>
+			<span class="flex items-center gap-1 text-xs text-accent"><Star size={12} /> Default</span>
 		{/if}
-		<span class="text-xs text-faint">
-			Changes save automatically. Assign a design to a programme from its box-office panel.
+		<Menu
+			items={designItems}
+			icon={Ellipsis}
+			variant="ghost"
+			size="sm"
+			ariaLabel="Design actions"
+		/>
+		<span class="ml-auto text-xs text-faint">
+			Saves automatically · a programme picks its design from its box-office panel
 		</span>
 	</div>
 
-	<div class="grid gap-4 lg:grid-cols-2">
-		<div>
-			<div class="mb-2 flex items-center justify-between">
-				<h3 class="text-xs font-medium text-muted">
-					Elements <span class="font-sans font-normal normal-case">- click to edit</span>
-				</h3>
-				<div class="relative" bind:this={addWrap}>
-					<Button size="sm" onclick={() => (addOpen = !addOpen)}><Plus size={13} /> Add</Button>
-					{#if addOpen}
-						<div
-							class="absolute right-0 z-10 mt-1 w-44 rounded-md border border-border-strong bg-surface-1 py-1"
-						>
-							{#each PRESETS as p (p.label)}
+	<div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto]">
+		<div class="min-w-0 space-y-4">
+			<Card title="Elements">
+				{#snippet actions()}
+					<Menu items={addItems} label="Add" icon={Plus} size="sm" align="right" />
+				{/snippet}
+				{#if !current.elements.length}
+					<p class="text-sm text-muted">No elements yet — add one.</p>
+				{:else}
+					<!-- Keyed by element identity (not index) so a move reorders real rows. -->
+					<ul class="-mx-4 -my-2 divide-y divide-border">
+						{#each current.elements as item, i (item)}
+							{@const Icon = ICONS[item.type] ?? Type}
+							<li
+								class="flex items-center gap-0.5 px-2 py-1 {i === selected ? 'bg-surface-2' : ''}"
+							>
 								<button
 									type="button"
-									class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-surface-2"
-									onclick={() => add(p.make())}
+									class="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-sm"
+									aria-pressed={i === selected}
+									onclick={() => (selected = i)}
 								>
-									<p.icon size={14} class="text-muted" />
-									{p.label}
+									<Icon size={14} class="shrink-0 text-muted" />
+									<span class="truncate">{elementLabel(item)}</span>
 								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			</div>
+								<button
+									type="button"
+									class={iconBtn}
+									aria-label="Move up"
+									data-move="{i}:-1"
+									disabled={i === 0}
+									onclick={() => move(i, -1)}><ChevronUp size={14} /></button
+								>
+								<button
+									type="button"
+									class={iconBtn}
+									aria-label="Move down"
+									data-move="{i}:1"
+									disabled={i === current.elements.length - 1}
+									onclick={() => move(i, 1)}><ChevronDown size={14} /></button
+								>
+								<button
+									type="button"
+									class="{iconBtn} hover:text-danger"
+									aria-label="Remove"
+									onclick={() => remove(i)}><X size={14} /></button
+								>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</Card>
 
-			{#if !current.elements.length}
-				<p class="rounded-md border border-border px-3 py-4 text-sm text-muted">
-					No elements yet - add one.
-				</p>
-			{:else}
-				<!-- Keyed by element identity (not index) so a move reorders real rows. -->
-				<ul class="space-y-1">
-					{#each current.elements as el, i (el)}
-						{@const open = i === selected}
-						{@const RowIcon = ICONS[el.type] ?? Type}
-						<li
-							class="rounded-md border {open
-								? 'border-border-strong bg-surface-2'
-								: 'border-border'}"
-						>
-							<div class="flex items-center gap-2 px-2.5 py-1.5">
-								<button
-									type="button"
-									class="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
-									onclick={() => selectRow(i)}
+			{#if el}
+				<Card title={elementLabel(el)}>
+					<div class="space-y-3">
+						{#if el.type === 'text'}
+							<label class="block">
+								<span class={cfgLabelCls}>Content</span>
+								<textarea
+									id="td-content-input"
+									rows="2"
+									class="{cfgInputCls} font-mono"
+									value={el.content ?? ''}
+									oninput={(e) => patch('content', val(e))}></textarea>
+							</label>
+						{:else if el.type === 'barcode'}
+							<label class="block">
+								<span class={cfgLabelCls}>Content</span>
+								<input
+									id="td-content-input"
+									type="text"
+									class="{cfgInputCls} font-mono"
+									value={el.content ?? ''}
+									oninput={(e) => patch('content', val(e))}
+								/>
+							</label>
+						{:else if el.type === 'rating'}
+							<label class="block max-w-40">
+								<span class={cfgLabelCls}>Size</span>
+								<select
+									class={cfgInputCls}
+									value={el.scale ?? 'medium'}
+									onchange={(e) => patch('scale', val(e))}
 								>
-									<RowIcon size={14} class="shrink-0 text-muted" />
-									<span class="min-w-0 truncate">{elementLabel(el)}</span>
-								</button>
-								<span class="flex shrink-0 items-center gap-0.5">
-									<button
-										type="button"
-										class="rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:opacity-30"
-										title="Move up"
-										data-move="{i}:-1"
-										disabled={i === 0}
-										onclick={() => move(i, -1)}
+									{#each ratingScales as s (s)}
+										<option value={s}>{s}</option>
+									{/each}
+								</select>
+							</label>
+							<p class="text-xs text-faint">
+								The programme's certificate - the most restrictive among its features.
+							</p>
+						{:else if el.type === 'qr'}
+							<div class="flex flex-wrap gap-3">
+								<label class="block max-w-44">
+									<span class={cfgLabelCls}>Mode</span>
+									<select
+										class={cfgInputCls}
+										value={el.mode === 'fun' ? 'fun' : 'content'}
+										onchange={(e) => patch('mode', val(e))}
 									>
-										<ChevronUp size={14} />
-									</button>
-									<button
-										type="button"
-										class="rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:opacity-30"
-										title="Move down"
-										data-move="{i}:1"
-										disabled={i === current.elements.length - 1}
-										onclick={() => move(i, 1)}
-									>
-										<ChevronDown size={14} />
-									</button>
-									<button
-										type="button"
-										class="rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-danger"
-										title="Remove"
-										onclick={() => remove(i)}
-									>
-										<X size={14} />
-									</button>
-								</span>
+										<option value="fun">Surprise link</option>
+										<option value="content">Content</option>
+									</select>
+								</label>
+								<label class="block max-w-24">
+									<span class={cfgLabelCls}>Size</span>
+									<input
+										type="number"
+										min="1"
+										max="16"
+										class={cfgInputCls}
+										value={String(el.size ?? 6)}
+										oninput={(e) => patch('size', parseInt(val(e), 10) || 6)}
+									/>
+								</label>
 							</div>
-
-							{#if open}
-								<div class="space-y-3 border-t border-border px-3 py-3">
-									{#if el.type === 'text'}
-										<label class="block">
-											<span class={cfgLabelCls}>Content</span>
-											<textarea
-												id="td-content-input"
-												rows="2"
-												class="{cfgInputCls} font-mono"
-												value={el.content ?? ''}
-												oninput={(e) => {
-													el.content = (e.currentTarget as HTMLTextAreaElement).value;
-													commit();
-												}}></textarea>
-										</label>
-									{:else if el.type === 'barcode'}
-										<label class="block">
-											<span class={cfgLabelCls}>Content</span>
-											<input
-												id="td-content-input"
-												type="text"
-												class="{cfgInputCls} font-mono"
-												value={el.content ?? ''}
-												oninput={(e) => {
-													el.content = (e.currentTarget as HTMLInputElement).value;
-													commit();
-												}}
-											/>
-										</label>
-									{:else if el.type === 'rating'}
-										<label class="block max-w-40">
-											<span class={cfgLabelCls}>Size</span>
-											<select
-												class={cfgInputCls}
-												value={el.scale ?? 'medium'}
-												onchange={(e) => {
-													el.scale = (e.currentTarget as HTMLSelectElement).value;
-													commit();
-												}}
-											>
-												{#each ratingScales as s (s)}
-													<option value={s}>{s}</option>
-												{/each}
-											</select>
-										</label>
-										<p class="text-xs text-faint">
-											The programme's certificate - the most restrictive among its features.
-										</p>
-									{:else if el.type === 'qr'}
-										<div class="flex flex-wrap gap-3">
-											<label class="block max-w-44">
-												<span class={cfgLabelCls}>Mode</span>
-												<select
-													class={cfgInputCls}
-													value={el.mode === 'fun' ? 'fun' : 'content'}
-													onchange={(e) => {
-														el.mode = (e.currentTarget as HTMLSelectElement).value;
-														commit();
-													}}
-												>
-													<option value="fun">Surprise link</option>
-													<option value="content">Content</option>
-												</select>
-											</label>
-											<label class="block max-w-24">
-												<span class={cfgLabelCls}>Size</span>
-												<input
-													type="number"
-													min="1"
-													max="16"
-													class={cfgInputCls}
-													value={String(el.size ?? 6)}
-													oninput={(e) => {
-														el.size =
-															parseInt((e.currentTarget as HTMLInputElement).value, 10) || 6;
-														commit();
-													}}
-												/>
-											</label>
-										</div>
-										{#if el.mode === 'fun'}
-											<p class="text-xs text-faint">
-												Picks a random link from the pool in Ticket defaults.
-											</p>
-										{:else}
-											<label class="block">
-												<span class={cfgLabelCls}>Content</span>
-												<input
-													type="text"
-													class="{cfgInputCls} font-mono"
-													value={el.content ?? ''}
-													oninput={(e) => {
-														el.content = (e.currentTarget as HTMLInputElement).value;
-														commit();
-													}}
-												/>
-											</label>
-										{/if}
-									{:else if el.type === 'spacer'}
-										<label class="block max-w-28">
-											<span class={cfgLabelCls}>Blank lines</span>
-											<input
-												type="number"
-												min="1"
-												max="10"
-												class={cfgInputCls}
-												value={String(el.lines ?? 1)}
-												oninput={(e) => {
-													el.lines = parseInt((e.currentTarget as HTMLInputElement).value, 10) || 1;
-													commit();
-												}}
-											/>
-										</label>
-									{:else if el.type === 'image'}
-										<div>
-											<span class={cfgLabelCls}>Image</span>
-											<ImageLibrary
-												library="tickets"
-												selected={el.file}
-												onselect={(img) => setImageFile(el, img.name)}
-											/>
-											<p class="mt-1.5 text-xs text-faint">
-												Images print dithered to 1-bit - bold, high-contrast art works best.
-											</p>
-										</div>
-									{/if}
-
-									{#if (el.type === 'text' || el.type === 'barcode') && tokens.length}
-										<div class="flex flex-wrap items-center gap-1">
-											<span class="text-xs text-faint">Insert:</span>
-											{#each tokens as t (t)}
-												<button
-													type="button"
-													class="rounded-sm border border-border-strong bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted hover:bg-surface-3 hover:text-text"
-													title={TOKEN_HINTS[t] || `Insert {${t}}`}
-													onclick={() => insertToken(t)}
-												>
-													{t}
-												</button>
-											{/each}
-										</div>
-									{/if}
-
-									{#if el.type !== 'rule' && el.type !== 'spacer'}
-										<div class="flex flex-wrap items-end gap-3">
-											<label class="block max-w-36">
-												<span class={cfgLabelCls}>Align</span>
-												<select
-													class={cfgInputCls}
-													value={el.align ?? 'center'}
-													onchange={(e) => {
-														el.align = (e.currentTarget as HTMLSelectElement).value;
-														commit();
-													}}
-												>
-													{#each alignments as a (a)}
-														<option value={a}>{a}</option>
-													{/each}
-												</select>
-											</label>
-											{#if el.type === 'text'}
-												<label class="block max-w-36">
-													<span class={cfgLabelCls}>Size</span>
-													<select
-														class={cfgInputCls}
-														value={typeof el.size === 'string' ? el.size : 'normal'}
-														onchange={(e) => {
-															el.size = (e.currentTarget as HTMLSelectElement).value;
-															commit();
-														}}
-													>
-														{#each sizes as s (s)}
-															<option value={s}>{s}</option>
-														{/each}
-													</select>
-												</label>
-												<label class="flex items-center gap-1.5 pb-2 text-sm">
-													<input
-														type="checkbox"
-														class="accent-accent"
-														checked={!!el.bold}
-														onchange={(e) => {
-															el.bold = (e.currentTarget as HTMLInputElement).checked;
-															commit();
-														}}
-													/>
-													Bold
-												</label>
-												<label class="flex items-center gap-1.5 pb-2 text-sm">
-													<input
-														type="checkbox"
-														class="accent-accent"
-														checked={!!el.invert}
-														onchange={(e) => {
-															el.invert = (e.currentTarget as HTMLInputElement).checked;
-															commit();
-														}}
-													/>
-													Invert
-												</label>
-											{/if}
-										</div>
-									{/if}
-								</div>
+							{#if el.mode === 'fun'}
+								<p class="text-xs text-faint">Picks a random link from the surprise links below.</p>
+							{:else}
+								<label class="block">
+									<span class={cfgLabelCls}>Content</span>
+									<input
+										type="text"
+										class="{cfgInputCls} font-mono"
+										value={el.content ?? ''}
+										oninput={(e) => patch('content', val(e))}
+									/>
+								</label>
 							{/if}
-						</li>
-					{/each}
-				</ul>
+						{:else if el.type === 'spacer'}
+							<label class="block max-w-28">
+								<span class={cfgLabelCls}>Blank lines</span>
+								<input
+									type="number"
+									min="1"
+									max="10"
+									class={cfgInputCls}
+									value={String(el.lines ?? 1)}
+									oninput={(e) => patch('lines', parseInt(val(e), 10) || 1)}
+								/>
+							</label>
+						{:else if el.type === 'image'}
+							<div>
+								<span class={cfgLabelCls}>Image</span>
+								<ImageLibrary
+									library="tickets"
+									selected={el.file}
+									onselect={(img) => setImageFile(el, img.name)}
+								/>
+								<p class="mt-1.5 text-xs text-faint">
+									Images print dithered to 1-bit - bold, high-contrast art works best.
+								</p>
+							</div>
+						{/if}
+
+						{#if (el.type === 'text' || el.type === 'barcode') && tokens.length}
+							<div class="flex flex-wrap items-center gap-1">
+								<span class="text-xs text-faint">Insert:</span>
+								{#each tokens as t (t)}
+									<button
+										type="button"
+										class="rounded-sm border border-border-strong bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted hover:bg-surface-3 hover:text-text"
+										title={TOKEN_HINTS[t] || `Insert {${t}}`}
+										onclick={() => insertToken(t)}
+									>
+										{t}
+									</button>
+								{/each}
+							</div>
+						{/if}
+
+						{#if el.type !== 'rule' && el.type !== 'spacer'}
+							<div class="flex flex-wrap items-end gap-3">
+								<label class="block max-w-36">
+									<span class={cfgLabelCls}>Align</span>
+									<select
+										class={cfgInputCls}
+										value={el.align ?? 'center'}
+										onchange={(e) => patch('align', val(e))}
+									>
+										{#each alignments as a (a)}
+											<option value={a}>{a}</option>
+										{/each}
+									</select>
+								</label>
+								{#if el.type === 'text'}
+									<label class="block max-w-36">
+										<span class={cfgLabelCls}>Size</span>
+										<select
+											class={cfgInputCls}
+											value={typeof el.size === 'string' ? el.size : 'normal'}
+											onchange={(e) => patch('size', val(e))}
+										>
+											{#each sizes as s (s)}
+												<option value={s}>{s}</option>
+											{/each}
+										</select>
+									</label>
+									<label class="flex items-center gap-1.5 pb-2 text-sm">
+										<input
+											type="checkbox"
+											class="accent-accent"
+											checked={!!el.bold}
+											onchange={(e) => patch('bold', checked(e))}
+										/>
+										Bold
+									</label>
+									<label class="flex items-center gap-1.5 pb-2 text-sm">
+										<input
+											type="checkbox"
+											class="accent-accent"
+											checked={!!el.invert}
+											onchange={(e) => patch('invert', checked(e))}
+										/>
+										Invert
+									</label>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				</Card>
 			{/if}
+
+			<Disclosure title="Formats & surprise links">
+				<div class="space-y-4 px-4 pb-4">
+					<div class="grid gap-4 sm:grid-cols-2">
+						<label class="block">
+							<span class={cfgLabelCls}>Date format</span>
+							<Select
+								value={store.main.ticket_date_format}
+								onchange={(e) =>
+									void saveFields({
+										ticket_date_format: (e.currentTarget as HTMLSelectElement).value
+									})}
+								class="w-full"
+							>
+								<option value="%d/%m/%Y">31/12/2026</option>
+								<option value="%m/%d/%Y">12/31/2026</option>
+								<option value="%Y-%m-%d">2026-12-31</option>
+								<option value="%a %d %b %Y">Thu 31 Dec 2026</option>
+							</Select>
+						</label>
+						<label class="block">
+							<span class={cfgLabelCls}>Time format</span>
+							<Select
+								value={store.main.ticket_time_format}
+								onchange={(e) =>
+									void saveFields({
+										ticket_time_format: (e.currentTarget as HTMLSelectElement).value
+									})}
+								class="w-full"
+							>
+								<option value="%H:%M">19:30</option>
+								<option value="%I:%M %p">07:30 PM</option>
+							</Select>
+						</label>
+					</div>
+					<label class="block">
+						<span class={cfgLabelCls}>Surprise QR links — one per line</span>
+						<textarea
+							rows="4"
+							class="{cfgInputCls} font-mono"
+							placeholder="https://…"
+							value={store.main.ticket_qr_fun_links.join('\n')}
+							onchange={(e) =>
+								void saveFields({
+									ticket_qr_fun_links: linkLines((e.currentTarget as HTMLTextAreaElement).value)
+								})}></textarea>
+						<span class="mt-1 block text-xs text-faint">
+							A QR element in "Surprise link" mode prints one at random per ticket. http(s) URLs, up
+							to 50.
+						</span>
+					</label>
+				</div>
+			</Disclosure>
 		</div>
 
-		<div>
-			<div class="mb-2 flex items-center justify-between">
-				<h3 class="text-xs font-medium text-muted">Preview</h3>
-				<div class="flex gap-1">
-					{#each [{ id: 'styled', label: 'Styled' }, { id: 'text', label: 'Text' }] as t (t.id)}
+		<div class="self-start lg:sticky lg:top-20">
+			<p class="mb-2 text-xs text-muted">Preview — click a line to edit it</p>
+			{#if !previewReady}
+				<Spinner size="sm" label="Rendering preview…" />
+			{:else}
+				<div class="strip" style="width: {stripWidth}px">
+					{#each previewOps as op, i (i)}
 						<button
 							type="button"
-							class="rounded-sm px-2 py-1 text-xs font-medium
-								{previewTab === t.id ? 'bg-surface-3 text-text' : 'text-muted hover:text-text'}"
-							onclick={() => (previewTab = t.id as 'styled' | 'text')}
+							class="strip-hit"
+							class:strip-selected={op.element === selected}
+							onclick={() => (selected = op.element ?? selected)}
 						>
-							{t.label}
+							{#if op.type === 'text'}
+								{#each textLines(op.value) as line, li (li)}
+									<div class="strip-line{opClasses(op)}">{line || ' '}</div>
+								{/each}
+							{:else if op.type === 'image'}
+								<div class="strip-media{opClasses(op)}">
+									<img
+										src={op.url}
+										alt={op.kind}
+										style="width:{Math.round(op.width_px * SCALE)}px;height:{Math.round(
+											op.height_px * SCALE
+										)}px"
+									/>
+								</div>
+							{:else if op.type === 'qr'}
+								{@const px = Math.round(op.size * 8 * SCALE)}
+								<div class="strip-media{opClasses(op)}">
+									<span class="strip-qr" style="width:{px}px;height:{px}px">
+										<QrCode size={22} />
+									</span>
+								</div>
+							{:else if op.type === 'barcode'}
+								<div class="strip-media{opClasses(op)}">
+									<span class="strip-barcode"><Barcode size={22} /> {op.value}</span>
+								</div>
+							{/if}
 						</button>
 					{/each}
 				</div>
-			</div>
-
-			{#if !previewReady}
-				<Spinner size="sm" label="Rendering preview…" />
-			{:else if previewTab === 'styled'}
-				<div class="strip mx-auto" style="width: {stripWidth}px">
-					{#each previewOps as op, i (i)}
-						{#if op.type === 'text'}
-							{#each textLines(op.value) as line, li (li)}
-								<div class="strip-line{opClasses(op)}">{line || ' '}</div>
-							{/each}
-						{:else if op.type === 'image'}
-							<div class="strip-media{opClasses(op)}">
-								<img
-									src={op.url}
-									alt={op.kind}
-									style="width:{Math.round(op.width_px * SCALE)}px;height:{Math.round(
-										op.height_px * SCALE
-									)}px"
-								/>
-							</div>
-						{:else if op.type === 'qr'}
-							{@const px = Math.round(op.size * 8 * SCALE)}
-							<div class="strip-media{opClasses(op)}">
-								<span class="strip-qr" style="width:{px}px;height:{px}px">
-									<QrCode size={22} />
-								</span>
-							</div>
-						{:else if op.type === 'barcode'}
-							<div class="strip-media{opClasses(op)}">
-								<span class="strip-barcode"><Barcode size={22} /> {op.value}</span>
-							</div>
-						{/if}
-					{/each}
-				</div>
-			{:else}
-				<pre
-					class="overflow-x-auto rounded-md border border-border bg-surface-2 p-3 font-mono text-xs leading-relaxed">{previewLines.join(
-						'\n'
-					)}</pre>
 			{/if}
 		</div>
 	</div>
@@ -781,6 +787,26 @@
 		flex-direction: column;
 		align-items: center;
 		overflow: hidden;
+	}
+	.strip-hit {
+		display: block;
+		width: 100%;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: inherit;
+		font: inherit;
+		text-align: inherit;
+		cursor: pointer;
+	}
+	.strip-hit:hover {
+		outline: 1px dashed #aaa;
+		outline-offset: -1px;
+	}
+	.strip-selected,
+	.strip-selected:hover {
+		outline: 2px solid var(--color-accent);
+		outline-offset: -2px;
 	}
 	.strip-line {
 		width: 100%;
