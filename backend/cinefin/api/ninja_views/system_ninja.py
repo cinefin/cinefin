@@ -5,6 +5,7 @@ import logging
 from django.http import HttpRequest
 from ninja import Field, Router, Schema, Status
 
+from cinefin.api.exceptions import NotFoundError
 from cinefin.api.schemas.base import ErrorResponseSchema, SuccessResponseSchema
 from cinefin.api.services import health_service
 
@@ -38,6 +39,10 @@ class HealthResponseSchema(SuccessResponseSchema):
     data: HealthReportSchema = Field(..., description="The system health report")
 
 
+class HealthCheckResponseSchema(SuccessResponseSchema):
+    data: HealthCheckSchema = Field(..., description="The re-run check")
+
+
 @system_api.get("/health", response={200: HealthResponseSchema, 500: ErrorResponseSchema})
 def get_health(request: HttpRequest):
     return Status(
@@ -47,3 +52,12 @@ def get_health(request: HttpRequest):
             data=HealthReportSchema(**health_service.collect_health()),
         ),
     )
+
+
+@system_api.post("/health/{key}", response={200: HealthCheckResponseSchema, 404: ErrorResponseSchema})
+def recheck_health(request: HttpRequest, key: str):
+    """Re-run one check by key (the topbar health menu's "Check again")."""
+    result = health_service.run_check(key)
+    if result is None:
+        raise NotFoundError(f"Unknown health check: {key}", error_code="HEALTH_CHECK_NOT_FOUND")
+    return Status(200, HealthCheckResponseSchema(message="Check re-run", data=HealthCheckSchema(**result)))

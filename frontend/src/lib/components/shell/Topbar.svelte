@@ -9,6 +9,7 @@
 	import { display } from '$lib/display.svelte';
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import DisplayMenu from '$lib/components/shell/DisplayMenu.svelte';
+	import HealthMenu from '$lib/components/shell/HealthMenu.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import Tally from '$lib/components/Tally.svelte';
 
@@ -119,6 +120,7 @@
 			{/if}
 		</div>
 
+		<HealthMenu />
 		<DisplayMenu />
 	</div>
 </header>

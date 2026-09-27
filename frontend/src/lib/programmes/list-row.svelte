@@ -4,7 +4,6 @@
 		CalendarPlus,
 		Copy,
 		EllipsisVertical,
-		Film,
 		Pencil,
 		Trash2,
 		TriangleAlert,
@@ -13,6 +12,7 @@
 	import type { components } from '$lib/api/types.gen';
 	import { formatRuntime, relativeTime } from '$lib/format';
 	import Button from '$lib/components/ui/Button.svelte';
+	import FeatureStack from '$lib/components/FeatureStack.svelte';
 	import {
 		ACTION_COL,
 		CHECK_COL,
@@ -39,19 +39,10 @@
 
 	const movies = $derived(p.movies ?? []);
 
-	// Poster cell is a CONSTANT width on every row: up to three thumbs fan into
-	// it, a fourth film becomes a "+N" marker, no films gets a placeholder tile.
-	const MAX_TILES = 3;
-	const posters = $derived(movies.length > MAX_TILES ? movies.slice(0, MAX_TILES - 1) : movies);
-	const extraPosters = $derived(movies.length > MAX_TILES ? movies.length - (MAX_TILES - 1) : 0);
-
 	// Suppress the film list only when it's character-identical to the name (a
 	// single-film programme auto-named after its film would print it twice).
 	const filmList = $derived(movies.map((m) => m.title).join(' · '));
 	const showFilmList = $derived(filmList !== '' && filmList !== p.name.trim());
-
-	const posterTile = 'relative aspect-[2/3] w-9 shrink-0 border border-border bg-surface-2';
-	const posterFan = `${posterTile} -ml-4`;
 
 	let menuOpen = $state(false);
 	let menuRoot = $state<HTMLDivElement>();
@@ -104,30 +95,7 @@
 		/>
 	</div>
 
-	<div class="{POSTER_COL} flex items-center justify-end">
-		{#each posters as movie, i (movie.id)}
-			<div class={i === 0 ? posterTile : posterFan}>
-				{#if movie.thumbnail_url}
-					<img src={movie.thumbnail_url} alt="" loading="lazy" class="h-full w-full object-cover" />
-				{:else}
-					<div class="flex h-full items-center justify-center text-faint"><Film size={12} /></div>
-				{/if}
-			</div>
-		{/each}
-		{#if extraPosters}
-			<div
-				class="{posterFan} flex items-center justify-center font-mono text-[0.65rem] text-muted"
-				title="{extraPosters} more feature{extraPosters === 1 ? '' : 's'}"
-			>
-				+{extraPosters}
-			</div>
-		{/if}
-		{#if !posters.length && !extraPosters}
-			<div class="{posterTile} flex items-center justify-center text-faint" title="No movies yet">
-				<Film size={12} />
-			</div>
-		{/if}
-	</div>
+	<FeatureStack films={movies} class="{POSTER_COL} justify-end" />
 
 	<div class={NAME_COL}>
 		<a

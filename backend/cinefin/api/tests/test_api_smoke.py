@@ -31,6 +31,14 @@ def test_health(client):
     assert response.json()["status"] == "healthy"
 
 
+def test_system_health_recheck(client):
+    response = client.post(f"{API}/system/health/db")
+    assert response.status_code == 200
+    assert_envelope(response.json())
+    assert response.json()["data"]["key"] == "db"
+    assert client.post(f"{API}/system/health/nope").status_code == 404
+
+
 def test_installer_status(client):
     response = client.get(f"{API}/installer/status")
     assert response.status_code == 200

@@ -9,7 +9,6 @@
 		ChevronRight,
 		Clock,
 		Eye,
-		Film,
 		List,
 		Pencil,
 		Plus,
@@ -26,6 +25,7 @@
 	import ActionNotice from '$lib/components/ActionNotice.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import FeatureStack from '$lib/components/FeatureStack.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -48,14 +48,9 @@
 
 	const all = $derived((schedules.data?.schedules ?? []) as Schedule[]);
 
-	const posters = $derived.by(() => {
-		const map: Record<number, string> = {};
-		for (const p of programmes.data?.programmes ?? []) {
-			const featured = p.movies.find((m) => m.thumbnail_url);
-			if (featured?.thumbnail_url) map[p.id] = featured.thumbnail_url;
-		}
-		return map;
-	});
+	const features = $derived(
+		Object.fromEntries((programmes.data?.programmes ?? []).map((p) => [p.id, p.movies]))
+	);
 	const runtimes = $derived.by(() => {
 		const map: Record<number, number> = {};
 		for (const p of programmes.data?.programmes ?? []) map[p.id] = Math.round(p.total_runtime);
@@ -690,7 +685,6 @@
 					{#each group.items as s (s.id)}
 						{@const start = new Date(s.start_time)}
 						{@const end = new Date(endMs(s))}
-						{@const poster = posters[s.programme.id]}
 						{@const rel = relTime(s)}
 						<article
 							class="flex items-center gap-4 rounded-lg border border-border bg-surface-1 p-3"
@@ -699,17 +693,7 @@
 								<div class="font-mono text-sm font-semibold">{formatClock(start)}</div>
 								<div class="font-mono text-xs text-faint">→ {formatClock(end)}</div>
 							</div>
-							<div
-								class="h-16 w-11 shrink-0 overflow-hidden rounded-sm border border-border bg-surface-2"
-							>
-								{#if poster}
-									<img src={poster} alt="" loading="lazy" class="h-full w-full object-cover" />
-								{:else}
-									<div class="flex h-full items-center justify-center text-faint">
-										<Film size={14} />
-									</div>
-								{/if}
-							</div>
+							<FeatureStack films={features[s.programme.id] ?? []} class="w-[4.75rem] shrink-0" />
 							<div class="min-w-0 flex-1">
 								<a
 									href="{base}/programmes/{s.programme.id}"

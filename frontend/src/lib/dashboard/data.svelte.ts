@@ -8,27 +8,19 @@ import type { components } from '$lib/api/types.gen';
 export type Schedule = components['schemas']['ScheduleSchema'];
 export type ProgrammeListItem = components['schemas']['ProgrammeListItemSchema'];
 export type MovieListItem = components['schemas']['MovieListItemSchema'];
-export type HealthReport = components['schemas']['HealthReportSchema'];
-export type HealthCheck = components['schemas']['HealthCheckSchema'];
 
 interface SyncJobBrief {
-	id?: number;
 	state?: string;
 	is_active?: boolean;
 	current?: number;
-	total?: number | null;
 	percentage?: number;
 }
 
 export interface SyncSourceBrief {
 	id: number;
 	name: string;
-	sync_type: string;
 	enabled: boolean;
 	last_sync: string | null;
-	is_syncing: boolean;
-	active_job: { percentage?: number; phase?: string | null; current?: number } | null;
-	last_job: { state?: string; finished_at?: string | null; error?: string | null } | null;
 }
 
 interface SourceList {
@@ -37,7 +29,6 @@ interface SourceList {
 }
 
 export class DashboardData {
-	runner = query(() => unwrap(api.GET('/api/v2/schedules/runner')));
 	stats = query(() => unwrap(api.GET('/api/v2/movies/stats')));
 	schedules = query(() =>
 		unwrap(api.GET('/api/v2/schedules/list', { params: { query: { show_past: false } } }))
@@ -46,11 +37,10 @@ export class DashboardData {
 	recentMovies = query(() =>
 		unwrap(
 			api.GET('/api/v2/movies/list', {
-				params: { query: { per_page: 12, sort: 'date_added', order: 'desc' } }
+				params: { query: { per_page: 30, sort: 'date_added', order: 'desc' } }
 			})
 		)
 	);
-	health: Query<HealthReport> = query(() => unwrap(api.GET('/api/v2/system/health')));
 	trailers: Query<TrailerStatistics> = query(async () => {
 		const data = await unwrap(api.GET('/api/v2/trailers/stats'));
 		return (data?.statistics ?? {}) as unknown as TrailerStatistics;
@@ -68,34 +58,11 @@ export class DashboardData {
 		) as Schedule[]
 	);
 
-	nextScreening = $derived<Schedule | null>(this.upcoming[0] ?? null);
-
-	recentProgrammes = $derived(
-		[...(this.programmes.data?.programmes ?? [])].sort(
-			(a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-		)
-	);
-
 	movies = $derived(this.recentMovies.data?.items ?? []);
 
-	get overallHealth(): 'ok' | 'warn' | 'error' | 'unknown' {
-		const o = this.health.data?.overall;
-		return o === 'ok' || o === 'warn' || o === 'error' ? o : 'unknown';
-	}
-
-	get problems(): HealthCheck[] {
-		const rank: Record<string, number> = { error: 0, warn: 1 };
-		return (this.health.data?.checks ?? [])
-			.filter((c) => c.status === 'error' || c.status === 'warn')
-			.sort((a, b) => (rank[a.status] ?? 2) - (rank[b.status] ?? 2));
-	}
-
-	get disk(): HealthCheck | null {
-		return this.health.data?.checks.find((c) => c.key.includes('disk')) ?? null;
-	}
-
-	get syncing(): SyncSourceBrief | null {
-		return this.sources.data?.sources.find((s) => s.is_syncing) ?? null;
+	/** The library's one source. */
+	get source(): SyncSourceBrief | null {
+		return this.sources.data?.sources[0] ?? null;
 	}
 
 	get lastSync(): string | null {
@@ -107,10 +74,8 @@ export class DashboardData {
 
 	start(): () => void {
 		const stops = [
-			this.runner.invalidatesOn(['runner']),
 			this.schedules.invalidatesOn(['schedules', 'programmes']),
 			this.sources.invalidatesOn(['sync']),
-			this.health.invalidatesOn(['health']),
 			this.stats.invalidatesOn(['movies', 'sync']),
 			this.programmes.invalidatesOn(['programmes']),
 			this.recentMovies.invalidatesOn(['movies', 'sync']),
@@ -129,20 +94,13 @@ export class DashboardData {
 		return this.programmes.data?.programmes.find((p) => p.id === id) ?? null;
 	}
 
-	posterForProgramme(id: number | undefined | null): string | null {
-		const prog = this.programmeFor(id);
-		return prog?.movies.find((m) => m.thumbnail_url)?.thumbnail_url ?? null;
-	}
-
 	#watchSync(): () => void {
 		const adopt = (p: JobEvent) => {
 			this.activeSync = jobIsActive(p.state)
 				? {
-						id: p.job_id,
 						state: p.state,
 						is_active: true,
 						current: p.current,
-						total: p.total,
 						percentage: p.percentage
 					}
 				: null;
