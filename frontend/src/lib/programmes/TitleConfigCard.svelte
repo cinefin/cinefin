@@ -239,7 +239,7 @@
 				Fade in and hold when cued
 				<span class="block text-xs text-faint">
 					{parseFloat(fadeIn) > 0
-						? 'On cue the title card fades in, then holds until the programme starts.'
+						? 'On cue the ident plays, then the title card fades in and holds until the programme starts.'
 						: 'Needs a fade-in above 0.'}
 				</span>
 			</span>

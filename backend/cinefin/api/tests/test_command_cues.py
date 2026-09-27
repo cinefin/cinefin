@@ -75,7 +75,7 @@ class TestIdentStreams:
         service = make_service()
 
         assert service.load_programme(programme) is True
-        loaded = service.controller.load_file.call_args_list[0][0][0]
+        loaded = service.controller.enqueue_file.call_args_list[0][0][0]  # queued after the ident
         assert loaded == programme.get_title_stream_url()
         assert f"/stream/title/{programme.id}/" in loaded
 

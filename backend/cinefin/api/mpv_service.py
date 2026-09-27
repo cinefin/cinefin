@@ -89,7 +89,11 @@ class MPVService:
         # True while a hold-black command item is on screen (surfaced in status)
         self._executing_command = False
         self._hold_progress = None  # {'duration','elapsed'} while a hold-black command runs
-        self._title_hold_at = None  # seconds into the cued title card to pause at (title_hold)
+        # Cued title card: its mpv index, when to pause into it (0 = first frame, else after the
+        # fade-in) and whether it has started (armed by its file-start, so the ident's clock can't trip it).
+        self._title_index = None
+        self._title_pause_at = None
+        self._title_armed = False
 
         # Live playback cache, updated from the mpv property observers so the SSE
         # status stream (and its poll fallback) can build a snapshot with no
@@ -393,6 +397,8 @@ class MPVService:
         self.current_programme = None
         self.current_playlist = None
         self.credits_executed.clear()
+        self._title_index = self._title_pause_at = None
+        self._title_armed = False
 
         if not self._load_ident_paused():
             # Nothing usable (the bundled asset is missing too) — clear the
@@ -434,24 +440,33 @@ class MPVService:
                     logger.error(f"Programme '{programme.name}' has an empty playlist; refusing to load")
                     return False
 
-                # The opening item (position 0) is the programme's generated
-                # title card if it has one, else the System Ident. Both are
-                # streamed from Django — the player is remote, so a local path
-                # wouldn't resolve on the host.
+                # Before the programme: the ident then its generated title card (the
+                # ident plays through on cue, the title pauses), else just the paused
+                # ident. All streamed from Django — the player is remote.
                 title_stream_url = (
                     programme.get_title_stream_url() if hasattr(programme, "get_title_stream_url") else None
                 )
 
-                self._title_hold_at = None
+                self._title_index = self._title_pause_at = None
+                self._title_armed = False
                 if title_stream_url:
                     logger.info(f"Loading programme title (streamed): {programme.name}")
-                    self.controller.load_file(title_stream_url, replace=True)
                     fade_in = programme.title_fade_in or 0
-                    if programme.title_hold and fade_in > 0:
-                        self._title_hold_at = fade_in  # play the fade-in; _handle_time_pos pauses after it
+                    pause_at = fade_in if programme.title_hold and fade_in > 0 else 0.0
+                    # The ident plays through, then the title card, which pauses (see _title_started).
+                    ident_url, _ = self._resolve_ident_stream()
+                    if ident_url:
+                        self.controller.load_file(ident_url, replace=True)
+                    if ident_url and self.controller.enqueue_file(title_stream_url):
+                        self._title_index, self._title_pause_at = 1, pause_at
                         self.controller.play()
                     else:
-                        self.controller.pause()
+                        self.controller.load_file(title_stream_url, replace=True)
+                        if pause_at:
+                            self._title_index, self._title_pause_at = 0, pause_at
+                            self.controller.play()
+                        else:
+                            self.controller.pause()
                 else:
                     # No title configured, reset to load the System Ident
                     logger.info("No programme title configured, loading the System Ident")
@@ -615,6 +630,9 @@ class MPVService:
         self._live["file"] = filepath
         self._live["duration"] = None
         self._notify_live()
+
+        if self._title_pause_at is not None:
+            self._title_started()
 
         # Black video at end of programme - reset to ident. The black clip is
         # streamed (/stream/system/black/) now that the player is remote;
@@ -794,16 +812,35 @@ class MPVService:
         else:
             logger.info(f"Hold '{name}' superseded (playback moved on); not advancing")
 
-    def _check_title_hold(self, time_pos):
-        """Pause the cued title card once its fade-in is done (never past its end, which would
-        advance into the programme). Dropped as soon as the programme starts or moves on."""
+    def _programme_started(self) -> bool:
+        # NOT_LOADED counts as "still cueing": a title's file-start can land before load_programme sets LOADED.
+        return self.programme_state not in (ProgrammeState.LOADED, ProgrammeState.NOT_LOADED)
+
+    def _title_started(self):
+        """The cued title card began (after the ident): pause on its first frame, or arm the
+        fade-in hold. Dropped once the programme starts or playback moves past the title."""
         pos = self.controller.get_property("playlist_pos") if self.controller else None
-        if self.programme_state != ProgrammeState.LOADED or pos != 0:
-            self._title_hold_at = None
+        if self._programme_started() or (pos is not None and pos > self._title_index):
+            self._title_pause_at = None
+        elif pos == self._title_index:
+            if self._title_pause_at:
+                self._title_armed = True
+            else:
+                self._title_pause_at = None
+                self.controller.pause()
+
+    def _check_title_hold(self, time_pos):
+        """Pause the armed title card once its fade-in is done (never past its end, which would
+        advance into the programme)."""
+        pos = self.controller.get_property("playlist_pos") if self.controller else None
+        if self._programme_started() or (pos is not None and pos != self._title_index):
+            self._title_pause_at, self._title_armed = None, False
+            return
+        if pos is None:
             return
         duration = self._live["duration"]
-        if time_pos >= self._title_hold_at or (duration and time_pos >= duration - 0.5):
-            self._title_hold_at = None
+        if time_pos >= self._title_pause_at or (duration and time_pos >= duration - 0.5):
+            self._title_pause_at, self._title_armed = None, False
             self.controller.pause()
 
     def _handle_time_pos(self, time_pos):
@@ -817,7 +854,7 @@ class MPVService:
             if d not in (None, "none"):
                 self._live["duration"] = d
 
-        if self._title_hold_at is not None and time_pos is not None:
+        if self._title_armed and time_pos is not None:
             self._check_title_hold(time_pos)
 
         if not self.running or not self.current_playlist or time_pos is None:
