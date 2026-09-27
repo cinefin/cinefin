@@ -14,9 +14,7 @@ class SyncSource(models.Model):
     sync_type = models.CharField(max_length=20, choices=SYNC_TYPES)
     url = models.CharField(max_length=500, help_text="Server URL (e.g. http://192.0.2.10:32400)")
     token = models.CharField(max_length=500, help_text="API token or authentication key")
-    libraries = models.TextField(
-        help_text="Comma-separated list of library names to sync", default="Films,Documentaries"
-    )
+    libraries = models.TextField(help_text="Comma-separated list of library names to sync", default="Movies")
     enabled = models.BooleanField(default=True)
     last_sync = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

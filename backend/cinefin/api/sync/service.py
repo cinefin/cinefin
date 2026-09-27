@@ -76,7 +76,7 @@ class SyncManager:
             sync_type=sync_type,
             url=data["url"].rstrip("/"),
             token=token,
-            libraries=data.get("libraries", "Films,Documentaries"),
+            libraries=data.get("libraries", "Movies"),
             enabled=data.get("enabled", True),
             extra_config=data.get("extra_config", {}),
             path_mappings=_clean_path_mappings(data.get("path_mappings")),
