@@ -101,7 +101,7 @@
 		{disabled}
 		aria-haspopup="menu"
 		aria-expanded={open}
-		aria-label={caretOnly ? ariaLabel : undefined}
+		aria-label={ariaLabel}
 		onclick={() => (open = !open)}
 	>
 		{#if Icon}<Icon size={size === 'sm' ? 13 : 14} />{/if}

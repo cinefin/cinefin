@@ -2,31 +2,33 @@
 	import {
 		Check,
 		Copy,
+		Ellipsis,
 		FilterX,
 		FlaskConical,
 		Lock,
 		Pencil,
 		Play,
 		Plus,
-		RefreshCw,
 		Trash2,
-		TriangleAlert,
 		X,
 		Zap
 	} from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
 	import { base } from '$app/paths';
 	import { query } from '$lib/api/query.svelte';
-	import { sortRows } from '$lib/filters';
+	import { formatTime } from '$lib/format';
 	import { showToast as toast } from '$lib/toast.svelte';
-	import SortHeader from '$lib/components/SortHeader.svelte';
+	import FilterBar from '$lib/components/FilterBar.svelte';
 	import type { components } from '$lib/api/types.gen';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import Banner from '$lib/components/ui/Banner.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import Card from '$lib/components/ui/Card.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
+	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -59,23 +61,13 @@
 	const providerDisabled = (c: CommandItem) => providerById.get(c.provider)?.enabled === false;
 	const canRun = (c: CommandItem) => providerById.get(c.provider)?.enabled === true;
 
-	let searchInput = $state('');
 	let search = $state('');
-	let providerFilter = $state('all');
-
-	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-	function onSearchInput() {
-		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => (search = searchInput.trim()), 300);
-	}
+	let providerFilter = $state('');
 
 	function clearFilters() {
-		searchInput = '';
 		search = '';
-		providerFilter = 'all';
+		providerFilter = '';
 	}
-
-	const configSummary = (c: CommandItem): string => c.summary;
 
 	function usageSummary(c: CommandItem): string {
 		const u = c.used_in;
@@ -93,14 +85,13 @@
 		allCommands.filter((c) => {
 			if (search) {
 				const q = search.toLowerCase();
-				if (!c.name.toLowerCase().includes(q) && !configSummary(c).toLowerCase().includes(q))
-					return false;
+				if (!c.name.toLowerCase().includes(q) && !c.summary.toLowerCase().includes(q)) return false;
 			}
-			if (providerFilter !== 'all' && c.provider !== providerFilter) return false;
+			if (providerFilter && c.provider !== providerFilter) return false;
 			return true;
 		})
 	);
-	const filtersActive = $derived(Boolean(search || providerFilter !== 'all'));
+	const filtersActive = $derived(Boolean(search || providerFilter));
 	const counts = $derived.by(() => {
 		const c: Record<string, number> = { all: allCommands.length };
 		for (const cmd of allCommands) c[cmd.provider] = (c[cmd.provider] || 0) + 1;
@@ -118,38 +109,28 @@
 		return opts;
 	});
 
-	let sort = $state('');
-	const sortCommands = (rows: CommandItem[]) =>
-		sortRows(rows, sort, {
-			name: (c) => c.name.toLowerCase(),
-			provider: (c) => c.provider_label.toLowerCase(),
-			target: (c) => configSummary(c).toLowerCase(),
-			duration: (c) => c.duration ?? -1
-		});
-
+	// One group per provider (built-in first); a search or filter shows one flat group.
 	const groups = $derived.by(() => {
 		if (filtersActive)
-			return [
-				{
-					provider: null as string | null,
-					label: '',
-					icon: undefined as string | undefined,
-					commands: sortCommands(filtered)
-				}
-			];
+			return [{ id: 'results', label: 'Results', builtin: false, commands: filtered }];
 		return filterOptions
 			.map((p) => ({
-				provider: p.id as string | null,
+				id: p.id,
 				label: p.label,
-				icon: providerById.get(p.id)?.icon,
-				commands: sortCommands(filtered.filter((c) => c.provider === p.id))
+				builtin: !!providerById.get(p.id)?.builtin,
+				commands: filtered.filter((c) => c.provider === p.id)
 			}))
 			.filter((g) => g.commands.length);
 	});
 
-	function refreshAll() {
-		void commandsQ.load();
-		void providersQ.load();
+	function rowMenu(c: CommandItem): MenuItem[] {
+		if (c.locked) return [{ label: 'Edit duration', icon: Pencil, onclick: () => editCommand(c) }];
+		return [
+			{ label: 'Edit', icon: Pencil, onclick: () => editCommand(c) },
+			{ label: 'Duplicate', icon: Copy, onclick: () => duplicateCommand(c) },
+			{ separator: true },
+			{ label: 'Delete', icon: Trash2, danger: true, onclick: () => void askDelete(c) }
+		];
 	}
 
 	let confirmDialog = $state<ConfirmDialog>();
@@ -362,196 +343,129 @@
 
 <svelte:head><title>Commands - Cinefin</title></svelte:head>
 
-<div class="mb-1 flex flex-wrap items-center gap-2">
+<div class="mb-1 flex items-center gap-2">
 	<h1 class="mr-auto text-lg font-semibold">Commands</h1>
-	<span class="font-mono text-xs text-muted">
-		{counts.all} total
-	</span>
-	<Button onclick={refreshAll} title="Refresh list"><RefreshCw size={14} /> Refresh</Button>
 	<Button variant="primary" onclick={showCreateModal}><Plus size={14} /> Create command</Button>
 </div>
-
 <p class="mb-4 text-sm text-muted">
-	Actions Cinefin can run - REST calls, Home Assistant services, or any provider plugin. Fire them
-	from a programme rundown, on credits, pre-show, or as buttons on the dashboard and the
-	<a href="{base}/remote" class="text-accent hover:underline">Remote</a> (choose them there, per device).
+	Actions Cinefin can run — from a programme rundown, on credits, in a screening's lead-in, or as
+	buttons on the dashboard and the <a href="{base}/remote" class="text-accent hover:underline"
+		>Remote</a
+	>.
 </p>
 
 {#if providersQ.data?.failures.length}
-	<div class="mb-4 border border-border bg-surface-1 p-3 text-sm" role="alert">
-		<p class="mb-1 inline-flex items-center gap-1.5 text-warning">
-			<TriangleAlert size={14} />
-			{providersQ.data.failures.length === 1
-				? 'A provider plugin failed to load'
-				: `${providersQ.data.failures.length} provider plugins failed to load`}
-		</p>
+	<Banner
+		severity="warning"
+		align="start"
+		class="mb-4"
+		title={providersQ.data.failures.length === 1
+			? 'A provider plugin failed to load.'
+			: `${providersQ.data.failures.length} provider plugins failed to load.`}
+	>
 		{#each providersQ.data.failures as f (f.source)}
-			<p class="font-mono text-xs text-muted">{f.source}: {f.error}</p>
+			<p class="font-mono text-xs">{f.source}: {f.error}</p>
 		{/each}
-	</div>
+	</Banner>
 {/if}
 
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<Input
-		type="search"
-		placeholder="Search commands by name or config…"
-		bind:value={searchInput}
-		oninput={onSearchInput}
-		class="w-full sm:w-72"
-	/>
-	<Select bind:value={providerFilter} class="flex-1 sm:flex-none">
-		<option value="all">All ({counts.all})</option>
-		{#each filterOptions as p (p.id)}
-			<option value={p.id}>{p.label} ({counts[p.id] ?? 0})</option>
-		{/each}
-	</Select>
-	{#if filtersActive}
-		<Button variant="ghost" onclick={clearFilters} title="Clear search and filters">
-			<FilterX size={14} /> Clear
-		</Button>
-	{/if}
-</div>
+<FilterBar
+	search={{ value: search, placeholder: 'Search commands…', onchange: (v) => (search = v) }}
+	filters={[
+		{
+			id: 'provider',
+			label: 'Provider',
+			allLabel: 'All providers',
+			value: providerFilter,
+			options: filterOptions.map((p) => ({ value: p.id, label: p.label })),
+			onchange: (v) => (providerFilter = v)
+		}
+	]}
+	count={filtersActive ? `${filtered.length} of ${counts.all}` : `${counts.all} total`}
+	onreset={clearFilters}
+/>
 
 {#if commandsQ.loading}
 	<Spinner label="Loading commands…" />
 {:else if commandsQ.error}
 	<ErrorState error={commandsQ.error} retry={() => void commandsQ.load()} />
 {:else if !filtered.length}
-	{#if filtersActive}
-		<EmptyState
-			icon={FilterX}
-			title="No matching commands"
-			message="No commands match your current search or provider filter. Clear the filters to see them all."
-		>
-			{#snippet action()}
+	<EmptyState
+		icon={filtersActive ? FilterX : Zap}
+		title={filtersActive ? 'No matching commands' : 'No commands yet'}
+		message={filtersActive
+			? 'Nothing matches the search or provider filter.'
+			: 'Create one to fire REST calls, Home Assistant actions or any plugin from your programmes.'}
+	>
+		{#snippet action()}
+			{#if filtersActive}
 				<Button onclick={clearFilters}>Clear filters</Button>
-			{/snippet}
-		</EmptyState>
-	{:else}
-		<EmptyState
-			icon={Zap}
-			title="No commands yet"
-			message="Create your first command to trigger REST calls or Home Assistant actions from your programmes and remote."
-		>
-			{#snippet action()}
+			{:else}
 				<Button variant="primary" onclick={showCreateModal}
 					><Plus size={14} /> Create command</Button
 				>
-			{/snippet}
-		</EmptyState>
-	{/if}
+			{/if}
+		{/snippet}
+	</EmptyState>
 {:else}
-	<div class="overflow-x-auto border border-border">
-		<table class="w-full text-sm">
-			<thead>
-				<tr class="border-b border-border bg-surface-2 text-left text-xs font-medium text-muted">
-					<SortHeader {sort} col="name" label="Command name" onsort={(s) => (sort = s)} />
-					<SortHeader {sort} col="provider" label="Provider" onsort={(s) => (sort = s)} />
-					<SortHeader {sort} col="target" label="Target" onsort={(s) => (sort = s)} />
-					<SortHeader
-						{sort}
-						col="duration"
-						label="Duration"
-						defaultDesc
-						onsort={(s) => (sort = s)}
-					/>
-					<th class="px-3 py-2 text-right">Actions</th>
-				</tr>
-			</thead>
-			<tbody class="divide-y divide-border">
-				{#each groups as group (group.provider ?? 'filtered')}
-					{#if group.provider}
-						{@const GroupIcon = providerIcon(group.icon)}
-						<tr class="bg-surface-2">
-							<td colspan="5" class="px-3 py-1.5">
-								<span class="flex items-center gap-2 text-xs font-medium text-muted">
-									<GroupIcon size={13} />
-									{group.label}
-									<span class="font-mono text-faint">{group.commands.length}</span>
-								</span>
-							</td>
-						</tr>
+	<div class="space-y-3">
+		{#each groups as group (group.id)}
+			<Card title={group.label}>
+				{#snippet actions()}
+					{#if group.builtin}
+						<span class="flex items-center gap-1 text-xs text-faint"
+							><Lock size={11} /> Built in</span
+						>
 					{/if}
+					<span class="font-mono text-xs text-faint">{group.commands.length}</span>
+				{/snippet}
+				<ul class="-mx-4 -my-2 divide-y divide-border">
 					{#each group.commands as c (c.id)}
-						{@const summary = configSummary(c)}
-						{@const usage = usageSummary(c)}
-						{@const RowIcon = providerIcon(c.provider_icon)}
-						<tr>
-							<td class="px-3 py-2">
-								<div class="font-medium">{c.name}</div>
-								{#if usage}<div class="text-xs text-faint">{usage}</div>{/if}
-							</td>
-							<td class="px-3 py-2">
-								<span class="flex flex-wrap items-center gap-1.5">
-									<Badge variant="outline"><RowIcon size={11} /> {c.provider_label}</Badge>
-									{#if c.locked}
-										<span title="Built in: only its duration can change"
-											><Badge variant="outline"><Lock size={11} /> Built in</Badge></span
-										>
-									{/if}
-									{#if providerDisabled(c)}
-										<Badge variant="warning">Disabled</Badge>
-									{/if}
-								</span>
-							</td>
-							<td class="max-w-64 px-3 py-2">
-								<span class="block truncate font-mono text-xs text-muted" title={summary}>
-									{summary}
-								</span>
-							</td>
-							<td class="px-3 py-2 font-mono text-xs">
-								{c.duration ? `${c.duration}s` : '-'}
-							</td>
-							<td class="px-3 py-2">
-								<span class="flex items-center justify-end gap-1">
-									<Button
-										size="sm"
-										disabled={!canRun(c)}
-										onclick={() => void runCommand(c.id)}
-										title={providerDisabled(c)
-											? `The ${c.provider_label} plugin is disabled — enable it in Settings → Plugins to run this`
-											: !canRun(c)
-												? `The ${c.provider_label} plugin is not loaded`
-												: 'Run this command now'}
-									>
-										<Play size={12} /> Run
-									</Button>
-									<button
-										type="button"
-										class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
-										title="Edit"
-										aria-label="Edit"
-										onclick={() => editCommand(c)}
-									>
-										<Pencil size={13} />
-									</button>
-									{#if !c.locked}
-										<button
-											type="button"
-											class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
-											title="Duplicate"
-											aria-label="Duplicate"
-											onclick={() => duplicateCommand(c)}
-										>
-											<Copy size={13} />
-										</button>
-										<button
-											type="button"
-											class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-danger"
-											title="Delete"
-											aria-label="Delete"
-											onclick={() => askDelete(c)}
-										>
-											<Trash2 size={13} />
-										</button>
-									{/if}
-								</span>
-							</td>
-						</tr>
+						{@const Icon = providerIcon(c.provider_icon)}
+						{@const detail = [c.summary !== c.name ? c.summary : '', usageSummary(c)]
+							.filter(Boolean)
+							.join(' · ')}
+						<li class="flex items-center gap-3 px-4 py-2">
+							<Icon size={14} class="shrink-0 text-muted" />
+							<div class="min-w-0 flex-1">
+								<p class="truncate text-sm">{c.name}</p>
+								{#if detail}
+									<p class="truncate font-mono text-xs text-faint" title={detail}>{detail}</p>
+								{/if}
+							</div>
+							{#if providerDisabled(c)}
+								<Badge variant="warning">Disabled</Badge>
+							{/if}
+							{#if c.duration}
+								<span class="shrink-0 font-mono text-xs text-muted" title="Duration"
+									>{formatTime(c.duration)}</span
+								>
+							{/if}
+							<Button
+								size="sm"
+								disabled={!canRun(c)}
+								onclick={() => void runCommand(c.id)}
+								title={providerDisabled(c)
+									? `The ${c.provider_label} plugin is disabled — enable it in Settings → Plugins`
+									: !canRun(c)
+										? `The ${c.provider_label} plugin is not loaded`
+										: 'Run this command now'}
+							>
+								<Play size={12} /> Run
+							</Button>
+							<Menu
+								items={rowMenu(c)}
+								icon={Ellipsis}
+								variant="ghost"
+								size="sm"
+								align="right"
+								ariaLabel="More actions for {c.name}"
+							/>
+						</li>
 					{/each}
-				{/each}
-			</tbody>
-		</table>
+				</ul>
+			</Card>
+		{/each}
 	</div>
 {/if}
 
