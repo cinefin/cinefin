@@ -24,7 +24,6 @@ def build_kiosk_content() -> tuple[list[dict], list[dict]]:
     from datetime import timedelta
 
     from cinefin.api.models import Movie, ProgrammeBlock, ProgrammeSchedule, Settings
-    from cinefin.api.models.automation import default_lead_in
 
     now = timezone.now()
     source = Settings.get("kiosk.content_source") or "flagged"
@@ -45,10 +44,9 @@ def build_kiosk_content() -> tuple[list[dict], list[dict]]:
         .order_by("start_time")
     )
 
-    default = default_lead_in()
     screenings = []
     for schedule in schedules:
-        end_time = schedule.end_time(default)
+        end_time = schedule.end_time()
         if end_time <= now:
             continue
 
@@ -68,7 +66,7 @@ def build_kiosk_content() -> tuple[list[dict], list[dict]]:
             {
                 "id": schedule.id,
                 "programme": schedule.programme.name,
-                "start": schedule.play_time(default).isoformat(),  # the showtime, not the lead-in
+                "start": schedule.play_time().isoformat(),  # the showtime, not the lead-in
                 "end": end_time.isoformat(),
                 "runtime": schedule.runtime,
                 "status": schedule.status,

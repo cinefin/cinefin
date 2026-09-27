@@ -18,17 +18,6 @@ export interface Bumper {
 	duration: number;
 }
 
-export interface CommandRef {
-	id: number;
-	name: string;
-}
-
-/** One step of the ordered lead-in sequence: a command, or the single cue step. */
-export interface PreshowStep {
-	command: number | null;
-	cue: boolean;
-}
-
 /** Keys match the backend payload field names so field-level save errors map 1:1. */
 export interface MainDraft {
 	cinema_name: string;
@@ -56,8 +45,6 @@ export interface MainDraft {
 	subtitle_use_margins: boolean;
 	subtitle_bold: boolean;
 	playout_server_url: string;
-	preshow_commands: PreshowStep[];
-	lead_in: string; // default lead-in, seconds
 	accent_color: string;
 	display_time_format: string;
 	kiosk_layout: string;
@@ -94,7 +81,6 @@ const FIELD_SECTIONS: Record<string, string> = {
 	subtitle_position: 'playout',
 	subtitle_margin_y: 'playout',
 	playout_server_url: 'playout',
-	preshow_commands: 'playout',
 	accent_color: 'appearance',
 	display_time_format: 'appearance'
 };
@@ -126,8 +112,6 @@ function emptyMain(): MainDraft {
 		subtitle_use_margins: true,
 		subtitle_bold: false,
 		playout_server_url: '',
-		preshow_commands: [],
-		lead_in: '0',
 		accent_color: DEFAULT_ACCENT,
 		display_time_format: '24h',
 		kiosk_layout: 'wall',
@@ -168,7 +152,6 @@ export class SettingsStore {
 	accentCleared = $state(false);
 
 	bumpers = $state<Bumper[]>([]);
-	commands = $state<CommandRef[]>([]);
 	namingTokens = $state<{ token: string; description: string }[]>([]);
 	webLogoUrl = $state<string | null>(null);
 	updatedAt = $state('');
@@ -177,10 +160,6 @@ export class SettingsStore {
 	fieldError = $state<{ field: string; message: string } | null>(null);
 
 	#baseline = $state<string | null>(null);
-
-	commandName(id: number): string {
-		return this.commands.find((c) => c.id === id)?.name ?? `Command #${id}`;
-	}
 
 	snapshot(): void {
 		this.#baseline = JSON.stringify({
@@ -227,18 +206,12 @@ export class SettingsStore {
 		this.loading = true;
 		this.error = null;
 		try {
-			const [data, commands, trailerData] = await Promise.all([
+			const [data, trailerData] = await Promise.all([
 				unwrap(api.GET('/api/v2/settings/')),
-				// Command names are garnish for the pre-show picker — degrade quietly.
-				unwrap(api.GET('/api/v2/commands/list')).then(
-					(d) => d.commands.map((c) => ({ id: c.id, name: c.name })),
-					() => [] as CommandRef[]
-				),
 				unwrapLoose<TrailerSettingsData>(api.GET('/api/v2/trailers/settings')).catch(() => null)
 			]);
 			const s = data.settings;
 			this.bumpers = data.bumpers;
-			this.commands = commands;
 			this.webLogoUrl = s.cinema_web_logo_url ?? null;
 			this.updatedAt = s.updated_at;
 			this.accentCleared = !s.accent_color;
@@ -269,11 +242,6 @@ export class SettingsStore {
 				subtitle_use_margins: !!s.subtitle_use_margins,
 				subtitle_bold: !!s.subtitle_bold,
 				playout_server_url: s.playout_server_url ?? '',
-				preshow_commands: (s.preshow_commands ?? []).map((c) => ({
-					command: c.command ?? null,
-					cue: !!c.cue
-				})),
-				lead_in: String(s.lead_in ?? 0),
 				accent_color: s.accent_color || DEFAULT_ACCENT,
 				display_time_format: s.display_time_format === '12h' ? '12h' : '24h',
 				kiosk_layout: s.kiosk_layout ?? 'wall',
@@ -346,8 +314,6 @@ export class SettingsStore {
 						subtitle_use_margins: m.subtitle_use_margins,
 						subtitle_bold: m.subtitle_bold,
 						playout_server_url: m.playout_server_url.trim(),
-						preshow_commands: m.preshow_commands,
-						lead_in: int(m.lead_in, 0),
 						// Empty string = reset to the built-in theme (server stores None).
 						accent_color: this.accentCleared ? '' : m.accent_color,
 						display_time_format: m.display_time_format,

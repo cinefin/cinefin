@@ -1435,27 +1435,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/playout/lead-in": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Start Lead In
-         * @description Run the pre-show sequence now (commands + cue, in order) — the programme is left cued with
-         *     its title slate up, for the operator to start. Returns at once; the sequence runs in the background.
-         */
-        post: operations["cinefin_api_ninja_views_playout_ninja_start_lead_in"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/playout/load": {
         parameters: {
             query?: never;
@@ -4318,7 +4297,7 @@ export interface components {
             credits: number;
             /**
              * Preshow
-             * @description Whether it is in the pre-show command list
+             * @description Whether an upcoming screening's lead-in runs it
              */
             preshow: boolean;
             /**
@@ -4541,9 +4520,15 @@ export interface components {
         CreateScheduleSchema: {
             /**
              * Lead In
-             * @description Lead-in override in seconds (null = the default)
+             * @description Seconds between the lead-in starting and the programme playing
+             * @default 0
              */
-            lead_in?: number | null;
+            lead_in: number;
+            /**
+             * Preshow
+             * @description The lead-in's ordered steps; none = just the cue
+             */
+            preshow?: components["schemas"]["LeadInStepSchema"][];
             /**
              * Programme Id
              * @description ID of programme to schedule
@@ -5707,13 +5692,19 @@ export interface components {
              */
             status: string;
         };
-        /** LeadInSchema */
-        LeadInSchema: {
+        /** LeadInStepSchema */
+        LeadInStepSchema: {
             /**
-             * Programme Id
-             * @description Programme to run the lead-in for
+             * Command
+             * @description Command ID to run (omit for the cue step)
              */
-            programme_id: number;
+            command?: number | null;
+            /**
+             * Cue
+             * @description The step that cues the programme and holds its title slate
+             * @default false
+             */
+            cue: boolean;
         };
         /** LoadProgrammeDataSchema */
         LoadProgrammeDataSchema: {
@@ -7287,20 +7278,6 @@ export interface components {
              */
             source: string;
         };
-        /** PreshowStepSchema */
-        PreshowStepSchema: {
-            /**
-             * Command
-             * @description Command ID to run (omit for the cue step)
-             */
-            command?: number | null;
-            /**
-             * Cue
-             * @description The step that cues the programme and holds its title slate
-             * @default false
-             */
-            cue: boolean;
-        };
         /** PreviewTrailerItemSchema */
         PreviewTrailerItemSchema: {
             /**
@@ -8422,12 +8399,6 @@ export interface components {
              */
             count: number;
             /**
-             * Default Lead In
-             * @description The global lead-in in seconds (scheduler.lead_in)
-             * @default 0
-             */
-            default_lead_in: number;
-            /**
              * Schedules
              * @description List of scheduled programmes
              */
@@ -8502,14 +8473,20 @@ export interface components {
             last_error?: string | null;
             /**
              * Lead In
-             * @description Lead-in override in seconds (null = the default)
+             * @description Seconds between the lead-in starting and the programme playing
+             * @default 0
              */
-            lead_in?: number | null;
+            lead_in: number;
             /**
              * Play Time
              * @description When the programme plays: start_time + lead-in (ISO)
              */
             play_time: string;
+            /**
+             * Preshow
+             * @description The lead-in's ordered steps: commands plus the one cue step
+             */
+            preshow?: components["schemas"]["LeadInStepSchema"][];
             /** @description Associated programme details */
             programme: components["schemas"]["ProgrammeBasicSchema"];
             /**
@@ -8754,22 +8731,11 @@ export interface components {
              */
             kiosk_takeover: boolean;
             /**
-             * Lead In
-             * @description Default lead-in: seconds between a screening starting and its programme playing
-             * @default 0
-             */
-            lead_in: number;
-            /**
              * Playout Server Url
              * @description Base URL the playout host uses to fetch streamed media from Cinefin
              * @default
              */
             playout_server_url: string;
-            /**
-             * Preshow Commands
-             * @description Ordered lead-in steps: commands plus the one cue step
-             */
-            preshow_commands?: components["schemas"]["PreshowStepSchema"][];
             /**
              * Ratings System
              * @description Ratings classification system: BBFC or MPAA
@@ -10439,9 +10405,15 @@ export interface components {
         UpdateScheduleSchema: {
             /**
              * Lead In
-             * @description Lead-in override in seconds (null = the default)
+             * @description Seconds between the lead-in starting and the programme playing
+             * @default 0
              */
-            lead_in?: number | null;
+            lead_in: number;
+            /**
+             * Preshow
+             * @description The lead-in's ordered steps; none = just the cue
+             */
+            preshow?: components["schemas"]["LeadInStepSchema"][];
             /**
              * Start Time
              * @description When the lead-in begins, in ISO format
@@ -10532,20 +10504,10 @@ export interface components {
              */
             kiosk_takeover?: boolean | null;
             /**
-             * Lead In
-             * @description Default lead-in in seconds (0 = none)
-             */
-            lead_in?: number | null;
-            /**
              * Playout Server Url
              * @description Base URL the playout host uses to fetch streamed media from Cinefin
              */
             playout_server_url?: string | null;
-            /**
-             * Preshow Commands
-             * @description Ordered lead-in steps: commands plus the one cue step
-             */
-            preshow_commands?: components["schemas"]["PreshowStepSchema"][] | null;
             /**
              * Ratings System
              * @description Ratings classification system: BBFC or MPAA
@@ -14303,48 +14265,6 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_playout_ninja_start_lead_in: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["LeadInSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Conflict */
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };

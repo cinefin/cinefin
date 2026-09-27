@@ -11,7 +11,6 @@ from cinefin.api.models import Bumper, Settings
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 from cinefin.api.services import config_check_service
-from cinefin.api.services import preshow as _preshow
 from cinefin.api.utils import branding
 from cinefin.api.utils.assets import system_ident_stream_url
 
@@ -27,11 +26,6 @@ class BumperSchema(Schema):
 class CinemaIdentSchema(Schema):
     id: int = Field(description="Cinema ident unique identifier")
     title: str = Field(description="Cinema ident title")
-
-
-class PreshowStepSchema(Schema):
-    command: int | None = Field(default=None, description="Command ID to run (omit for the cue step)")
-    cue: bool = Field(default=False, description="The step that cues the programme and holds its title slate")
 
 
 class SettingsDataSchema(Schema):
@@ -67,14 +61,6 @@ class SettingsDataSchema(Schema):
     subtitle_bold: bool = Field(default=False, description="Bold subtitle text")
     playout_server_url: str = Field(
         default="", description="Base URL the playout host uses to fetch streamed media from Cinefin"
-    )
-
-    preshow_commands: list[PreshowStepSchema] = Field(
-        default_factory=list, description="Ordered lead-in steps: commands plus the one cue step"
-    )
-    lead_in: int = Field(
-        default=0,
-        description="Default lead-in: seconds between a screening starting and its programme playing",
     )
 
     cinema_web_logo_url: str | None = Field(default=None, description="Navbar logo URL (None = default mark)")
@@ -147,11 +133,6 @@ class UpdateSettingsSchema(Schema):
     playout_server_url: str | None = Field(
         default=None, description="Base URL the playout host uses to fetch streamed media from Cinefin"
     )
-
-    preshow_commands: list[PreshowStepSchema] | None = Field(
-        default=None, description="Ordered lead-in steps: commands plus the one cue step"
-    )
-    lead_in: int | None = Field(default=None, ge=0, description="Default lead-in in seconds (0 = none)")
 
     ratings_system: str | None = Field(default=None, description="Ratings classification system: BBFC or MPAA")
 
@@ -249,8 +230,6 @@ def _build_settings_response(all_settings: dict, updated_at: str) -> SettingsDat
         subtitle_use_margins=bool(subtitles.get("use_margins", True)),
         subtitle_bold=bool(subtitles.get("bold", False)),
         playout_server_url=all_settings.get("playout", {}).get("server_url", ""),
-        preshow_commands=[{"cue": True} if s == _preshow.CUE else {"command": s} for s in _preshow.steps()],
-        lead_in=int(all_settings.get("scheduler", {}).get("lead_in", 0) or 0),
         cinema_web_logo_url=branding.web_logo_url(all_settings.get("cinema", {}).get("web_logo_path")),
         accent_color=branding.valid_accent_color(all_settings.get("display", {}).get("accent_color")),
         display_time_format=("12h" if all_settings.get("display", {}).get("time_format") == "12h" else "24h"),
@@ -321,8 +300,6 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         "subtitle_use_margins": "playout.subtitles.use_margins",
         "subtitle_bold": "playout.subtitles.bold",
         "playout_server_url": "playout.server_url",
-        "preshow_commands": "scheduler.preshow_commands",
-        "lead_in": "scheduler.lead_in",
         "accent_color": "display.accent_color",
         "display_time_format": "display.time_format",
         "kiosk_layout": "kiosk.layout",
@@ -417,19 +394,6 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
             value = branding.valid_accent_color(value)  # "" -> None (reset)
             Settings.set(settings_key, value)
             continue
-        if field_name == "preshow_commands":
-            from cinefin.api.models import Command
-
-            ids = [step.command for step in value if step.command is not None]
-            valid = set(Command.objects.filter(id__in=ids).values_list("id", flat=True))
-            cleaned, seen = [], set()
-            for step in value:
-                key = "cue" if step.cue else step.command
-                if key in seen or (key != "cue" and key not in valid):
-                    continue
-                seen.add(key)
-                cleaned.append({"cue": True} if key == "cue" else {"command": key})
-            value = cleaned if "cue" in seen else [{"cue": True}, *cleaned]
         Settings.set(settings_key, value)
 
     if data.ratings_system and data.ratings_system != previous_ratings_system:

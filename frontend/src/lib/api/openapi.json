@@ -1661,7 +1661,7 @@
             "type": "integer"
           },
           "preshow": {
-            "description": "Whether it is in the pre-show command list",
+            "description": "Whether an upcoming screening's lead-in runs it",
             "title": "Preshow",
             "type": "boolean"
           },
@@ -2061,17 +2061,19 @@
       "CreateScheduleSchema": {
         "properties": {
           "lead_in": {
-            "anyOf": [
-              {
-                "minimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Lead-in override in seconds (null = the default)",
-            "title": "Lead In"
+            "default": 0,
+            "description": "Seconds between the lead-in starting and the programme playing",
+            "minimum": 0,
+            "title": "Lead In",
+            "type": "integer"
+          },
+          "preshow": {
+            "description": "The lead-in's ordered steps; none = just the cue",
+            "items": {
+              "$ref": "#/components/schemas/LeadInStepSchema"
+            },
+            "title": "Preshow",
+            "type": "array"
           },
           "programme_id": {
             "description": "ID of programme to schedule",
@@ -4157,18 +4159,28 @@
         "title": "KioskScreeningSchema",
         "type": "object"
       },
-      "LeadInSchema": {
+      "LeadInStepSchema": {
         "properties": {
-          "programme_id": {
-            "description": "Programme to run the lead-in for",
-            "title": "Programme Id",
-            "type": "integer"
+          "command": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Command ID to run (omit for the cue step)",
+            "title": "Command"
+          },
+          "cue": {
+            "default": false,
+            "description": "The step that cues the programme and holds its title slate",
+            "title": "Cue",
+            "type": "boolean"
           }
         },
-        "required": [
-          "programme_id"
-        ],
-        "title": "LeadInSchema",
+        "title": "LeadInStepSchema",
         "type": "object"
       },
       "LoadProgrammeDataSchema": {
@@ -7134,30 +7146,6 @@
         "title": "PluginFailureSchema",
         "type": "object"
       },
-      "PreshowStepSchema": {
-        "properties": {
-          "command": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Command ID to run (omit for the cue step)",
-            "title": "Command"
-          },
-          "cue": {
-            "default": false,
-            "description": "The step that cues the programme and holds its title slate",
-            "title": "Cue",
-            "type": "boolean"
-          }
-        },
-        "title": "PreshowStepSchema",
-        "type": "object"
-      },
       "PreviewTrailerItemSchema": {
         "properties": {
           "already_downloaded": {
@@ -9245,12 +9233,6 @@
             "title": "Count",
             "type": "integer"
           },
-          "default_lead_in": {
-            "default": 0,
-            "description": "The global lead-in in seconds (scheduler.lead_in)",
-            "title": "Default Lead In",
-            "type": "integer"
-          },
           "schedules": {
             "description": "List of scheduled programmes",
             "items": {
@@ -9395,21 +9377,23 @@
             "title": "Last Error"
           },
           "lead_in": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Lead-in override in seconds (null = the default)",
-            "title": "Lead In"
+            "default": 0,
+            "description": "Seconds between the lead-in starting and the programme playing",
+            "title": "Lead In",
+            "type": "integer"
           },
           "play_time": {
             "description": "When the programme plays: start_time + lead-in (ISO)",
             "title": "Play Time",
             "type": "string"
+          },
+          "preshow": {
+            "description": "The lead-in's ordered steps: commands plus the one cue step",
+            "items": {
+              "$ref": "#/components/schemas/LeadInStepSchema"
+            },
+            "title": "Preshow",
+            "type": "array"
           },
           "programme": {
             "$ref": "#/components/schemas/ProgrammeBasicSchema",
@@ -9802,25 +9786,11 @@
             "title": "Kiosk Takeover",
             "type": "boolean"
           },
-          "lead_in": {
-            "default": 0,
-            "description": "Default lead-in: seconds between a screening starting and its programme playing",
-            "title": "Lead In",
-            "type": "integer"
-          },
           "playout_server_url": {
             "default": "",
             "description": "Base URL the playout host uses to fetch streamed media from Cinefin",
             "title": "Playout Server Url",
             "type": "string"
-          },
-          "preshow_commands": {
-            "description": "Ordered lead-in steps: commands plus the one cue step",
-            "items": {
-              "$ref": "#/components/schemas/PreshowStepSchema"
-            },
-            "title": "Preshow Commands",
-            "type": "array"
           },
           "ratings_system": {
             "default": "BBFC",
@@ -13087,17 +13057,19 @@
       "UpdateScheduleSchema": {
         "properties": {
           "lead_in": {
-            "anyOf": [
-              {
-                "minimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Lead-in override in seconds (null = the default)",
-            "title": "Lead In"
+            "default": 0,
+            "description": "Seconds between the lead-in starting and the programme playing",
+            "minimum": 0,
+            "title": "Lead In",
+            "type": "integer"
+          },
+          "preshow": {
+            "description": "The lead-in's ordered steps; none = just the cue",
+            "items": {
+              "$ref": "#/components/schemas/LeadInStepSchema"
+            },
+            "title": "Preshow",
+            "type": "array"
           },
           "start_time": {
             "description": "When the lead-in begins, in ISO format",
@@ -13303,19 +13275,6 @@
             "description": "Now Showing takeover on/off",
             "title": "Kiosk Takeover"
           },
-          "lead_in": {
-            "anyOf": [
-              {
-                "minimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Default lead-in in seconds (0 = none)",
-            "title": "Lead In"
-          },
           "playout_server_url": {
             "anyOf": [
               {
@@ -13327,21 +13286,6 @@
             ],
             "description": "Base URL the playout host uses to fetch streamed media from Cinefin",
             "title": "Playout Server Url"
-          },
-          "preshow_commands": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/PreshowStepSchema"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Ordered lead-in steps: commands plus the one cue step",
-            "title": "Preshow Commands"
           },
           "ratings_system": {
             "anyOf": [
@@ -19220,64 +19164,6 @@
           }
         ],
         "summary": "Refresh Playout Host",
-        "tags": [
-          "Playout"
-        ]
-      }
-    },
-    "/api/v2/playout/lead-in": {
-      "post": {
-        "description": "Run the pre-show sequence now (commands + cue, in order) \u2014 the programme is left cued with\nits title slate up, for the operator to start. Returns at once; the sequence runs in the background.",
-        "operationId": "cinefin_api_ninja_views_playout_ninja_start_lead_in",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LeadInSchema"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MessageResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Conflict"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Start Lead In",
         "tags": [
           "Playout"
         ]

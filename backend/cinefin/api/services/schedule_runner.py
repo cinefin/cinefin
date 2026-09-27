@@ -114,7 +114,7 @@ def execute_schedule(schedule):
 
     programme = schedule.programme
     logger.info("Executing schedule %s (programme %s)", schedule.id, programme.id)
-    preshow.run(programme)  # commands + cue; its title slate now holds
+    preshow.run(programme, schedule.preshow)  # its commands + cue; the title slate now holds
 
     # Play at the planned time; a late lead-in (the player was busy) still gets a short settle.
     earliest = timezone.now() + timedelta(seconds=_cfg("SCHEDULER_PREROLL_SECONDS", 3))
@@ -203,18 +203,16 @@ def recover_orphans():
 
 def tick():
     """Run one scheduler pass. Returns a summary dict."""
-    from cinefin.api.models.automation import default_lead_in
     from cinefin.api.services import preshow
 
     now = timezone.now()
     grace = timedelta(minutes=_cfg("SCHEDULER_GRACE_MINUTES", 15))
-    default = default_lead_in()
     fired = missed = completed = 0
 
     # running -> completed once end passed. Guard on positive runtime: a zero/unknown
     # runtime makes end_time() == play_time, marking a just-started row 'completed' next tick.
     for s in ProgrammeSchedule.objects.filter(status="running"):
-        if s.runtime and s.runtime > 0 and s.end_time(default) < now:
+        if s.runtime and s.runtime > 0 and s.end_time() < now:
             ProgrammeSchedule.objects.filter(id=s.id, status="running").update(status="completed")
             completed += 1
 
@@ -227,10 +225,10 @@ def tick():
 
     for s in due:
         # Too late to play sensibly (e.g. the box was off) -> missed
-        if s.play_time(default) < now - grace:
+        if s.play_time() < now - grace:
             if ProgrammeSchedule.objects.filter(id=s.id, status="scheduled").update(status="missed") == 1:
                 missed += 1
-                logger.warning("Schedule %s missed (was due %s)", s.id, s.play_time(default).isoformat())
+                logger.warning("Schedule %s missed (was due %s)", s.id, s.play_time().isoformat())
             continue
 
         # A screening is on air or another lead-in is running — don't interrupt it. Leave the row

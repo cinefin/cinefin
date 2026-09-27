@@ -1,6 +1,5 @@
-"""The lead-in: the ordered pre-show sequence, the runner's play-time handling, and overlap checks."""
+"""Per-screening lead-ins: the ordered steps, the runner's play-time handling, and overlap checks."""
 
-import threading
 from datetime import timedelta
 
 import pytest
@@ -17,24 +16,22 @@ API = "/api/v2"
 
 
 class TestSteps:
-    def test_cue_is_prepended_when_absent_and_legacy_entries_read_as_commands(self):
-        a, b = CommandFactory(), CommandFactory()
-        Settings.set("scheduler.preshow_commands", [{"command": a.id, "lead": 120}, b.id])
-        assert preshow.steps() == [preshow.CUE, a.id, b.id]
+    def test_cue_is_prepended_when_absent(self):
+        assert preshow.steps([{"command": 4}, {"command": 7}]) == [preshow.CUE, 4, 7]
+        assert preshow.steps([]) == [preshow.CUE]
 
     def test_cue_position_is_kept(self):
-        a, b = CommandFactory(), CommandFactory()
-        Settings.set("scheduler.preshow_commands", [{"command": a.id}, {"cue": True}, {"command": b.id}])
-        assert preshow.steps() == [a.id, preshow.CUE, b.id]
-        assert preshow.command_ids() == [a.id, b.id]
+        raw = [{"command": 4}, {"cue": True}, {"command": 7}]
+        assert preshow.steps(raw) == [4, preshow.CUE, 7]
+        assert preshow.command_ids(raw) == [4, 7]
 
     def test_duplicates_and_garbage_are_ignored(self):
+        raw = [True, {"lead": 5}, "x", 3, {"cue": True}, {"cue": True}, {"command": 4}, {"command": 4}]
+        assert preshow.steps(raw) == [preshow.CUE, 4]
+
+    def test_clean_drops_unknown_commands(self):
         a = CommandFactory()
-        Settings.set(
-            "scheduler.preshow_commands",
-            [True, {"lead": 5}, "x", {"cue": True}, {"cue": True}, {"command": a.id}, a.id],
-        )
-        assert preshow.steps() == [preshow.CUE, a.id]
+        assert preshow.clean([{"command": 9999}, {"command": a.id}]) == [{"cue": True}, {"command": a.id}]
 
 
 class TestRun:
@@ -43,13 +40,10 @@ class TestRun:
         monkeypatch.setattr(command_runner, "execute", lambda command, trigger, wait: events.append(command.name))
         monkeypatch.setattr(preshow, "_load", lambda programme: events.append("cue") or True)
         restart, av = CommandFactory(name="Restart mpv"), CommandFactory(name="AV up")
-        Settings.set(
-            "scheduler.preshow_commands",
-            [{"command": restart.id}, {"cue": True}, {"command": av.id}, {"command": 9999}],
-        )
+        steps = [{"command": restart.id}, {"cue": True}, {"command": av.id}, {"command": 9999}]
         programme = PlaylistFactory().programme
 
-        preshow.run(programme)
+        preshow.run(programme, steps)
         assert events == ["Restart mpv", "cue", "AV up"]
 
     def test_a_command_holds_for_its_duration(self, monkeypatch):
@@ -85,7 +79,7 @@ class TestRunner:
     def test_execute_waits_for_the_play_time(self, monkeypatch):
         import cinefin.api.mpv_service as mpv_module
 
-        monkeypatch.setattr(preshow, "run", lambda programme: None)
+        monkeypatch.setattr(preshow, "run", lambda programme, steps: None)
         monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda: True, raising=False)
         slept = []
         monkeypatch.setattr(schedule_runner.time, "sleep", slept.append)
@@ -98,7 +92,7 @@ class TestRunner:
         """Player freed 5 min into a 10 min lead-in: the programme still plays at the planned time."""
         import cinefin.api.mpv_service as mpv_module
 
-        monkeypatch.setattr(preshow, "run", lambda programme: None)
+        monkeypatch.setattr(preshow, "run", lambda programme, steps: None)
         monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda: True, raising=False)
         slept = []
         monkeypatch.setattr(schedule_runner.time, "sleep", slept.append)
@@ -110,7 +104,7 @@ class TestRunner:
     def test_removed_during_lead_in_does_not_start(self, monkeypatch):
         import cinefin.api.mpv_service as mpv_module
 
-        monkeypatch.setattr(preshow, "run", lambda programme: None)
+        monkeypatch.setattr(preshow, "run", lambda programme, steps: None)
         monkeypatch.setattr(schedule_runner.time, "sleep", lambda s: None)
         monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda: pytest.fail("must not start"))
         s = ProgrammeScheduleFactory(start_time=timezone.now(), lead_in=60, status="running")
@@ -137,25 +131,68 @@ class TestRunner:
         assert s.status == "scheduled"
 
 
-class TestLengthAndOverlap:
+class TestScheduleOwnsItsLeadIn:
+    def test_runner_runs_the_screenings_own_steps(self, monkeypatch):
+        import cinefin.api.mpv_service as mpv_module
+
+        ran = []
+        monkeypatch.setattr(preshow, "run", lambda programme, steps: ran.append(steps))
+        monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda: True, raising=False)
+        monkeypatch.setattr(schedule_runner.time, "sleep", lambda s: None)
+        steps = [{"command": CommandFactory().id}, {"cue": True}]
+        s = ProgrammeScheduleFactory(start_time=timezone.now(), preshow=steps, status="running")
+
+        schedule_runner.execute_schedule(s)
+        assert ran == [steps]
+
     def test_length_includes_the_lead_in(self):
-        Settings.set("scheduler.lead_in", 600)
         start = timezone.now() + timedelta(hours=1)
-        s = ProgrammeScheduleFactory(start_time=start, runtime=90)
+        s = ProgrammeScheduleFactory(start_time=start, runtime=90, lead_in=600)
         assert s.play_time() == start + timedelta(minutes=10)
         assert s.end_time() == start + timedelta(minutes=100)
-        s.lead_in = 0  # a per-screening override wins over the default
-        assert s.end_time() == start + timedelta(minutes=90)
 
-    def test_list_reports_play_time_and_default(self, client):
-        Settings.set("scheduler.lead_in", 300)
-        s = ProgrammeScheduleFactory(start_time=timezone.now() + timedelta(hours=1))
-        data = client.get(f"{API}/schedules/list").json()["data"]
-        assert data["default_lead_in"] == 300
-        row = next(r for r in data["schedules"] if r["id"] == s.id)
-        assert row["lead_in"] is None
-        assert row["play_time"] == (s.start_time + timedelta(seconds=300)).isoformat()
+    def test_create_and_list_carry_the_steps(self, client):
+        cmd, programme = CommandFactory(), ProgrammeFactory()
+        start = (timezone.now() + timedelta(days=2)).astimezone(timezone.UTC).replace(tzinfo=None, microsecond=0)
+        body = {
+            "programme_id": programme.id,
+            "start_time": start.isoformat(),
+            "timezone": "UTC",
+            "lead_in": 300,
+            "preshow": [{"command": cmd.id}, {"cue": True}, {"command": 9999}],
+        }
+        assert client.post(f"{API}/schedules/create", data=body, content_type="application/json").status_code == 201
+        row = next(
+            r
+            for r in client.get(f"{API}/schedules/list").json()["data"]["schedules"]
+            if r["programme"]["id"] == programme.id
+        )
+        assert row["lead_in"] == 300
+        assert row["preshow"] == [{"command": cmd.id, "cue": False}, {"command": None, "cue": True}]
 
+    def test_a_new_screening_is_cue_only(self):
+        assert preshow.steps(ProgrammeScheduleFactory().preshow) == [preshow.CUE]
+
+    def test_manual_lead_in_is_gone(self, client):
+        r = client.post(f"{API}/playout/lead-in", data={"programme_id": 1}, content_type="application/json")
+        assert r.status_code in (404, 405)
+
+
+class TestMigration:
+    def test_retires_the_global_scheduler_settings(self):
+        """(The null -> global lead-in copy runs against the pre-migration schema, so only the
+        settings clean-up is testable here.)"""
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("cinefin.api.migrations.0046_per_screening_lead_in")
+        Settings.objects.update_or_create(id=1, defaults={"data": {"scheduler": {"lead_in": 600}, "cinema": {}}})
+        migration.adopt_global_lead_in(apps, None)
+        assert Settings.objects.get(id=1).data == {"cinema": {}}
+
+
+class TestOverlap:
     def test_overlap_with_the_lead_in_is_rejected(self, client):
         start = timezone.now().replace(microsecond=0) + timedelta(days=1)
         ProgrammeScheduleFactory(start_time=start, runtime=60, lead_in=600)  # occupies start → +70 min
@@ -165,38 +202,5 @@ class TestLengthAndOverlap:
             f"{API}/schedules/create",
             data={"programme_id": programme.id, "start_time": new_start, "timezone": "UTC"},
             content_type="application/json",
-        )
-        assert r.status_code == 409
-
-
-class TestManualLeadIn:
-    @pytest.fixture(autouse=True)
-    def _free_lock(self):
-        yield
-        if preshow.lock.locked():
-            preshow.lock.release()
-
-    def test_starts_the_sequence(self, client, monkeypatch):
-        ran = []
-        monkeypatch.setattr(preshow, "run", ran.append)
-
-        class Inline:
-            def __init__(self, target, **kw):
-                self.target = target
-
-            def start(self):
-                self.target()
-
-        monkeypatch.setattr(threading, "Thread", Inline)
-        programme = ProgrammeFactory()
-        r = client.post(f"{API}/playout/lead-in", data={"programme_id": programme.id}, content_type="application/json")
-        assert r.status_code == 200
-        assert [p.id for p in ran] == [programme.id]
-        assert not preshow.lock.locked()
-
-    def test_refused_while_one_is_running(self, client):
-        preshow.lock.acquire()
-        r = client.post(
-            f"{API}/playout/lead-in", data={"programme_id": ProgrammeFactory().id}, content_type="application/json"
         )
         assert r.status_code == 409

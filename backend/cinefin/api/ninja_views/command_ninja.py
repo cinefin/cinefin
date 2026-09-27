@@ -42,7 +42,7 @@ class CommandUsageSchema(Schema):
     programmes: int = Field(description="Programmes with a block running this command")
     templates: int = Field(description="Templates with an item running this command")
     credits: int = Field(description="Blocks/items using it as a credits command")
-    preshow: bool = Field(description="Whether it is in the pre-show command list")
+    preshow: bool = Field(description="Whether an upcoming screening's lead-in runs it")
 
 
 class CommandSchema(Schema):
@@ -256,9 +256,14 @@ def _command_usage(commands: list[Command]) -> dict[int, CommandUsageSchema]:
     ) + Counter(
         ProgrammeTemplateItem.objects.filter(credits_command_id__in=ids).values_list("credits_command_id", flat=True)
     )
+    from cinefin.api.models import ProgrammeSchedule
     from cinefin.api.services import preshow
 
-    preshow_ids = set(preshow.command_ids())
+    preshow_ids = {
+        cid
+        for steps in ProgrammeSchedule.objects.filter(status="scheduled").values_list("preshow", flat=True)
+        for cid in preshow.command_ids(steps)
+    }
 
     return {
         command_id: CommandUsageSchema(

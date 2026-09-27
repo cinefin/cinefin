@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LeadInSteps, { type LeadInStep } from '$lib/schedules/LeadInSteps.svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
@@ -328,7 +329,8 @@
 	let dtValue = $state('');
 	let dtMin = $state('');
 	let tzValue = $state(browserZone);
-	let leadInValue = $state<number | null>(null); // minutes; blank (null) = the default lead-in
+	let leadInValue = $state(0); // minutes
+	let leadInSteps = $state<LeadInStep[]>([]);
 	let saving = $state(false);
 	let modalError = $state<string | null>(null);
 
@@ -339,7 +341,8 @@
 		pickerSearch = '';
 		dtValue = defaultDateTime();
 		dtMin = localNow();
-		leadInValue = null;
+		leadInValue = 0;
+		leadInSteps = [];
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -353,7 +356,8 @@
 		start.setMinutes(start.getMinutes() - start.getTimezoneOffset());
 		dtValue = start.toISOString().slice(0, 16);
 		dtMin = localNow();
-		leadInValue = s.lead_in == null ? null : Math.round(s.lead_in / 60);
+		leadInValue = Math.round(s.lead_in / 60);
+		leadInSteps = (s.preshow ?? []).map((step) => ({ ...step }));
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -365,11 +369,8 @@
 		return q ? list.filter((p) => p.name.toLowerCase().includes(q)) : list;
 	});
 
-	const defaultLeadIn = $derived(schedules.data?.default_lead_in ?? 0); // seconds
-	// The screening's lead-in in ms: its own value, else the default.
-	const leadInMs = $derived(
-		(leadInValue == null ? defaultLeadIn : Math.max(0, Math.round(leadInValue)) * 60) * 1000
-	);
+	const leadInSeconds = $derived(Math.max(0, Math.round(Number(leadInValue) || 0)) * 60);
+	const leadInMs = $derived(leadInSeconds * 1000);
 
 	const currentRuntime = $derived.by(() => {
 		if (mode === 'edit' && editing) {
@@ -427,9 +428,7 @@
 
 	const canSave = $derived(Boolean(dtValue) && Boolean(selectedProgramme) && !conflict);
 
-	function leadInPayload(): number | null {
-		return leadInValue == null ? null : Math.max(0, Math.round(leadInValue)) * 60;
-	}
+	const leadInPayload = () => ({ lead_in: leadInSeconds, preshow: leadInSteps });
 
 	async function save() {
 		if (!canSave || saving) return;
@@ -440,7 +439,7 @@
 				await unwrap(
 					api.PUT('/api/v2/schedules/{schedule_id}', {
 						params: { path: { schedule_id: editing.id } },
-						body: { start_time: dtValue, timezone: tzValue, lead_in: leadInPayload() }
+						body: { start_time: dtValue, timezone: tzValue, ...leadInPayload() }
 					})
 				);
 				notice.show('success', 'Schedule updated');
@@ -451,7 +450,7 @@
 							programme_id: selectedProgramme!.id,
 							start_time: dtValue,
 							timezone: tzValue,
-							lead_in: leadInPayload()
+							...leadInPayload()
 						}
 					})
 				);
@@ -844,13 +843,12 @@
 					min="0"
 					step="1"
 					bind:value={leadInValue}
-					placeholder={String(Math.round(defaultLeadIn / 60))}
 					class="h-9 w-24 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim"
 				/>
-				<span class="text-sm text-muted">min</span>
-				<span class="text-xs text-faint">
-					Blank uses the default ({Math.round(defaultLeadIn / 60)} min)
-				</span>
+				<span class="text-sm text-muted">min before the programme plays</span>
+			</div>
+			<div class="mt-3">
+				<LeadInSteps bind:steps={leadInSteps} />
 			</div>
 		</div>
 

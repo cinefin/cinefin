@@ -7,7 +7,7 @@ from typing import Any, Literal
 from django.http import HttpRequest
 from ninja import Field, Router, Schema, Status
 
-from cinefin.api.exceptions import ConflictError, NotFoundError, UnprocessableEntityError, ValidationError
+from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import Playlist, PlaylistItem, PlayoutHost, Programme
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
@@ -372,43 +372,6 @@ def run_programme(request: HttpRequest):
             ),
         ),
     )
-
-
-class LeadInSchema(Schema):
-    programme_id: int = Field(..., description="Programme to run the lead-in for")
-
-
-@playout_api.post("/lead-in", response={200: MessageResponseSchema, 404: ErrorResponseSchema, 409: ErrorResponseSchema})
-def start_lead_in(request: HttpRequest, data: LeadInSchema):
-    """Run the pre-show sequence now (commands + cue, in order) — the programme is left cued with
-    its title slate up, for the operator to start. Returns at once; the sequence runs in the background."""
-    import threading
-
-    from django.db import close_old_connections
-
-    from cinefin.api.mpv_service import ProgrammeState
-    from cinefin.api.services import preshow
-
-    programme = Programme.objects.filter(id=data.programme_id).first()
-    if programme is None:
-        raise NotFoundError("Programme not found", error_code="PROGRAMME_NOT_FOUND")
-    if mpv_service.programme_state in (ProgrammeState.RUNNING, ProgrammeState.PAUSED):
-        raise ConflictError("A programme is playing — stop it before starting a lead-in", error_code="PLAYER_BUSY")
-    if not preshow.lock.acquire(blocking=False):
-        raise ConflictError("A lead-in is already running", error_code="LEAD_IN_RUNNING")
-
-    def _target():
-        close_old_connections()
-        try:
-            preshow.run(programme)
-        except Exception:  # noqa: BLE001 - logged; the page sees the player never reach 'cued'
-            logger.exception("Manual lead-in for programme %s failed", programme.id)
-        finally:
-            preshow.lock.release()
-            close_old_connections()
-
-    threading.Thread(target=_target, daemon=True, name=f"lead-in-{programme.id}").start()
-    return Status(200, MessageResponseSchema(message="Lead-in started"))
 
 
 @playout_api.get(

@@ -22,7 +22,10 @@ class ProgrammeSchedule(models.Model):
     start_time = models.DateTimeField()
     runtime = models.PositiveIntegerField(default=0, help_text="Duration in minutes")
     lead_in = models.PositiveIntegerField(
-        null=True, blank=True, help_text="Seconds before the programme plays; null = the scheduler.lead_in default"
+        default=0, help_text="Seconds between the lead-in starting and the programme playing"
+    )
+    preshow = models.JSONField(
+        default=list, blank=True, help_text='Lead-in steps: [{"command": id} | {"cue": true}]; none = just the cue'
     )
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(
@@ -45,22 +48,9 @@ class ProgrammeSchedule(models.Model):
     def __str__(self):
         return f"{self.programme.name} - Scheduled for {self.start_time.strftime('%Y-%m-%d %H:%M')}"
 
-    def lead_in_seconds(self, default: int | None = None) -> int:
-        """This screening's lead-in: its override, else the global default (pass it in to save a query)."""
-        if self.lead_in is not None:
-            return self.lead_in
-        return default_lead_in() if default is None else default
+    def play_time(self):
+        """start_time is when the lead-in begins; the programme plays lead_in seconds later."""
+        return self.start_time + timedelta(seconds=self.lead_in)
 
-    def play_time(self, default: int | None = None):
-        """start_time is when the lead-in begins; the programme plays this much later."""
-        return self.start_time + timedelta(seconds=self.lead_in_seconds(default))
-
-    def end_time(self, default: int | None = None):
-        return self.play_time(default) + timedelta(minutes=self.runtime)
-
-
-def default_lead_in() -> int:
-    from .settings import Settings
-
-    value = Settings.get("scheduler.lead_in")
-    return int(value) if isinstance(value, int | float) and value > 0 else 0
+    def end_time(self):
+        return self.play_time() + timedelta(minutes=self.runtime)

@@ -1,16 +1,15 @@
-"""The pre-show sequence: the one place that reads `scheduler.preshow_commands`.
+"""A screening's lead-in: its own ordered steps, run from its start_time.
 
-An ordered list of steps run at a screening's lead-in: commands (each waits until it has
-finished and its configured duration has passed) and one cue step, which loads the programme
-so its title slate holds until it plays. The cue defaults to first; moving it lower lets
-commands such as a player restart run before the programme is loaded. Legacy entries (bare
-command ids, `{command, lead}`) read as commands."""
+Each `ProgrammeSchedule.preshow` is a list of commands (each waits until it has finished
+and its configured duration has passed) and one cue step, which loads the programme so its
+title slate holds until it plays. No cue step means the cue runs first; moving it lower lets
+commands such as a player restart run before the programme is loaded."""
 
 import logging
 import threading
 import time
 
-from cinefin.api.models import Command, Settings
+from cinefin.api.models import Command
 from cinefin.api.services import command_runner
 
 logger = logging.getLogger(__name__)
@@ -18,38 +17,47 @@ logger = logging.getLogger(__name__)
 CUE = "cue"
 CUE_WAIT_SECONDS = 60  # how long the cue keeps retrying while the player comes back (e.g. after a restart)
 
-# One sequence at a time: held by a scheduled run from lead-in to play, or by a manual lead-in.
+# One lead-in at a time: held by a scheduled run from its lead-in to play.
 lock = threading.Lock()
 
 
-def steps() -> list[int | str]:
-    """Ordered steps: command ids and exactly one CUE (prepended when none is configured)."""
+def steps(raw: list) -> list[int | str]:
+    """Ordered steps from stored `[{"command": id} | {"cue": true}]`: command ids and exactly one CUE
+    (prepended when none is stored). Duplicates and malformed entries are dropped."""
     out: list[int | str] = []
-    for raw in Settings.get("scheduler.preshow_commands") or []:
-        if isinstance(raw, dict) and raw.get("cue"):
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("cue"):
             if CUE not in out:
                 out.append(CUE)
-        elif isinstance(raw, dict):
-            raw = raw.get("command")
-        if isinstance(raw, int) and not isinstance(raw, bool) and raw not in out:
-            out.append(raw)
+            continue
+        cid = item.get("command")
+        if isinstance(cid, int) and not isinstance(cid, bool) and cid not in out:
+            out.append(cid)
     return out if CUE in out else [CUE, *out]
 
 
-def command_ids() -> list[int]:
-    return [s for s in steps() if s != CUE]
+def command_ids(raw: list) -> list[int]:
+    return [s for s in steps(raw) if s != CUE]
 
 
-def run(programme) -> None:
-    """Run the sequence in order, blocking. Raises only when the programme can't be cued."""
-    by_id = {c.id: c for c in Command.objects.filter(id__in=command_ids())}
-    for step in steps():
+def clean(raw: list) -> list[dict]:
+    """The stored form of submitted steps: normalised, unknown commands dropped."""
+    valid = set(Command.objects.filter(id__in=command_ids(raw)).values_list("id", flat=True))
+    return [{"cue": True} if s == CUE else {"command": s} for s in steps(raw) if s == CUE or s in valid]
+
+
+def run(programme, raw: list) -> None:
+    """Run a screening's steps in order, blocking. Raises only when the programme can't be cued."""
+    by_id = {c.id: c for c in Command.objects.filter(id__in=command_ids(raw))}
+    for step in steps(raw):
         if step == CUE:
             _cue(programme)
         elif step in by_id:
             _run_command(by_id[step])
         else:
-            logger.warning("Pre-show command %s no longer exists; skipping", step)
+            logger.warning("Lead-in command %s no longer exists; skipping", step)
 
 
 def _run_command(command: Command) -> None:

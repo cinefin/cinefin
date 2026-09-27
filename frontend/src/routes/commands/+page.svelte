@@ -84,7 +84,7 @@
 		if (u.programmes) parts.push(`${u.programmes} programme${u.programmes === 1 ? '' : 's'}`);
 		if (u.templates) parts.push(`${u.templates} template${u.templates === 1 ? '' : 's'}`);
 		if (u.credits) parts.push(`${u.credits} credits cue${u.credits === 1 ? '' : 's'}`);
-		if (u.preshow) parts.push('pre-show');
+		if (u.preshow) parts.push('a screening lead-in');
 		return parts.length ? `Used in ${parts.join(' · ')}` : '';
 	}
 
