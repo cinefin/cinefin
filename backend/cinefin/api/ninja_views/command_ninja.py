@@ -58,6 +58,7 @@ class CommandSchema(Schema):
     duration: float = Field(description="Duration in seconds that this command takes to execute")
     show_on_remote: bool = Field(description="Whether to show this command on the MPV remote control")
     used_in: CommandUsageSchema = Field(description="Programmes/templates/credits/pre-show references")
+    locked: bool = Field(description="A built-in command: only its duration can change; it can't be deleted")
 
 
 class CreateCommandSchema(Schema):
@@ -118,6 +119,7 @@ class ProviderSchema(Schema):
     has_suggestions: bool = Field(description="Whether the command dialog should fetch autocomplete suggestions")
     has_settings_test: bool = Field(description="Whether the provider can test its settings")
     has_discover: bool = Field(description="Whether the provider can discover its settings on the network")
+    builtin: bool = Field(description="Its commands are built in: none can be created for it")
     fields: list[ProviderFieldSchema] = Field(description="Per-command configuration fields")
     settings: list[ProviderFieldSchema] = Field(description="Provider-wide settings fields")
 
@@ -294,6 +296,7 @@ def serialize_command(command: Command, usage: dict[int, CommandUsageSchema] | N
         duration=command.duration,
         show_on_remote=command.show_on_remote,
         used_in=usage.get(command.id) or CommandUsageSchema(programmes=0, templates=0, credits=0, preshow=False),
+        locked=plugins.is_builtin(command.provider),
     )
 
 
@@ -309,28 +312,9 @@ def _result_response(message: str, result: command_runner.CommandResult) -> Stat
     )
 
 
-def _ensure_system_commands() -> None:
-    """Keep the built-in 'system' commands present in the list so the operator never has
-    to create them — recreating any they deleted, derived from the provider's own actions.
-    No-op when the provider isn't loaded (e.g. tests with a temporary plugins dir)."""
-    from cinefin import plugins
-
-    provider = plugins.get_provider("system")
-    if provider is None:
-        return
-    action_field = next((f for f in provider.fields if f.key == "action"), None)
-    if action_field is None:
-        return
-    existing = set(Command.objects.filter(provider="system").values_list("config__action", flat=True))
-    for action in action_field.choices:
-        if action not in existing:
-            Command.objects.create(name=action, provider="system", config={"action": action})
-
-
 @command_api.get("/list", response={200: CommandListResponseSchema, 500: ErrorResponseSchema})
 def list_commands(request: HttpRequest, filters: CommandListFilters = Query(...)):
     """List all commands with optional filtering."""
-    _ensure_system_commands()
     commands = Command.objects.all().order_by("name")
 
     if filters.type:
@@ -503,6 +487,8 @@ def create_command(request: HttpRequest, data: CreateCommandSchema):
         raise ValidationError("Command name is required")
     if Command.objects.filter(name=name).exists():
         raise ConflictError(f"A command named '{name}' already exists")
+    if plugins.is_builtin(data.provider):
+        raise ValidationError(f"'{data.provider}' commands are built in — they can't be created")
     _validate_config(data.provider, data.config)
 
     command = Command.objects.create(
@@ -550,6 +536,16 @@ def update_command(request: HttpRequest, command_id: int, data: UpdateCommandSch
     except Command.DoesNotExist:
         raise NotFoundError("Command not found") from None
 
+    locked = plugins.is_builtin(command.provider)
+    if locked and (
+        (data.name is not None and data.name.strip() != command.name)
+        or (data.provider is not None and data.provider != command.provider)
+        or (data.config is not None and data.config != command.config)
+    ):
+        raise ValidationError("A built-in command can't be renamed or reconfigured — only its duration can change")
+    if not locked and data.provider is not None and plugins.is_builtin(data.provider):
+        raise ValidationError(f"'{data.provider}' commands are built in — they can't be created")
+
     if data.name is not None:
         name = data.name.strip()
         if not name:
@@ -577,7 +573,8 @@ def update_command(request: HttpRequest, command_id: int, data: UpdateCommandSch
 
 
 @command_api.delete(
-    "/{command_id}/delete", response={200: MessageResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema}
+    "/{command_id}/delete",
+    response={200: MessageResponseSchema, 404: ErrorResponseSchema, 409: ErrorResponseSchema, 500: ErrorResponseSchema},
 )
 def delete_command(request: HttpRequest, command_id: int):
     """Delete a command."""
@@ -586,6 +583,8 @@ def delete_command(request: HttpRequest, command_id: int):
     except Command.DoesNotExist:
         raise NotFoundError("Command not found") from None
 
+    if plugins.is_builtin(command.provider):
+        raise ConflictError("A built-in command can't be deleted")
     command_name = command.name
     command.delete()
 

@@ -1614,6 +1614,11 @@
             "title": "Id",
             "type": "integer"
           },
+          "locked": {
+            "description": "A built-in command: only its duration can change; it can't be deleted",
+            "title": "Locked",
+            "type": "boolean"
+          },
           "name": {
             "description": "Command name",
             "title": "Name",
@@ -1659,7 +1664,8 @@
           "config",
           "duration",
           "show_on_remote",
-          "used_in"
+          "used_in",
+          "locked"
         ],
         "title": "CommandSchema",
         "type": "object"
@@ -8578,6 +8584,11 @@
       },
       "ProviderSchema": {
         "properties": {
+          "builtin": {
+            "description": "Its commands are built in: none can be created for it",
+            "title": "Builtin",
+            "type": "boolean"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -8646,6 +8657,7 @@
           "has_suggestions",
           "has_settings_test",
           "has_discover",
+          "builtin",
           "fields",
           "settings"
         ],
@@ -14947,6 +14959,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "500": {
             "content": {

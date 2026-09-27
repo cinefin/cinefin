@@ -412,6 +412,17 @@ class TestSystemProvider:
         ok, message, _ = plugins.get_provider("system").run({"action": "Reset to the idle ident"}, {})
         assert ok is False and message == "could not reach the player"
 
+    @pytest.mark.parametrize(
+        ("action", "method"), [("Stop the programme", "stop_programme"), ("Pause", "pause"), ("Resume", "play")]
+    )
+    def test_playout_actions_call_the_player(self, monkeypatch, action, method):
+        from cinefin.api import mpv_service as mpv_mod
+
+        calls = []
+        monkeypatch.setattr(mpv_mod.mpv_service, method, lambda: calls.append(method) or True)
+        ok, _, _ = plugins.get_provider("system").run({"action": action}, {})
+        assert ok is True and calls == [method]
+
     def test_unknown_action_fails_cleanly(self):
         ok, message, _ = plugins.get_provider("system").run({"action": "nope"}, {})
         assert ok is False and message == "unknown action"
@@ -427,22 +438,39 @@ class TestSystemProvider:
         assert ok is False and message == "action failed" and "agent unreachable" in detail
 
 
-class TestSystemCommandSeeding:
-    """The system commands appear in the list on their own (no operator action, no migration)."""
+class TestBuiltinCommands:
+    """The system provider's actions are built-in commands: present after migrate, and locked."""
 
-    def test_they_appear_and_are_list_only(self, client):
+    ACTIONS = {"Restart the player", "Reset to the idle ident", "Stop the programme", "Pause", "Resume"}
+
+    def _system(self):
+        return Command.objects.filter(provider="system")
+
+    def test_present_after_migrate_and_idempotent(self):
+        assert set(self._system().values_list("name", flat=True)) == self.ACTIONS
+        plugins.ensure_builtin_commands()
+        assert self._system().count() == len(self.ACTIONS)
+
+    def test_listed_as_locked(self, client):
         by_name = {c["name"]: c for c in client.get("/api/v2/commands/list").json()["data"]["commands"]}
-        assert "Restart the player" in by_name and "Reset to the idle ident" in by_name
-        assert by_name["Restart the player"]["provider"] == "system"
-        assert by_name["Restart the player"]["show_on_remote"] is False  # list only, not on the remote
+        assert by_name["Pause"]["locked"] is True
+        providers = client.get("/api/v2/commands/providers").json()["data"]["providers"]
+        assert next(p for p in providers if p["id"] == "system")["builtin"] is True
 
-    def test_not_duplicated_across_loads(self, client):
-        client.get("/api/v2/commands/list")
-        client.get("/api/v2/commands/list")
-        assert Command.objects.filter(provider="system").count() == 2
+    def test_cannot_be_deleted(self, client):
+        cmd = self._system().get(name="Pause")
+        assert client.delete(f"/api/v2/commands/{cmd.id}/delete").status_code == 409
+        assert Command.objects.filter(pk=cmd.pk).exists()
 
-    def test_a_deleted_system_command_reappears(self, client):
-        client.get("/api/v2/commands/list")
-        Command.objects.get(provider="system", config__action="Restart the player").delete()
-        client.get("/api/v2/commands/list")
-        assert Command.objects.filter(provider="system", config__action="Restart the player").exists()
+    def test_only_duration_can_change(self, client):
+        cmd = self._system().get(name="Pause")
+        url = f"/api/v2/commands/{cmd.id}/update"
+        assert client.put(url, {"name": "Hold"}, content_type="application/json").status_code == 400
+        assert client.put(url, {"config": {"action": "Resume"}}, content_type="application/json").status_code == 400
+        assert client.put(url, {"duration": 5}, content_type="application/json").status_code == 200
+        cmd.refresh_from_db()
+        assert cmd.name == "Pause" and cmd.duration == 5
+
+    def test_none_can_be_created(self, client):
+        body = {"name": "Another pause", "provider": "system", "config": {"action": "Pause"}}
+        assert client.post("/api/v2/commands/create", body, content_type="application/json").status_code == 400

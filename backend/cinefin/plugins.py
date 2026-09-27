@@ -104,6 +104,12 @@ class CommandProvider:
         Return [{"label": "Living room HA", "values": {"url": …}}]; the operator picks one."""
         raise NotImplementedError
 
+    def builtin_commands(self) -> list[tuple[str, dict]]:
+        """Optional: ready-made commands this provider ships, as (name, config) pairs. Cinefin keeps
+        them present (created after every migrate) and locked — they can't be renamed, reconfigured
+        or deleted, only given a duration — and no other commands can be created for the provider."""
+        return []
+
     def load_settings(self) -> dict:
         from cinefin.api.models import Settings
 
@@ -136,6 +142,7 @@ class CommandProvider:
             "has_suggestions": self.supports("suggestions"),
             "has_settings_test": self.supports("test_settings"),
             "has_discover": self.supports("discover"),
+            "builtin": bool(self.builtin_commands()),
             "fields": [f.to_dict() for f in self.fields],
             "settings": [f.to_dict() for f in self.settings],
         }
@@ -285,3 +292,19 @@ def _reset_for_tests() -> None:
         for name in [n for n in sys.modules if n == _CONTRIB_PACKAGE or n.startswith(f"{_CONTRIB_PACKAGE}.")]:
             del sys.modules[name]
         _loaded = False
+
+
+def is_builtin(provider_id: str) -> bool:
+    """Whether a provider ships its commands built in (so they are locked and none can be created)."""
+    provider = get_provider(provider_id)
+    return bool(provider and provider.builtin_commands())
+
+
+def ensure_builtin_commands(**_kwargs) -> None:
+    """Create any missing built-in command (a post_migrate receiver; safe to call any time)."""
+    from cinefin.api.models import Command
+
+    for provider in list_providers():
+        for name, config in provider.builtin_commands():
+            if not Command.objects.filter(provider=provider.id, config=config).exists():
+                Command.objects.create(name=name, provider=provider.id, config=config)

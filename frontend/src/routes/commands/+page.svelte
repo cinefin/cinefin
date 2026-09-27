@@ -4,6 +4,7 @@
 		Copy,
 		FilterX,
 		FlaskConical,
+		Lock,
 		Pencil,
 		Play,
 		Plus,
@@ -48,7 +49,10 @@
 	const providerById = $derived(new Map(providers.map((p) => [p.id, p])));
 	// The picker offers enabled plugins only — plus the one the command being edited
 	// already uses, so a command whose plugin was later disabled stays editable.
-	const pickerProviders = $derived(providers.filter((p) => p.enabled || p.id === fProvider));
+	// Built-in providers' commands come ready-made — none can be created for them.
+	const pickerProviders = $derived(
+		providers.filter((p) => !p.builtin && (p.enabled || p.id === fProvider))
+	);
 
 	// A command runs only if its provider is loaded AND enabled. A disabled one is
 	// loaded but off (show a badge); a missing one is gone (unknown provider).
@@ -104,7 +108,10 @@
 	});
 	// Loaded providers, plus any id still on a command whose plugin is gone.
 	const filterOptions = $derived.by(() => {
-		const opts = providers.map((p) => ({ id: p.id, label: p.label }));
+		// Built-in providers (the system actions) group first.
+		const opts = [...providers]
+			.sort((a, b) => Number(b.builtin) - Number(a.builtin))
+			.map((p) => ({ id: p.id, label: p.label }));
 		for (const cmd of allCommands)
 			if (!providerById.has(cmd.provider) && !opts.some((o) => o.id === cmd.provider))
 				opts.push({ id: cmd.provider, label: cmd.provider_label });
@@ -226,6 +233,9 @@
 		testResult = null;
 	}
 
+	// Editing a built-in command changes only its duration.
+	const locked = $derived(editing?.locked ?? false);
+
 	function fillForm(c: CommandItem, nameSuffix = '') {
 		fName = (c.name || '') + nameSuffix;
 		fProvider = c.provider;
@@ -299,7 +309,7 @@
 				await unwrap(
 					api.PUT('/api/v2/commands/{command_id}/update', {
 						params: { path: { command_id: editing.id } },
-						body: payload
+						body: locked ? { duration: payload.duration } : payload
 					})
 				);
 				toast('Command updated successfully', 'success');
@@ -492,6 +502,11 @@
 							<td class="px-3 py-2">
 								<span class="flex flex-wrap items-center gap-1.5">
 									<Badge variant="outline"><RowIcon size={11} /> {c.provider_label}</Badge>
+									{#if c.locked}
+										<span title="Built in: only its duration can change"
+											><Badge variant="outline"><Lock size={11} /> Built in</Badge></span
+										>
+									{/if}
 									{#if providerDisabled(c)}
 										<Badge variant="warning">Disabled</Badge>
 									{/if}
@@ -545,24 +560,26 @@
 									>
 										<Pencil size={13} />
 									</button>
-									<button
-										type="button"
-										class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
-										title="Duplicate"
-										aria-label="Duplicate"
-										onclick={() => duplicateCommand(c)}
-									>
-										<Copy size={13} />
-									</button>
-									<button
-										type="button"
-										class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-danger"
-										title="Delete"
-										aria-label="Delete"
-										onclick={() => askDelete(c)}
-									>
-										<Trash2 size={13} />
-									</button>
+									{#if !c.locked}
+										<button
+											type="button"
+											class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
+											title="Duplicate"
+											aria-label="Duplicate"
+											onclick={() => duplicateCommand(c)}
+										>
+											<Copy size={13} />
+										</button>
+										<button
+											type="button"
+											class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-danger"
+											title="Delete"
+											aria-label="Delete"
+											onclick={() => askDelete(c)}
+										>
+											<Trash2 size={13} />
+										</button>
+									{/if}
 								</span>
 							</td>
 						</tr>
@@ -577,60 +594,66 @@
 	<div class="space-y-4">
 		<div>
 			<label class="mb-1 block text-sm text-muted" for="cmd-name">Command name *</label>
-			<Input id="cmd-name" bind:value={fName} />
-			<p class="mt-1 text-xs text-faint">Enter a descriptive name for this command</p>
+			<Input id="cmd-name" bind:value={fName} disabled={locked} />
+			<p class="mt-1 text-xs text-faint">
+				{locked
+					? 'A built-in command: it can be used anywhere, and only its duration can change.'
+					: 'Enter a descriptive name for this command'}
+			</p>
 		</div>
 
-		<div>
-			<label class="mb-1 block text-sm text-muted" for="cmd-provider">Provider *</label>
-			<Select
-				id="cmd-provider"
-				value={fProvider}
-				onchange={(e) => switchProvider((e.currentTarget as HTMLSelectElement).value)}
-				class="w-full"
-			>
-				{#each pickerProviders as p (p.id)}
-					<option value={p.id}>{p.label}</option>
-				{/each}
-				{#if !fProviderInfo}
-					<option value={fProvider}>{fProvider} (not loaded)</option>
+		{#if !locked}
+			<div>
+				<label class="mb-1 block text-sm text-muted" for="cmd-provider">Provider *</label>
+				<Select
+					id="cmd-provider"
+					value={fProvider}
+					onchange={(e) => switchProvider((e.currentTarget as HTMLSelectElement).value)}
+					class="w-full"
+				>
+					{#each pickerProviders as p (p.id)}
+						<option value={p.id}>{p.label}</option>
+					{/each}
+					{#if !fProviderInfo}
+						<option value={fProvider}>{fProvider} (not loaded)</option>
+					{/if}
+				</Select>
+				{#if fProviderInfo?.description}
+					<p class="mt-1 text-xs text-faint">{fProviderInfo.description}</p>
+				{:else if !fProviderInfo}
+					<p class="mt-1 text-xs text-warning">
+						This command's provider plugin is not loaded, so its settings can't be edited.
+					</p>
 				{/if}
-			</Select>
-			{#if fProviderInfo?.description}
-				<p class="mt-1 text-xs text-faint">{fProviderInfo.description}</p>
-			{:else if !fProviderInfo}
-				<p class="mt-1 text-xs text-warning">
-					This command's provider plugin is not loaded, so its settings can't be edited.
+			</div>
+
+			{#if wantsSuggestions && suggestState !== 'idle'}
+				<p class="text-xs text-muted">
+					{#if suggestState === 'loading'}
+						Loading suggestions from {fProviderInfo?.label}…
+					{:else if suggestState === 'ok'}
+						<span class="inline-flex items-center gap-1 text-success">
+							<Check size={12} /> Connected
+						</span>
+						- {suggestionCount} suggestions available in the fields below.
+					{:else}
+						<span class="inline-flex items-center gap-1 text-warning">
+							<X size={12} />
+							{suggestMessage}
+						</span>
+						- fields accept free text.
+					{/if}
 				</p>
 			{/if}
-		</div>
 
-		{#if wantsSuggestions && suggestState !== 'idle'}
-			<p class="text-xs text-muted">
-				{#if suggestState === 'loading'}
-					Loading suggestions from {fProviderInfo?.label}…
-				{:else if suggestState === 'ok'}
-					<span class="inline-flex items-center gap-1 text-success">
-						<Check size={12} /> Connected
-					</span>
-					- {suggestionCount} suggestions available in the fields below.
-				{:else}
-					<span class="inline-flex items-center gap-1 text-warning">
-						<X size={12} />
-						{suggestMessage}
-					</span>
-					- fields accept free text.
-				{/if}
-			</p>
-		{/if}
-
-		{#if fProviderInfo}
-			<ProviderFields
-				fields={fProviderInfo.fields}
-				bind:values={fValues}
-				{suggestions}
-				idPrefix="cmd-{fProvider}"
-			/>
+			{#if fProviderInfo}
+				<ProviderFields
+					fields={fProviderInfo.fields}
+					bind:values={fValues}
+					{suggestions}
+					idPrefix="cmd-{fProvider}"
+				/>
+			{/if}
 		{/if}
 
 		<div>

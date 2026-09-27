@@ -1,10 +1,10 @@
-"""System actions — run Cinefin's own operations as Commands.
+"""System actions — Cinefin's own operations as built-in, locked Commands.
 
 Unlike the other providers (which reach outward to REST/Home Assistant/WoL), this
-first-party provider calls *inward* to Cinefin services, so an operator can restart
-the player or drop back to the idle ident from the remote, a schedule, a pre-show
-cue, or a running-order block. The action set is a fixed, curated dispatch table on
-purpose — adding one is a single entry, not a new mechanism."""
+first-party provider calls *inward* to Cinefin services. Each action is a built-in
+command (see CommandProvider.builtin_commands): always present, usable anywhere a
+command is (remote, dashboard, lead-in, running-order block), never renamed or
+deleted. The action set is a fixed dispatch table — adding one is a single entry."""
 
 from cinefin.plugins import CommandProvider, Field, register
 
@@ -24,11 +24,25 @@ def _reset_ident() -> tuple[bool, str, str]:
     return False, "could not reach the player", ""
 
 
+def _player(method: str, done: str):
+    def action() -> tuple[bool, str, str]:
+        from cinefin.api.mpv_service import mpv_service
+
+        if getattr(mpv_service, method)():
+            return True, done, ""
+        return False, "could not reach the player", ""
+
+    return action
+
+
 # The choice string is BOTH the label the SPA shows and the stable id stored in the
 # command's config, so keep these strings stable once shipped.
 _ACTIONS = {
     "Restart the player": _restart_player,
     "Reset to the idle ident": _reset_ident,
+    "Stop the programme": _player("stop_programme", "programme stopped"),
+    "Pause": _player("pause", "paused"),
+    "Resume": _player("play", "resumed"),
 }
 
 
@@ -37,7 +51,7 @@ class System(CommandProvider):
     id = "system"
     label = "System"
     icon = "terminal"
-    description = "Run a Cinefin system action (restart the player, reset to the idle ident)"
+    description = "Cinefin's own actions: restart the player, reset to the ident, stop, pause, resume"
     fields = [Field("action", "Action", type="select", choices=tuple(_ACTIONS), required=True)]
 
     def run(self, config, settings):
@@ -49,6 +63,9 @@ class System(CommandProvider):
             return fn()
         except Exception as e:  # noqa: BLE001 - any service error becomes a failed command, never a crash
             return False, "action failed", str(e)
+
+    def builtin_commands(self):
+        return [(action, {"action": action}) for action in _ACTIONS]
 
     def summary(self, config):
         return (config.get("action") or "").strip()

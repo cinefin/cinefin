@@ -4299,6 +4299,11 @@ export interface components {
              */
             id: number;
             /**
+             * Locked
+             * @description A built-in command: only its duration can change; it can't be deleted
+             */
+            locked: boolean;
+            /**
              * Name
              * @description Command name
              */
@@ -8099,6 +8104,11 @@ export interface components {
         };
         /** ProviderSchema */
         ProviderSchema: {
+            /**
+             * Builtin
+             * @description Its commands are built in: none can be created for it
+             */
+            builtin: boolean;
             /** Description */
             description: string;
             /**
@@ -11423,6 +11433,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -30,6 +30,13 @@ class ApiConfig(AppConfig):
         # One-line nudges for footgun configurations.
         self._warn_on_risky_settings()
 
+        # Built-in commands (the system provider's actions) exist after every migrate.
+        from django.db.models.signals import post_migrate
+
+        from cinefin import plugins
+
+        post_migrate.connect(plugins.ensure_builtin_commands, sender=self)
+
     @staticmethod
     def _assert_single_web_worker():
         """Refuse to boot gunicorn with more than one worker process.
