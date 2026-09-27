@@ -12,9 +12,6 @@ class Command(models.Model):
     provider = models.CharField(max_length=40, default="rest")
     config = models.JSONField(default=dict, blank=True, help_text="Provider-specific configuration")
     duration = models.FloatField(default=0.0, help_text="Duration in seconds that this command takes to execute")
-    show_on_remote = models.BooleanField(
-        default=False, help_text="Display this command as a button on the MPV remote control"
-    )
 
     def __str__(self):
         return self.name

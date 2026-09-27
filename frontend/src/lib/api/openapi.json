@@ -1510,18 +1510,6 @@
             "description": "Search in command names",
             "title": "Search"
           },
-          "show_on_remote": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Filter by remote visibility",
-            "title": "Show On Remote"
-          },
           "type": {
             "anyOf": [
               {
@@ -1639,11 +1627,6 @@
             "title": "Provider Label",
             "type": "string"
           },
-          "show_on_remote": {
-            "description": "Whether to show this command on the MPV remote control",
-            "title": "Show On Remote",
-            "type": "boolean"
-          },
           "summary": {
             "description": "One-line description of the command's target, from its provider",
             "title": "Summary",
@@ -1663,7 +1646,6 @@
           "summary",
           "config",
           "duration",
-          "show_on_remote",
           "used_in",
           "locked"
         ],
@@ -1929,19 +1911,6 @@
             "description": "Execution provider",
             "title": "Provider",
             "type": "string"
-          },
-          "show_on_remote": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": false,
-            "description": "Show on MPV remote control",
-            "title": "Show On Remote"
           }
         },
         "required": [
@@ -12931,18 +12900,6 @@
             ],
             "description": "Execution provider",
             "title": "Provider"
-          },
-          "show_on_remote": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Show on MPV remote control",
-            "title": "Show On Remote"
           }
         },
         "title": "UpdateCommandSchema",
@@ -14411,24 +14368,6 @@
               "description": "Search in command names",
               "title": "Search"
             }
-          },
-          {
-            "description": "Filter by remote visibility",
-            "in": "query",
-            "name": "show_on_remote",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Filter by remote visibility",
-              "title": "Show On Remote"
-            }
           }
         ],
         "responses": {
@@ -15045,64 +14984,6 @@
           }
         ],
         "summary": "Execute Command",
-        "tags": [
-          "Commands"
-        ]
-      }
-    },
-    "/api/v2/commands/{command_id}/toggle_remote": {
-      "post": {
-        "description": "Toggle the remote display status for a command.",
-        "operationId": "cinefin_api_ninja_views_command_ninja_toggle_command_remote",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "command_id",
-            "required": true,
-            "schema": {
-              "title": "Command Id",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MessageResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Toggle Command Remote",
         "tags": [
           "Commands"
         ]

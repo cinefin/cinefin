@@ -1,6 +1,6 @@
 <script lang="ts">
 	// Remote — the operator / playout console. Reads mpv + playlist + playout stores
-	// plus GET /commands/list?show_on_remote=true.
+	// plus the commands picked on this device (CommandPad).
 	import {
 		Captions,
 		Cpu,
@@ -23,8 +23,7 @@
 	} from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
-	import { providerIcon } from '$lib/commands/providers';
-	import { query } from '$lib/api/query.svelte';
+	import CommandPad from '$lib/commands/CommandPad.svelte';
 	import { showToast as toast } from '$lib/toast.svelte';
 	import { formatClock, formatTime } from '$lib/format';
 	import { itemTypeDisplay } from '$lib/item-types';
@@ -43,13 +42,6 @@
 	type Track = components['schemas']['TrackSchema'];
 
 	// Schema collapses two CommandSchema backends; pin the fields the quick-fire panel needs.
-	interface RemoteCommand {
-		id: number;
-		name: string;
-		provider: string;
-		provider_icon: string;
-	}
-
 	/** PlaylistUtils.build_playlist_item_details metadata, per item type. */
 	interface ItemMeta {
 		year?: number | string;
@@ -446,31 +438,6 @@
 
 	function trackLabel(t: Track, i: number, kind: 'Audio' | 'Subtitle'): string {
 		return t.title || (t.language ? t.language.toUpperCase() : '') || `${kind} ${i + 1}`;
-	}
-
-	const commands = query(async () => {
-		const data = await unwrap(
-			api.GET('/api/v2/commands/list', { params: { query: { show_on_remote: true } } })
-		);
-		return (data?.commands ?? []) as unknown as RemoteCommand[];
-	});
-	let executingId = $state<number | null>(null);
-
-	async function executeCommand(cmd: RemoteCommand): Promise<void> {
-		if (executingId != null) return;
-		executingId = cmd.id;
-		try {
-			await unwrap(
-				api.POST('/api/v2/commands/{command_id}/execute', {
-					params: { path: { command_id: cmd.id } }
-				})
-			);
-			toast('Command executed', 'success');
-		} catch (err) {
-			toast(`Command failed: ${(err as Error).message}`, 'error');
-		} finally {
-			executingId = null;
-		}
 	}
 
 	const video = $derived(st?.video ?? null);
@@ -916,33 +883,20 @@
 			</div>
 		</details>
 
-		{#if commands.data?.length}
-			<details class="panel" bind:open={commandsOpen}>
-				<summary class="phone-summary sm:hidden">
-					<span class="inline-flex items-center gap-1.5">
-						<SquareTerminal size={13} /> Commands
-					</span>
-				</summary>
-				<div class="p-4">
-					<p class="panel-label mb-2 hidden sm:flex"><SquareTerminal size={12} /> Commands</p>
-					<div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
-						{#each commands.data ?? [] as cmd (cmd.id)}
-							{@const ProviderIcon = providerIcon(cmd.provider_icon)}
-							<button
-								type="button"
-								class="flex items-center gap-2 border border-border bg-surface-2 px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-3 disabled:pointer-events-none disabled:opacity-50"
-								disabled={executingId != null}
-								onclick={() => void executeCommand(cmd)}
-							>
-								<ProviderIcon size={14} class="shrink-0 text-muted" />
-								<!-- A busy button disables and says so (spec M4) — no spinner. -->
-								<span class="truncate">{executingId === cmd.id ? 'Running…' : cmd.name}</span>
-							</button>
-						{/each}
-					</div>
-				</div>
-			</details>
-		{/if}
+		<details class="panel" bind:open={commandsOpen}>
+			<summary class="phone-summary sm:hidden">
+				<span class="inline-flex items-center gap-1.5">
+					<SquareTerminal size={13} /> Commands
+				</span>
+			</summary>
+			<div class="p-4">
+				<CommandPad surface="remote" variant="grid">
+					{#snippet label()}
+						<span class="panel-label hidden sm:flex"><SquareTerminal size={12} /> Commands</span>
+					{/snippet}
+				</CommandPad>
+			</div>
+		</details>
 
 		{#if hasTech}
 			<details class="panel">

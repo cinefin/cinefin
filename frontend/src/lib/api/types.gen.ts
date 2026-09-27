@@ -322,26 +322,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/commands/{command_id}/toggle_remote": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Toggle Command Remote
-         * @description Toggle the remote display status for a command.
-         */
-        post: operations["cinefin_api_ninja_views_command_ninja_toggle_command_remote"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/commands/{command_id}/update": {
         parameters: {
             query?: never;
@@ -4229,11 +4209,6 @@ export interface components {
              */
             search?: string | null;
             /**
-             * Show On Remote
-             * @description Filter by remote visibility
-             */
-            show_on_remote?: boolean | null;
-            /**
              * Type
              * @description Filter by provider
              */
@@ -4323,11 +4298,6 @@ export interface components {
              * @description Provider display name (the id, if the provider is not loaded)
              */
             provider_label: string;
-            /**
-             * Show On Remote
-             * @description Whether to show this command on the MPV remote control
-             */
-            show_on_remote: boolean;
             /**
              * Summary
              * @description One-line description of the command's target, from its provider
@@ -4488,12 +4458,6 @@ export interface components {
              * @default rest
              */
             provider: string;
-            /**
-             * Show On Remote
-             * @description Show on MPV remote control
-             * @default false
-             */
-            show_on_remote: boolean | null;
         };
         /** CreateFromTemplateSchema */
         CreateFromTemplateSchema: {
@@ -10397,11 +10361,6 @@ export interface components {
              * @description Execution provider
              */
             provider?: string | null;
-            /**
-             * Show On Remote
-             * @description Show on MPV remote control
-             */
-            show_on_remote?: boolean | null;
         };
         /** UpdateMediaSchema */
         UpdateMediaSchema: {
@@ -11082,8 +11041,6 @@ export interface operations {
                 type?: string | null;
                 /** @description Search in command names */
                 search?: string | null;
-                /** @description Filter by remote visibility */
-                show_on_remote?: boolean | null;
             };
             header?: never;
             path?: never;
@@ -11478,46 +11435,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunResultResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_command_ninja_toggle_command_remote: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                command_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
                 };
             };
             /** @description Not Found */

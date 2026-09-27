@@ -118,12 +118,7 @@ class BumperAdmin(admin.ModelAdmin):
 
 @admin.register(Command)
 class CommandAdmin(admin.ModelAdmin):
-    list_display = ("name", "command_preview", "show_on_remote")
-
-    def command_preview(self, obj):
-        return obj.command[:50] + "..." if len(obj.command) > 50 else obj.command
-
-    command_preview.short_description = "Command Preview"
+    list_display = ("name", "provider")
 
 
 # Fields shared by the ProgrammeBlock inline and admin. The typed content FKs

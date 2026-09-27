@@ -56,7 +56,6 @@ class CommandSchema(Schema):
     summary: str = Field(description="One-line description of the command's target, from its provider")
     config: dict[str, Any] = Field(description="Provider-specific configuration")
     duration: float = Field(description="Duration in seconds that this command takes to execute")
-    show_on_remote: bool = Field(description="Whether to show this command on the MPV remote control")
     used_in: CommandUsageSchema = Field(description="Programmes/templates/credits/pre-show references")
     locked: bool = Field(description="A built-in command: only its duration can change; it can't be deleted")
 
@@ -68,7 +67,6 @@ class CreateCommandSchema(Schema):
     provider: Provider = Field(default="rest", description="Execution provider")
     config: dict[str, Any] = Field(default_factory=dict, description="Provider-specific configuration")
     duration: float | None = Field(default=0.0, description="Duration in seconds that this command takes to execute")
-    show_on_remote: bool | None = Field(default=False, description="Show on MPV remote control")
 
 
 class UpdateCommandSchema(Schema):
@@ -78,7 +76,6 @@ class UpdateCommandSchema(Schema):
     provider: Provider | None = Field(default=None, description="Execution provider")
     config: dict[str, Any] | None = Field(default=None, description="Provider-specific configuration")
     duration: float | None = Field(default=None, description="Duration in seconds that this command takes to execute")
-    show_on_remote: bool | None = Field(default=None, description="Show on MPV remote control")
 
 
 class TestCommandSchema(Schema):
@@ -214,7 +211,6 @@ class RunResultResponseSchema(SuccessResponseSchema):
 class CommandListFilters(Schema):
     type: Provider | None = Field(default=None, description="Filter by provider")
     search: str | None = Field(default=None, description="Search in command names")
-    show_on_remote: bool | None = Field(default=None, description="Filter by remote visibility")
 
 
 # Create the command router
@@ -294,7 +290,6 @@ def serialize_command(command: Command, usage: dict[int, CommandUsageSchema] | N
         summary=summary or "",
         config=config,
         duration=command.duration,
-        show_on_remote=command.show_on_remote,
         used_in=usage.get(command.id) or CommandUsageSchema(programmes=0, templates=0, credits=0, preshow=False),
         locked=plugins.is_builtin(command.provider),
     )
@@ -321,8 +316,6 @@ def list_commands(request: HttpRequest, filters: CommandListFilters = Query(...)
         commands = commands.filter(provider=filters.type)
     if filters.search:
         commands = commands.filter(name__icontains=filters.search)
-    if filters.show_on_remote is not None:
-        commands = commands.filter(show_on_remote=filters.show_on_remote)
 
     commands = list(commands)
     usage = _command_usage(commands)
@@ -496,7 +489,6 @@ def create_command(request: HttpRequest, data: CreateCommandSchema):
         provider=data.provider,
         config=data.config,
         duration=data.duration or 0.0,
-        show_on_remote=data.show_on_remote or False,
     )
 
     return Status(
@@ -562,8 +554,6 @@ def update_command(request: HttpRequest, command_id: int, data: UpdateCommandSch
 
     if data.duration is not None:
         command.duration = data.duration
-    if data.show_on_remote is not None:
-        command.show_on_remote = data.show_on_remote
 
     command.save()
 
@@ -607,21 +597,3 @@ def execute_command(request: HttpRequest, command_id: int):
     return _result_response(
         f'Command "{command.name}" {"succeeded" if result.ok else "failed"} ({result.detail})', result
     )
-
-
-@command_api.post(
-    "/{command_id}/toggle_remote",
-    response={200: MessageResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema},
-)
-def toggle_command_remote(request: HttpRequest, command_id: int):
-    """Toggle the remote display status for a command."""
-    try:
-        command = Command.objects.get(pk=command_id)
-    except Command.DoesNotExist:
-        raise NotFoundError("Command not found") from None
-
-    command.show_on_remote = not command.show_on_remote
-    command.save()
-
-    status = "enabled" if command.show_on_remote else "disabled"
-    return Status(200, MessageResponseSchema(message=f"Remote display {status} for '{command.name}'"))

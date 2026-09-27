@@ -117,7 +117,6 @@
 				opts.push({ id: cmd.provider, label: cmd.provider_label });
 		return opts;
 	});
-	const remoteCount = $derived(allCommands.filter((c) => c.show_on_remote).length);
 
 	let sort = $state('');
 	const sortCommands = (rows: CommandItem[]) =>
@@ -125,8 +124,7 @@
 			name: (c) => c.name.toLowerCase(),
 			provider: (c) => c.provider_label.toLowerCase(),
 			target: (c) => configSummary(c).toLowerCase(),
-			duration: (c) => c.duration ?? -1,
-			remote: (c) => (c.show_on_remote ? 1 : 0)
+			duration: (c) => c.duration ?? -1
 		});
 
 	const groups = $derived.by(() => {
@@ -194,19 +192,6 @@
 			);
 		} catch (e) {
 			toast(toApiError(e).message || 'Failed to run command', 'error');
-		}
-	}
-
-	async function toggleRemote(id: number) {
-		try {
-			await api.POST('/api/v2/commands/{command_id}/toggle_remote', {
-				params: { path: { command_id: id } }
-			});
-			const c = commandsQ.data?.commands.find((x) => x.id === id);
-			if (c) c.show_on_remote = !c.show_on_remote;
-		} catch (e) {
-			console.error('Error toggling remote:', e);
-			toast('Failed to toggle remote display', 'error');
 		}
 	}
 
@@ -314,9 +299,7 @@
 				);
 				toast('Command updated successfully', 'success');
 			} else {
-				await unwrap(
-					api.POST('/api/v2/commands/create', { body: { ...payload, show_on_remote: false } })
-				);
+				await unwrap(api.POST('/api/v2/commands/create', { body: payload }));
 				toast('Command created successfully', 'success');
 			}
 			modalOpen = false;
@@ -382,7 +365,7 @@
 <div class="mb-1 flex flex-wrap items-center gap-2">
 	<h1 class="mr-auto text-lg font-semibold">Commands</h1>
 	<span class="font-mono text-xs text-muted">
-		{counts.all} total · {remoteCount} on remote
+		{counts.all} total
 	</span>
 	<Button onclick={refreshAll} title="Refresh list"><RefreshCw size={14} /> Refresh</Button>
 	<Button variant="primary" onclick={showCreateModal}><Plus size={14} /> Create command</Button>
@@ -390,8 +373,8 @@
 
 <p class="mb-4 text-sm text-muted">
 	Actions Cinefin can run - REST calls, Home Assistant services, or any provider plugin. Fire them
-	from a programme rundown, on credits, pre-show, or as buttons on the
-	<a href="{base}/remote" class="text-accent hover:underline">Remote</a>.
+	from a programme rundown, on credits, pre-show, or as buttons on the dashboard and the
+	<a href="{base}/remote" class="text-accent hover:underline">Remote</a> (choose them there, per device).
 </p>
 
 {#if providersQ.data?.failures.length}
@@ -472,7 +455,6 @@
 						defaultDesc
 						onsort={(s) => (sort = s)}
 					/>
-					<SortHeader {sort} col="remote" label="Remote" defaultDesc onsort={(s) => (sort = s)} />
 					<th class="px-3 py-2 text-right">Actions</th>
 				</tr>
 			</thead>
@@ -481,7 +463,7 @@
 					{#if group.provider}
 						{@const GroupIcon = providerIcon(group.icon)}
 						<tr class="bg-surface-2">
-							<td colspan="6" class="px-3 py-1.5">
+							<td colspan="5" class="px-3 py-1.5">
 								<span class="flex items-center gap-2 text-xs font-medium text-muted">
 									<GroupIcon size={13} />
 									{group.label}
@@ -519,23 +501,6 @@
 							</td>
 							<td class="px-3 py-2 font-mono text-xs">
 								{c.duration ? `${c.duration}s` : '-'}
-							</td>
-							<td class="px-3 py-2">
-								<button
-									type="button"
-									class="inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-xs
-										{c.show_on_remote
-										? 'border-accent-dim bg-accent/10 text-accent'
-										: 'border-border-strong text-muted hover:text-text'}"
-									aria-pressed={c.show_on_remote}
-									title={c.show_on_remote
-										? 'Shown as a button on the Remote - click to remove'
-										: 'Add as a button on the Remote'}
-									onclick={() => void toggleRemote(c.id)}
-								>
-									{#if c.show_on_remote}<Check size={11} />{:else}<Plus size={11} />{/if}
-									Remote
-								</button>
 							</td>
 							<td class="px-3 py-2">
 								<span class="flex items-center justify-end gap-1">
