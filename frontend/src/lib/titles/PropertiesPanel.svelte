@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ImageLibrary from '$lib/components/ImageLibrary.svelte';
 	import {
 		AlignCenter,
 		AlignLeft,
@@ -12,12 +13,9 @@
 		MoveHorizontal,
 		MoveVertical,
 		Trash2,
-		Upload,
 		X
 	} from '@lucide/svelte';
 	import { api } from '$lib/api/client';
-	import { showToast } from '$lib/toast.svelte';
-	import { uploadWithProgress } from '$lib/upload';
 	import Button from '$lib/components/ui/Button.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
@@ -66,52 +64,6 @@
 			}
 		})();
 	});
-
-	let availableImages = $state<string[]>([]);
-	let imagesLoaded = false;
-	$effect(() => {
-		if (sel?.type !== 'image' || imagesLoaded) return;
-		imagesLoaded = true;
-		void loadAvailableImages();
-	});
-
-	async function loadAvailableImages() {
-		try {
-			const res = await api.GET('/api/v2/titlegen/images');
-			availableImages = res.data ?? [];
-		} catch (e) {
-			console.error('Failed to load available images:', e);
-		}
-	}
-
-	let fileInput: HTMLInputElement | undefined = $state();
-
-	async function uploadImage(file: File | undefined) {
-		if (!file) return;
-
-		if (!file.type.match(/image\/(png|jpeg)/)) {
-			showToast('Please select a PNG or JPEG image', 'error');
-			return;
-		}
-
-		try {
-			// Bare response, no data envelope: { success, message, url, filename }.
-			const result = await uploadWithProgress<{ success: boolean; message: string; url?: string }>(
-				'/api/v2/titlegen/upload-image',
-				file
-			);
-			if (result.success && result.url) {
-				set('path', result.url);
-				showToast('Image uploaded successfully!', 'success');
-				await loadAvailableImages();
-			} else {
-				showToast(result.message || 'Failed to upload image', 'error');
-			}
-		} catch (e) {
-			console.error('Failed to upload image:', e);
-			showToast(e instanceof Error ? e.message : 'Failed to upload image', 'error');
-		}
-	}
 
 	function set(property: string, value: unknown) {
 		editor.updateElementProperty(property, value);
@@ -466,49 +418,23 @@
 			</label>
 		{:else if sel.type === 'image'}
 			<div class={label}>
-				Image
-				<div class="flex gap-2">
-					<input
-						type="file"
-						accept="image/png,image/jpeg"
-						class="hidden"
-						bind:this={fileInput}
-						onchange={(e) => {
-							const input = e.target as HTMLInputElement;
-							void uploadImage(input.files?.[0]);
-							input.value = '';
-						}}
-					/>
-					<Button size="sm" variant="primary" onclick={() => fileInput?.click()}>
-						<Upload size={13} /> Upload new
-					</Button>
+				<span class="flex items-center">
+					Image
 					{#if sel.path}
-						<Button size="sm" variant="danger" onclick={() => set('path', '')}>
-							<X size={13} /> Clear
-						</Button>
+						<button
+							type="button"
+							class="ml-auto text-xs hover:text-text"
+							onclick={() => set('path', '')}
+						>
+							Clear
+						</button>
 					{/if}
-				</div>
-				<Select
-					value={availableImages.includes(sel.path || '') ? sel.path : ''}
-					onchange={(e) => {
-						const url = (e.target as HTMLSelectElement).value;
-						if (url) set('path', url);
-					}}
-				>
-					<option value="">-- Select from uploaded images --</option>
-					{#each availableImages as url (url)}
-						<option value={url}>{url.split('/').pop()}</option>
-					{/each}
-				</Select>
-				<input
-					type="text"
-					class={field}
-					placeholder="No image selected"
-					value={sel.path || ''}
-					onfocus={onFieldFocus}
-					onchange={(e) => set('path', inputValue(e))}
+				</span>
+				<ImageLibrary
+					library="titles"
+					selected={sel.path?.split('/').pop() ?? null}
+					onselect={(img) => set('path', img.url)}
 				/>
-				<span class="text-faint">Upload or select a PNG or JPEG image</span>
 			</div>
 		{/if}
 

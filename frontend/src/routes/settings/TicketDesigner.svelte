@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ImageLibrary from '$lib/components/ImageLibrary.svelte';
 	import {
 		ArrowUpDown,
 		Barcode,
@@ -13,19 +14,15 @@
 		Star,
 		Trash2,
 		Type,
-		Upload,
 		X
 	} from '@lucide/svelte';
-	import type { Component } from 'svelte';
 	import type { LucideIcon } from '@lucide/svelte';
 	import { api } from '$lib/api/client';
 	import { raw } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
-	import { uploadWithProgress } from '$lib/upload';
 	import type { components } from '$lib/api/types.gen';
 	import type { TicketDesignMeta, TicketElement, TicketPreviewOp } from '$lib/settings/types';
 
-	type TicketImage = components['schemas']['TicketImageSchema'];
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
@@ -124,45 +121,6 @@
 		meta = await raw<TicketDesignMeta>(api.GET('/api/v2/tickets/designs/meta')).catch(() => null);
 		await loadDesigns();
 		loading = false;
-		void loadImages(); // supplementary — the image picker degrades to logo-only
-	}
-
-	let images = $state<TicketImage[]>([]);
-	let imageInput: HTMLInputElement | undefined = $state();
-	let uploadingImage = $state(false);
-
-	async function loadImages() {
-		try {
-			images = await raw(api.GET('/api/v2/tickets/images'));
-		} catch {
-			// Leave whatever we had.
-		}
-	}
-
-	async function onImagePicked() {
-		const file = imageInput?.files?.[0];
-		if (!file || !current || selected < 0) return;
-		uploadingImage = true;
-		try {
-			const created = await uploadWithProgress<TicketImage>(
-				'/api/v2/tickets/images/upload',
-				file,
-				{},
-				undefined,
-				'image'
-			);
-			await loadImages();
-			const el = current.elements[selected];
-			if (el?.type === 'image') {
-				el.file = created.name;
-				commit();
-			}
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Image upload failed', 'error');
-		} finally {
-			uploadingImage = false;
-			if (imageInput) imageInput.value = '';
-		}
 	}
 
 	function setImageFile(el: TicketElement, file: string) {
@@ -656,40 +614,13 @@
 									{:else if el.type === 'image'}
 										<div>
 											<span class={cfgLabelCls}>Image</span>
-											<div class="flex flex-wrap gap-2">
-												{#each images as img (img.name)}
-													<button
-														type="button"
-														class="flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm
-															{el.file === img.name
-															? 'border-accent bg-accent/10 text-text'
-															: 'border-border-strong bg-surface-2 text-muted hover:text-text'}"
-														title={img.width && img.height
-															? `${img.width}×${img.height}`
-															: img.name}
-														onclick={() => setImageFile(el, img.name)}
-													>
-														<img
-															src={img.url}
-															alt=""
-															class="h-8 w-8 rounded-xs bg-white object-contain p-0.5"
-														/>
-														<span class="max-w-32 truncate">{img.name}</span>
-													</button>
-												{/each}
-												<button
-													type="button"
-													class="flex items-center gap-1.5 rounded-md border border-dashed border-border-strong px-2 py-1.5 text-sm text-muted hover:border-accent-dim hover:text-text disabled:opacity-45"
-													disabled={uploadingImage}
-													onclick={() => imageInput?.click()}
-												>
-													<Upload size={13} />
-													{uploadingImage ? 'Uploading…' : 'Upload…'}
-												</button>
-											</div>
+											<ImageLibrary
+												library="tickets"
+												selected={el.file}
+												onselect={(img) => setImageFile(el, img.name)}
+											/>
 											<p class="mt-1.5 text-xs text-faint">
-												The logo is set under Box office → Images, where library images are managed
-												too. Images print dithered to 1-bit - bold, high-contrast art works best.
+												Images print dithered to 1-bit - bold, high-contrast art works best.
 											</p>
 										</div>
 									{/if}
@@ -836,14 +767,6 @@
 			{/if}
 		</div>
 	</div>
-
-	<input
-		type="file"
-		bind:this={imageInput}
-		accept="image/png,image/jpeg,image/gif"
-		hidden
-		onchange={onImagePicked}
-	/>
 {/if}
 
 <style>

@@ -3701,28 +3701,16 @@
         "title": "IdleMediaInput",
         "type": "object"
       },
-      "ImageUploadResponse": {
+      "ImageListResponseSchema": {
         "properties": {
-          "filename": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Filename"
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ImageSchema"
+            },
+            "title": "Data",
+            "type": "array"
           },
           "message": {
-            "title": "Message",
-            "type": "string"
-          },
-          "success": {
-            "title": "Success",
-            "type": "boolean"
-          },
-          "url": {
             "anyOf": [
               {
                 "type": "string"
@@ -3731,14 +3719,92 @@
                 "type": "null"
               }
             ],
-            "title": "Url"
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
           }
         },
         "required": [
-          "success",
-          "message"
+          "data"
         ],
-        "title": "ImageUploadResponse",
+        "title": "ImageListResponseSchema",
+        "type": "object"
+      },
+      "ImageResponseSchema": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ImageSchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ImageResponseSchema",
+        "type": "object"
+      },
+      "ImageSchema": {
+        "properties": {
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Height"
+          },
+          "name": {
+            "description": "File name (the id within its library)",
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "description": "Where the image is served",
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Width"
+          }
+        },
+        "required": [
+          "name",
+          "url"
+        ],
+        "title": "ImageSchema",
         "type": "object"
       },
       "JumpPlaylistDataSchema": {
@@ -11299,50 +11365,6 @@
         "title": "TestTicketRequestSchema",
         "type": "object"
       },
-      "TicketImageSchema": {
-        "properties": {
-          "height": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pixel height",
-            "title": "Height"
-          },
-          "name": {
-            "description": "Filename \u2014 what an image element's `file` stores",
-            "title": "Name",
-            "type": "string"
-          },
-          "url": {
-            "description": "Preview URL",
-            "title": "Url",
-            "type": "string"
-          },
-          "width": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Pixel width",
-            "title": "Width"
-          }
-        },
-        "required": [
-          "name",
-          "url"
-        ],
-        "title": "TicketImageSchema",
-        "type": "object"
-      },
       "TicketIssueSchema": {
         "properties": {
           "id": {
@@ -15097,6 +15119,195 @@
           }
         ],
         "summary": "Health Check"
+      }
+    },
+    "/api/v2/images/{library}": {
+      "get": {
+        "operationId": "cinefin_api_ninja_views_images_ninja_list_images",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library",
+            "required": true,
+            "schema": {
+              "title": "Library",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageListResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "List Images",
+        "tags": [
+          "Images"
+        ]
+      },
+      "post": {
+        "operationId": "cinefin_api_ninja_views_images_ninja_upload_image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library",
+            "required": true,
+            "schema": {
+              "title": "Library",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "format": "binary",
+                    "title": "File",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "file"
+                ],
+                "title": "FileParams",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageResponseSchema"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Upload Image",
+        "tags": [
+          "Images"
+        ]
+      }
+    },
+    "/api/v2/images/{library}/{name}": {
+      "delete": {
+        "operationId": "cinefin_api_ninja_views_images_ninja_delete_image",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "library",
+            "required": true,
+            "schema": {
+              "title": "Library",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Delete Image",
+        "tags": [
+          "Images"
+        ]
       }
     },
     "/api/v2/installer/complete": {
@@ -23044,140 +23255,6 @@
         ]
       }
     },
-    "/api/v2/tickets/images": {
-      "delete": {
-        "operationId": "cinefin_api_ninja_views_ticket_ninja_delete_ticket_image",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MessageResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Not Found"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Delete Ticket Image",
-        "tags": [
-          "Tickets"
-        ]
-      },
-      "get": {
-        "operationId": "cinefin_api_ninja_views_ticket_ninja_list_ticket_images",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TicketImageSchema"
-                  },
-                  "title": "Response",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "List Ticket Images",
-        "tags": [
-          "Tickets"
-        ]
-      }
-    },
-    "/api/v2/tickets/images/upload": {
-      "post": {
-        "operationId": "cinefin_api_ninja_views_ticket_ninja_upload_ticket_image",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "properties": {
-                  "image": {
-                    "format": "binary",
-                    "title": "Image",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "image"
-                ],
-                "title": "FileParams",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketImageSchema"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Bad Request"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Upload Ticket Image",
-        "tags": [
-          "Tickets"
-        ]
-      }
-    },
     "/api/v2/tickets/issued": {
       "get": {
         "operationId": "cinefin_api_ninja_views_ticket_ninja_list_issued_tickets",
@@ -23946,37 +24023,6 @@
         ]
       }
     },
-    "/api/v2/titlegen/images": {
-      "get": {
-        "operationId": "cinefin_api_ninja_views_titlegen_ninja_list_title_images",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "title": "Response",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "List Title Images",
-        "tags": [
-          "Title Generation"
-        ]
-      }
-    },
     "/api/v2/titlegen/preview": {
       "post": {
         "operationId": "cinefin_api_ninja_views_titlegen_ninja_render_title_preview",
@@ -24368,64 +24414,6 @@
           }
         ],
         "summary": "Render Template Thumbnail",
-        "tags": [
-          "Title Generation"
-        ]
-      }
-    },
-    "/api/v2/titlegen/upload-image": {
-      "post": {
-        "operationId": "cinefin_api_ninja_views_titlegen_ninja_upload_title_image",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "properties": {
-                  "file": {
-                    "format": "binary",
-                    "title": "File",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "file"
-                ],
-                "title": "FileParams",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ImageUploadResponse"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ImageUploadResponse"
-                }
-              }
-            },
-            "description": "Bad Request"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Upload Title Image",
         "tags": [
           "Title Generation"
         ]

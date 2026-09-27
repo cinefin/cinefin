@@ -1,15 +1,13 @@
 import os
 
-from django.conf import settings
 from django.shortcuts import get_object_or_404
-from ninja import File, Router, Schema, Status, UploadedFile
+from ninja import Router, Schema, Status
 from pydantic import Field
 
 from ..exceptions import ConflictError, UnprocessableEntityError, ValidationError
 from ..models import Programme, ProgrammeTitleTemplate
 from ..services.titlegen_service import TitleGenService, title_length
 from ..utils.media_paths import usermedia_abs_path
-from .media.utils import sanitize_filename
 
 titlegen_api = Router()
 
@@ -53,13 +51,6 @@ class GenerateTitleResponse(Schema):
 class MessageResponse(Schema):
     success: bool
     message: str
-
-
-class ImageUploadResponse(Schema):
-    success: bool
-    message: str
-    url: str | None = None
-    filename: str | None = None
 
 
 @titlegen_api.get("/templates", response=list[TitleTemplateSchema], tags=["Title Generation"])
@@ -294,57 +285,3 @@ def render_title_preview(request, payload: TitlePreviewRequest):
     buffer = io.BytesIO()
     frame.save(buffer, format="PNG")
     return HttpResponse(buffer.getvalue(), content_type="image/png")
-
-
-@titlegen_api.get("/images", response=list[str], tags=["Title Generation"])
-def list_title_images(request):
-    upload_dir = os.path.join(settings.MEDIA_ROOT, "programme_title_images")
-
-    if not os.path.exists(upload_dir):
-        return []
-
-    images = []
-    for filename in os.listdir(upload_dir):
-        if filename.lower().endswith((".png", ".jpg", ".jpeg")):
-            url = f"{settings.MEDIA_URL}programme_title_images/{filename}"
-            images.append(url)
-
-    return sorted(images)
-
-
-@titlegen_api.post(
-    "/upload-image", response={200: ImageUploadResponse, 400: ImageUploadResponse}, tags=["Title Generation"]
-)
-def upload_title_image(request, file: UploadedFile = File(...)):
-    allowed_types = ["image/png", "image/jpeg", "image/jpg"]
-    if file.content_type not in allowed_types:
-        raise ValidationError(
-            f"Invalid file type. Only PNG and JPEG images are allowed. Received: {file.content_type}",
-            error_code="INVALID_FILE_TYPE",
-        )
-
-    upload_dir = os.path.join(settings.MEDIA_ROOT, "programme_title_images")
-    os.makedirs(upload_dir, exist_ok=True)
-
-    # Strip directory components so a crafted name can't escape the upload directory.
-    filename = sanitize_filename(file.name or "image.png")
-    file_path = os.path.join(upload_dir, filename)
-
-    if os.path.exists(file_path):
-        raise ConflictError(
-            f"A file with the name '{filename}' already exists. Please rename your file or delete the existing one.",
-            error_code="DUPLICATE_FILENAME",
-        )
-
-    try:
-        with open(file_path, "wb") as f:
-            for chunk in file.chunks():
-                f.write(chunk)
-
-        url = f"{settings.MEDIA_URL}programme_title_images/{filename}"
-
-        return Status(
-            200, {"success": True, "message": "Image uploaded successfully", "url": url, "filename": filename}
-        )
-    except Exception as e:
-        raise UnprocessableEntityError(f"Failed to upload image: {str(e)}") from e

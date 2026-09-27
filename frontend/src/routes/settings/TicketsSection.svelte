@@ -1,14 +1,12 @@
 <script lang="ts">
-	import { Image, Plug, Plus, Receipt, RotateCcw, Trash2, Upload, X } from '@lucide/svelte';
+	import { Image, Plug, Plus, Receipt, RotateCcw, X } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { raw, type SettingsStore } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
-	import { uploadWithProgress } from '$lib/upload';
 	import type { components } from '$lib/api/types.gen';
 	import type { CheckState } from '$lib/settings/types';
 
-	type TicketImage = components['schemas']['TicketImageSchema'];
 	import Button from '$lib/components/ui/Button.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -17,6 +15,7 @@
 	import CheckResult from './CheckResult.svelte';
 	import Field from './Field.svelte';
 	import TicketDesigner from './TicketDesigner.svelte';
+	import ImageLibrary from '$lib/components/ImageLibrary.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	interface Props {
@@ -37,52 +36,6 @@
 		(parseInt(store.main.ticket_total_rows, 10) || 0) *
 			(parseInt(store.main.ticket_seats_per_row, 10) || 0)
 	);
-
-	let images = $state<TicketImage[]>([]);
-	let imageInput: HTMLInputElement | undefined = $state();
-	let imageUploading = $state(false);
-
-	$effect(() => {
-		void loadImages();
-	});
-
-	async function loadImages() {
-		try {
-			images = await raw(api.GET('/api/v2/tickets/images'));
-		} catch {
-			// Supplementary — the grid just stays empty.
-		}
-	}
-
-	async function onImagePicked() {
-		const file = imageInput?.files?.[0];
-		if (!file) return;
-		imageUploading = true;
-		try {
-			await uploadWithProgress('/api/v2/tickets/images/upload', file, {}, undefined, 'image');
-			await loadImages();
-			showToast('Image added', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Image upload failed', 'error');
-		} finally {
-			imageUploading = false;
-			if (imageInput) imageInput.value = '';
-		}
-	}
-
-	async function deleteImage(img: TicketImage) {
-		const ok = await confirm(
-			`Delete "${img.name}"? Ticket designs still using it will skip the image when printing.`,
-			{ confirmLabel: 'Delete' }
-		);
-		if (!ok) return;
-		try {
-			await raw(api.DELETE('/api/v2/tickets/images', { params: { query: { name: img.name } } }));
-			await loadImages();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not delete image', 'error');
-		}
-	}
 
 	let printerResult = $state<CheckState>(null);
 	let printerBusy = $state(false);
@@ -180,45 +133,9 @@
 		<Card title="Images">
 			<Field
 				label="Image library"
-				hint="Extra images any ticket design's image element can print - pick them in the design editor."
+				hint="Images a ticket design's image element can print - pick them in the design editor."
 			>
-				<div class="flex flex-wrap gap-2">
-					{#each images as img (img.name)}
-						<div
-							class="group relative flex w-28 flex-col items-center gap-1 rounded-md border border-border bg-surface-2 p-2"
-						>
-							<img src={img.url} alt={img.name} class="h-14 w-full bg-white object-contain" />
-							<span class="w-full truncate text-center text-xs text-muted" title={img.name}>
-								{img.name}
-							</span>
-							<button
-								type="button"
-								class="absolute -top-1.5 -right-1.5 hidden rounded-sm border border-border-strong bg-surface-1 p-0.5 text-muted group-hover:block hover:text-danger"
-								title="Delete image"
-								aria-label="Delete image {img.name}"
-								onclick={() => void deleteImage(img)}
-							>
-								<Trash2 size={12} />
-							</button>
-						</div>
-					{/each}
-					<button
-						type="button"
-						class="flex h-24 w-28 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-border-strong text-xs text-muted hover:border-accent-dim hover:text-text disabled:opacity-45"
-						disabled={imageUploading}
-						onclick={() => imageInput?.click()}
-					>
-						<Upload size={15} />
-						{imageUploading ? 'Uploading…' : 'Add image'}
-					</button>
-				</div>
-				<input
-					type="file"
-					bind:this={imageInput}
-					accept="image/png,image/jpeg,image/gif"
-					hidden
-					onchange={onImagePicked}
-				/>
+				<ImageLibrary library="tickets" />
 			</Field>
 		</Card>
 

@@ -10,6 +10,7 @@ from .ninja_auth import session_auth
 from .ninja_views.backup_ninja import backup_api
 from .ninja_views.command_ninja import command_api
 from .ninja_views.docs_ninja import docs_api
+from .ninja_views.images_ninja import images_api
 from .ninja_views.installer_ninja import installer_api
 from .ninja_views.kiosk_ninja import kiosk_api
 from .ninja_views.logs_ninja import logs_api
@@ -64,6 +65,7 @@ api.add_router("/mpv", mpv_api, tags=["MPV Control"])
 api.add_router("/trailers", trailer_api, tags=["Trailers"])
 api.add_router("/tickets", ticket_api, tags=["Tickets"])
 api.add_router("/titlegen", titlegen_api, tags=["Title Generation"])
+api.add_router("/images", images_api, tags=["Images"])
 api.add_router("/docs", docs_api, tags=["Documentation"])
 api.add_router("/logs", logs_api, tags=["Logs"])
 api.add_router("/backup", backup_api, tags=["Backup"])

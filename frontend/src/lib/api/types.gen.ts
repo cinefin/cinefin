@@ -431,6 +431,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/images/{library}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Images */
+        get: operations["cinefin_api_ninja_views_images_ninja_list_images"];
+        put?: never;
+        /** Upload Image */
+        post: operations["cinefin_api_ninja_views_images_ninja_upload_image"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/images/{library}/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Image */
+        delete: operations["cinefin_api_ninja_views_images_ninja_delete_image"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/installer/complete": {
         parameters: {
             query?: never;
@@ -2497,41 +2532,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/tickets/images": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Ticket Images */
-        get: operations["cinefin_api_ninja_views_ticket_ninja_list_ticket_images"];
-        put?: never;
-        post?: never;
-        /** Delete Ticket Image */
-        delete: operations["cinefin_api_ninja_views_ticket_ninja_delete_ticket_image"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/tickets/images/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload Ticket Image */
-        post: operations["cinefin_api_ninja_views_ticket_ninja_upload_ticket_image"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/tickets/issued": {
         parameters: {
             query?: never;
@@ -2763,23 +2763,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/titlegen/images": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Title Images */
-        get: operations["cinefin_api_ninja_views_titlegen_ninja_list_title_images"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/titlegen/preview": {
         parameters: {
             query?: never;
@@ -2882,23 +2865,6 @@ export interface paths {
         get: operations["cinefin_api_ninja_views_titlegen_ninja_render_template_thumbnail"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/titlegen/upload-image": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Upload Title Image */
-        post: operations["cinefin_api_ninja_views_titlegen_ninja_upload_title_image"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5408,16 +5374,53 @@ export interface components {
              */
             idle_media: string;
         };
-        /** ImageUploadResponse */
-        ImageUploadResponse: {
-            /** Filename */
-            filename?: string | null;
-            /** Message */
-            message: string;
-            /** Success */
+        /** ImageListResponseSchema */
+        ImageListResponseSchema: {
+            /** Data */
+            data: components["schemas"]["ImageSchema"][];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
             success: boolean;
-            /** Url */
-            url?: string | null;
+        };
+        /** ImageResponseSchema */
+        ImageResponseSchema: {
+            data: components["schemas"]["ImageSchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ImageSchema */
+        ImageSchema: {
+            /** Height */
+            height?: number | null;
+            /**
+             * Name
+             * @description File name (the id within its library)
+             */
+            name: string;
+            /**
+             * Url
+             * @description Where the image is served
+             */
+            url: string;
+            /** Width */
+            width?: number | null;
         };
         /** JumpPlaylistDataSchema */
         JumpPlaylistDataSchema: {
@@ -9558,29 +9561,6 @@ export interface components {
              */
             include_seat: boolean;
         };
-        /** TicketImageSchema */
-        TicketImageSchema: {
-            /**
-             * Height
-             * @description Pixel height
-             */
-            height?: number | null;
-            /**
-             * Name
-             * @description Filename — what an image element's `file` stores
-             */
-            name: string;
-            /**
-             * Url
-             * @description Preview URL
-             */
-            url: string;
-            /**
-             * Width
-             * @description Pixel width
-             */
-            width?: number | null;
-        };
         /** TicketIssueSchema */
         TicketIssueSchema: {
             /** Id */
@@ -11543,6 +11523,128 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    cinefin_api_ninja_views_images_ninja_list_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                library: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageListResponseSchema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_images_ninja_upload_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                library: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * File
+                     * Format: binary
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageResponseSchema"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_images_ninja_delete_image: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                library: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponseSchema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
             };
         };
     };
@@ -16949,96 +17051,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_ticket_ninja_list_ticket_images: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketImageSchema"][];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_ticket_ninja_delete_ticket_image: {
-        parameters: {
-            query: {
-                name: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_ticket_ninja_upload_ticket_image: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    /**
-                     * Image
-                     * Format: binary
-                     */
-                    image: string;
-                };
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketImageSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_ticket_ninja_list_issued_tickets: {
         parameters: {
             query?: {
@@ -17540,26 +17552,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_titlegen_ninja_list_title_images: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": string[];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_titlegen_ninja_render_title_preview: {
         parameters: {
             query?: never;
@@ -17810,45 +17802,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    cinefin_api_ninja_views_titlegen_ninja_upload_title_image: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": {
-                    /**
-                     * File
-                     * Format: binary
-                     */
-                    file: string;
-                };
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImageUploadResponse"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImageUploadResponse"];
-                };
             };
         };
     };

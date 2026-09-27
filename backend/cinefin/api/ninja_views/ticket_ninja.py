@@ -1,11 +1,9 @@
 import datetime
 import logging
 import os
-from urllib.parse import quote
 
 from django.http import FileResponse, HttpRequest
-from ninja import Field, File, Router, Schema, Status, UploadedFile
-from PIL import Image
+from ninja import Field, Router, Schema, Status
 
 from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import Programme, ProgrammeSchedule, Settings, TicketDesign, TicketIssue
@@ -439,87 +437,6 @@ def preview_asset(request: HttpRequest, kind: str, cert: str | None = None, file
     if not path or not os.path.exists(path):
         raise NotFoundError("Ticket asset not found", error_code="TICKET_ASSET_NOT_FOUND")
     return FileResponse(open(path, "rb"))  # content type inferred from the filename
-
-
-TICKET_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif")
-
-
-class TicketImageSchema(Schema):
-    name: str = Field(..., description="Filename — what an image element's `file` stores")
-    url: str = Field(..., description="Preview URL")
-    width: int | None = Field(None, description="Pixel width")
-    height: int | None = Field(None, description="Pixel height")
-
-
-def _ticket_image_entry(path: str) -> TicketImageSchema:
-    name = os.path.basename(path)
-    width = height = None
-    try:
-        with Image.open(path) as img:
-            width, height = img.width, img.height
-    except Exception:  # noqa: BLE001 — a corrupt file still lists, just without dimensions
-        pass
-    return TicketImageSchema(
-        name=name,
-        url=f"/api/v2/tickets/preview/asset?kind=image&file={quote(name)}",
-        width=width,
-        height=height,
-    )
-
-
-@ticket_api.get("/images", response=list[TicketImageSchema])
-def list_ticket_images(request: HttpRequest):
-    directory = ticket_service.ticket_images_dir()
-    if not os.path.isdir(directory):
-        return []
-    files = [
-        os.path.join(directory, n)
-        for n in sorted(os.listdir(directory), key=str.lower)
-        if n.lower().endswith(TICKET_IMAGE_EXTENSIONS)
-    ]
-    return [_ticket_image_entry(p) for p in files]
-
-
-@ticket_api.post("/images/upload", response={201: TicketImageSchema, 400: ErrorResponseSchema})
-def upload_ticket_image(request: HttpRequest, image: UploadedFile = File(...)):
-    allowed_types = ["image/jpeg", "image/png", "image/gif"]
-    if image.content_type not in allowed_types:
-        raise ValidationError(
-            "Invalid file type. Please upload a JPEG, PNG, or GIF image", error_code="INVALID_FILE_TYPE"
-        )
-    if image.size > 5 * 1024 * 1024:
-        raise ValidationError("File too large. Maximum size is 5MB", error_code="FILE_TOO_LARGE")
-
-    from cinefin.api.ninja_views.media.utils import sanitize_filename
-
-    directory = ticket_service.ticket_images_dir()
-    os.makedirs(directory, exist_ok=True)
-    safe = sanitize_filename(os.path.basename(image.name or "image.png"))
-    base, ext = os.path.splitext(safe)
-    if ext.lower() not in TICKET_IMAGE_EXTENSIONS:
-        ext = ".png"
-    path = os.path.join(directory, f"{base}{ext}")
-    counter = 1
-    while os.path.exists(path):
-        path = os.path.join(directory, f"{base} ({counter}){ext}")
-        counter += 1
-
-    try:
-        with open(path, "wb") as f:
-            for chunk in image.chunks():
-                f.write(chunk)
-    except OSError as e:
-        raise UnprocessableEntityError(f"Could not store the image: {e}", error_code="IMAGE_UPLOAD_FAILED") from e
-    return Status(201, _ticket_image_entry(path))
-
-
-@ticket_api.delete("/images", response={200: MessageResponseSchema, 404: ErrorResponseSchema})
-def delete_ticket_image(request: HttpRequest, name: str):
-    path = os.path.join(ticket_service.ticket_images_dir(), os.path.basename(name))
-    if not os.path.exists(path):
-        raise NotFoundError("Ticket image not found", error_code="TICKET_IMAGE_NOT_FOUND")
-    os.remove(path)
-    return Status(200, MessageResponseSchema(message="Ticket image deleted"))
 
 
 class DesignSummarySchema(Schema):
