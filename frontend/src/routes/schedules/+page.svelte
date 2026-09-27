@@ -32,6 +32,7 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 
 	type Schedule = components['schemas']['ScheduleSchema'];
@@ -331,6 +332,7 @@
 	let tzValue = $state(browserZone);
 	let leadInValue = $state(0); // minutes
 	let leadInSteps = $state<LeadInStep[]>([]);
+	let leadInOn = $state(false); // off = no lead-in: the programme cues and plays at the start time
 	let saving = $state(false);
 	let modalError = $state<string | null>(null);
 
@@ -343,6 +345,7 @@
 		dtMin = localNow();
 		leadInValue = 0;
 		leadInSteps = [];
+		leadInOn = false;
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -358,6 +361,7 @@
 		dtMin = localNow();
 		leadInValue = Math.round(s.lead_in / 60);
 		leadInSteps = (s.preshow ?? []).map((step) => ({ ...step }));
+		leadInOn = s.lead_in > 0 || leadInSteps.some((step) => !step.cue);
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -369,7 +373,9 @@
 		return q ? list.filter((p) => p.name.toLowerCase().includes(q)) : list;
 	});
 
-	const leadInSeconds = $derived(Math.max(0, Math.round(Number(leadInValue) || 0)) * 60);
+	const leadInSeconds = $derived(
+		leadInOn ? Math.max(0, Math.round(Number(leadInValue) || 0)) * 60 : 0
+	);
 	const leadInMs = $derived(leadInSeconds * 1000);
 
 	const currentRuntime = $derived.by(() => {
@@ -428,7 +434,7 @@
 
 	const canSave = $derived(Boolean(dtValue) && Boolean(selectedProgramme) && !conflict);
 
-	const leadInPayload = () => ({ lead_in: leadInSeconds, preshow: leadInSteps });
+	const leadInPayload = () => ({ lead_in: leadInSeconds, preshow: leadInOn ? leadInSteps : [] });
 
 	async function save() {
 		if (!canSave || saving) return;
@@ -835,21 +841,28 @@
 		</div>
 
 		<div>
-			<label class="mb-1 block text-sm text-muted" for="schedLeadIn">Lead-in</label>
-			<div class="flex flex-wrap items-center gap-2">
-				<input
-					id="schedLeadIn"
-					type="number"
-					min="0"
-					step="1"
-					bind:value={leadInValue}
-					class="h-9 w-24 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim"
-				/>
-				<span class="text-sm text-muted">min before the programme plays</span>
-			</div>
-			<div class="mt-3">
-				<LeadInSteps bind:steps={leadInSteps} />
-			</div>
+			<Toggle
+				label="Lead-in"
+				bind:checked={leadInOn}
+				hint="Run commands and hold the title slate before the programme plays"
+			/>
+			{#if leadInOn}
+				<div class="mt-3 flex flex-wrap items-center gap-2">
+					<input
+						id="schedLeadIn"
+						type="number"
+						min="0"
+						step="1"
+						aria-label="Lead-in minutes"
+						bind:value={leadInValue}
+						class="h-9 w-24 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim"
+					/>
+					<span class="text-sm text-muted">min before the programme plays</span>
+				</div>
+				<div class="mt-3">
+					<LeadInSteps bind:steps={leadInSteps} length={leadInSeconds} />
+				</div>
+			{/if}
 		</div>
 
 		{#if conflict}

@@ -12,15 +12,18 @@
 	import { base } from '$app/paths';
 	import { ChevronDown, ChevronUp, Clapperboard, Plus, Terminal, X } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
+	import { formatTime } from '$lib/format';
 	import { query } from '$lib/api/query.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 
-	let { steps = $bindable() }: { steps: LeadInStep[] } = $props();
+	// `length`: the lead-in in seconds, which the commands' durations are measured against.
+	let { steps = $bindable(), length }: { steps: LeadInStep[]; length: number } = $props();
 
 	const commands = query(async () => (await unwrap(api.GET('/api/v2/commands/list'))).commands);
-	const nameOf = (id: number | null | undefined) =>
-		commands.data?.find((c) => c.id === id)?.name ?? `Command #${id}`;
+	const commandOf = (id: number | null | undefined) => commands.data?.find((c) => c.id === id);
+	const nameOf = (id: number | null | undefined) => commandOf(id)?.name ?? `Command #${id}`;
+	const total = $derived(steps.reduce((sum, s) => sum + (commandOf(s.command)?.duration ?? 0), 0));
 
 	// The cue is always present; with none stored it runs first.
 	$effect(() => {
@@ -55,6 +58,9 @@
 			{:else}
 				<Terminal size={13} class="shrink-0 text-muted" />
 				<span class="min-w-0 flex-1 truncate">{nameOf(step.command)}</span>
+				<span class="shrink-0 font-mono text-xs text-faint">
+					{formatTime(commandOf(step.command)?.duration ?? 0)}
+				</span>
 			{/if}
 			<button
 				type="button"
@@ -89,6 +95,13 @@
 		</li>
 	{/each}
 </ol>
+{#if total}
+	<p class="mt-1.5 font-mono text-xs {total > length ? 'text-warning' : 'text-faint'}">
+		Commands take {formatTime(total)} of the {formatTime(length)} lead-in{total > length
+			? ' — the programme will start late'
+			: ''}
+	</p>
+{/if}
 <div class="mt-2 flex gap-2">
 	<Select bind:value={pick} class="w-full">
 		<option value="">Add a command…</option>
