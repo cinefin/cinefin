@@ -42,7 +42,7 @@ class MediaSourceInput(Schema):
     sync_type: str = Field(..., description="plex / jellyfin")
     url: str = Field(..., min_length=1)
     token: str = Field(..., min_length=1)
-    libraries: str = Field("Films,Movies", description="Comma-separated library names")
+    libraries: str = Field("Movies", description="Comma-separated library names")
 
 
 class CompleteInput(Schema):
@@ -186,7 +186,7 @@ def complete_setup(request, payload: CompleteInput):
                     sync_type=ms.sync_type,
                     url=ms.url.strip(),
                     token=ms.token.strip(),
-                    libraries=ms.libraries or "Films,Movies",
+                    libraries=ms.libraries or "Movies",
                     enabled=True,
                 )
 
