@@ -10,6 +10,7 @@
 		ArrowLeft,
 		CalendarPlus,
 		Check,
+		Clapperboard,
 		PanelLeftOpen,
 		Pencil,
 		RefreshCw,
@@ -18,6 +19,7 @@
 		Upload
 	} from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { Query, query } from '$lib/api/query.svelte';
 	import type { components } from '$lib/api/types.gen';
 	import type {
@@ -304,6 +306,21 @@
 		}
 	}
 
+	let startingLeadIn = $state(false);
+
+	async function startLeadIn() {
+		if (startingLeadIn) return;
+		startingLeadIn = true;
+		try {
+			await mutate(api.POST('/api/v2/playout/lead-in', { body: { programme_id: programmeId } }));
+			showToast('Lead-in started — the programme cues when its steps reach it', 'success');
+		} catch (e) {
+			showToast(e instanceof Error ? e.message : 'Failed to start the lead-in', 'error');
+		} finally {
+			startingLeadIn = false;
+		}
+	}
+
 	async function regeneratePlaylist() {
 		try {
 			// Message-only response (no data envelope) — check the error branch.
@@ -443,16 +460,25 @@
 								<SlidersHorizontal size={14} /> Open console
 							</a>
 						{:else}
-							<Button
-								variant="primary"
-								class="mt-4 w-full"
-								disabled={cueing}
-								title="Cue this programme in playout (doesn't start playback)"
-								onclick={() => void cue()}
-							>
-								<Upload size={14} />
-								{cueing ? 'Cueing…' : 'Cue'}
-							</Button>
+							<div class="mt-4 grid grid-cols-2 gap-2">
+								<Button
+									variant="primary"
+									disabled={cueing}
+									title="Cue this programme in playout (doesn't start playback)"
+									onclick={() => void cue()}
+								>
+									<Upload size={14} />
+									{cueing ? 'Cueing…' : 'Cue'}
+								</Button>
+								<Button
+									disabled={startingLeadIn}
+									title="Run the lead-in steps (Settings → Playout), which cue this programme with its title slate"
+									onclick={() => void startLeadIn()}
+								>
+									<Clapperboard size={14} />
+									{startingLeadIn ? 'Starting…' : 'Start lead-in'}
+								</Button>
+							</div>
 						{/if}
 
 						<div

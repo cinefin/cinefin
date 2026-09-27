@@ -107,33 +107,49 @@ def runner_status():
 
 
 def execute_schedule(schedule):
-    """Play a scheduled programme (load -> run). Raises on failure so the caller can mark it failed."""
-    from cinefin.api.mpv_service import mpv_service
+    """Run the lead-in sequence, then play at the screening's play time. Raises on failure."""
+    from cinefin.api.mpv_service import ProgrammeState, mpv_service
+    from cinefin.api.services import preshow
+    from cinefin.api.services.playout_service import mark_programme_played
 
     programme = schedule.programme
     logger.info("Executing schedule %s (programme %s)", schedule.id, programme.id)
+    preshow.run(programme)  # commands + cue; its title slate now holds
 
-    # Load into playout: generate a missing playlist / rebuild a stale one first.
-    from cinefin.api.models import Playlist
+    # Play at the planned time; a late lead-in (the player was busy) still gets a short settle.
+    earliest = timezone.now() + timedelta(seconds=_cfg("SCHEDULER_PREROLL_SECONDS", 3))
+    wait = (max(schedule.play_time(), earliest) - timezone.now()).total_seconds()
+    if wait > 0:
+        time.sleep(wait)
 
-    if not Playlist.objects.filter(programme=programme).exists() or programme.playlist_stale:
-        from cinefin.api.services import ProgrammeService
-
-        if ProgrammeService.refresh_playlist(programme) is None:
-            raise RuntimeError("Failed to generate playlist — check the application logs")
-    if not mpv_service.load_programme(programme):
-        raise RuntimeError("Failed to load programme into playout system")
-
-    # At-start pre-show cues (lead 0) fire inside start_programme with preshow=True — scheduled
-    # runs only; lead-time cues already fired earlier in _prefire during the run-up.
-    time.sleep(_cfg("SCHEDULER_PREROLL_SECONDS", 3))
-    if not mpv_service.start_programme(preshow=True):
-        raise RuntimeError("Failed to start playback")
-
-    from cinefin.api.services.playout_service import mark_programme_played
-
+    if not ProgrammeSchedule.objects.filter(id=schedule.id, status="running").exists():
+        logger.info("Schedule %s was removed during its lead-in; not starting", schedule.id)
+        return
+    if mpv_service.programme_state not in (ProgrammeState.RUNNING, ProgrammeState.PAUSED):
+        if not mpv_service.start_programme():
+            raise RuntimeError("Failed to start playback")
     mark_programme_played(programme.id)
     logger.info("Schedule %s started successfully", schedule.id)
+
+
+def _execute(schedule):
+    """Background body for one claimed schedule; holds the pre-show lock until it has started."""
+    close_old_connections()
+    try:
+        execute_schedule(schedule)
+    except Exception as e:  # noqa: BLE001
+        logger.error("Schedule %s failed: %s", schedule.id, e)
+        ProgrammeSchedule.objects.filter(id=schedule.id).update(status="failed", last_error=str(e)[:2000])
+    finally:
+        from cinefin.api.services import preshow
+
+        preshow.lock.release()
+        close_old_connections()
+
+
+def _spawn(schedule):
+    """A run spans the whole lead-in, so it gets its own thread and ticks (and heartbeats) carry on."""
+    threading.Thread(target=_execute, args=(schedule,), daemon=True, name=f"schedule-{schedule.id}").start()
 
 
 def _claim(schedule_id):
@@ -185,58 +201,24 @@ def recover_orphans():
             logger.warning("Reconciled orphaned 'running' schedule %s -> missed", s.id)
 
 
-# Advance pre-show cues fired this run-up, per schedule: {schedule_id: {command_id, …}}.
-# In-memory (single process); a restart mid-run-up may refire or skip a cue — acceptable.
-_prefired: dict[int, set[int]] = {}
-
-
-def _prefire(now):
-    """Fire lead-time pre-show cues at start_time − lead, ahead of the show.
-
-    Cues with lead 0 fire at programme start (in start_programme); only lead > 0
-    cues are staged here during the run-up to an upcoming scheduled screening."""
-    from cinefin.api.services import preshow
-
-    advance = preshow.advance_cues()
-    if not advance:
-        _prefired.clear()
-        return
-
-    window = timedelta(seconds=max(lead for _, lead in advance))
-    upcoming = ProgrammeSchedule.objects.filter(status="scheduled", start_time__gt=now, start_time__lte=now + window)
-    live: set[int] = set()
-    for s in upcoming:
-        live.add(s.id)
-        done = _prefired.setdefault(s.id, set())
-        due = [cid for cid, lead in advance if cid not in done and s.start_time - timedelta(seconds=lead) <= now]
-        if due:
-            preshow.fire(due)
-            done.update(due)
-            logger.info("Fired %d pre-show cue(s) for schedule %s", len(due), s.id)
-
-    # Drop tracking for schedules that have started, been cancelled, or aged out.
-    for sid in [sid for sid in _prefired if sid not in live]:
-        del _prefired[sid]
-
-
 def tick():
     """Run one scheduler pass. Returns a summary dict."""
+    from cinefin.api.models.automation import default_lead_in
+    from cinefin.api.services import preshow
+
     now = timezone.now()
     grace = timedelta(minutes=_cfg("SCHEDULER_GRACE_MINUTES", 15))
+    default = default_lead_in()
     fired = missed = completed = 0
 
-    try:
-        _prefire(now)
-    except Exception:  # noqa: BLE001 - a cue error must never block schedule execution
-        logger.exception("Pre-show pre-fire pass failed")
-
     # running -> completed once end passed. Guard on positive runtime: a zero/unknown
-    # runtime makes end_time() == start_time, marking a just-claimed row 'completed' next tick.
+    # runtime makes end_time() == play_time, marking a just-started row 'completed' next tick.
     for s in ProgrammeSchedule.objects.filter(status="running"):
-        if s.runtime and s.runtime > 0 and s.end_time() < now:
+        if s.runtime and s.runtime > 0 and s.end_time(default) < now:
             ProgrammeSchedule.objects.filter(id=s.id, status="running").update(status="completed")
             completed += 1
 
+    # start_time is the lead-in start, so a row is due once its lead-in begins.
     due = (
         ProgrammeSchedule.objects.filter(status="scheduled", start_time__lte=now)
         .select_related("programme")
@@ -245,26 +227,24 @@ def tick():
 
     for s in due:
         # Too late to play sensibly (e.g. the box was off) -> missed
-        if s.start_time < now - grace:
+        if s.play_time(default) < now - grace:
             if ProgrammeSchedule.objects.filter(id=s.id, status="scheduled").update(status="missed") == 1:
                 missed += 1
-                logger.warning("Schedule %s missed (was due %s)", s.id, s.start_time.isoformat())
+                logger.warning("Schedule %s missed (was due %s)", s.id, s.play_time(default).isoformat())
             continue
 
-        # A screening is on air — don't interrupt it. Leave the row 'scheduled'
-        # so it fires once the player is free, or ages to 'missed' above.
-        if _mpv_busy():
-            logger.info("Schedule %s deferred: player busy with an active programme", s.id)
+        # A screening is on air or another lead-in is running — don't interrupt it. Leave the row
+        # 'scheduled' so its lead-in starts once the player is free (still playing at its planned
+        # time), or ages to 'missed' above.
+        if _mpv_busy() or not preshow.lock.acquire(blocking=False):
+            logger.info("Schedule %s deferred: player busy", s.id)
             continue
 
         if not _claim(s.id):
+            preshow.lock.release()
             continue  # claimed elsewhere
 
-        try:
-            execute_schedule(s)
-            fired += 1
-        except Exception as e:  # noqa: BLE001
-            logger.error("Schedule %s failed: %s", s.id, e)
-            ProgrammeSchedule.objects.filter(id=s.id).update(status="failed", last_error=str(e)[:2000])
+        _spawn(s)
+        fired += 1
 
     return {"fired": fired, "missed": missed, "completed": completed}

@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cinefin.api.models import Settings
 from cinefin.api.mpv_service import MPVService, ProgrammeState
 
 from .factories import PlaylistFactory, PlaylistItemFactory, ProgrammeFactory
@@ -88,21 +87,6 @@ class TestStreamErrorHandling:
         service.programme_state = ProgrammeState.LOADED
         service._handle_file_end({"reason": "error"})
         service._handle_playlist_item_end.assert_not_called()
-
-
-class TestPreshowCommandFailure:
-    def test_failing_preshow_command_never_raises(self, monkeypatch):
-        from cinefin.api.services import command_runner
-
-        Settings.set("scheduler.preshow_commands", [999])
-
-        def boom(*a, **kw):
-            raise RuntimeError("projector offline")
-
-        monkeypatch.setattr(command_runner, "execute_many_sequential", boom)
-
-        service = make_service()
-        service._run_preshow_commands()
 
 
 class TestPlayoutLock:

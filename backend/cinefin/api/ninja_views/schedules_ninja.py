@@ -1,13 +1,14 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytz
 from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
-from cinefin.api.exceptions import NotFoundError, ValidationError
+from cinefin.api.exceptions import ConflictError, NotFoundError, ValidationError
 from cinefin.api.models import Programme, ProgrammeSchedule
+from cinefin.api.models.automation import default_lead_in
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 
 logger = logging.getLogger(__name__)
@@ -24,12 +25,14 @@ class ProgrammeBasicSchema(Schema):
 class ScheduleSchema(Schema):
     id: int = Field(..., description="Schedule ID")
     programme: ProgrammeBasicSchema = Field(..., description="Associated programme details")
-    start_time: str = Field(..., description="Scheduled start time in ISO format")
+    start_time: str = Field(..., description="When the lead-in begins (ISO)")
+    play_time: str = Field(..., description="When the programme plays: start_time + lead-in (ISO)")
+    lead_in: int | None = Field(None, description="Lead-in override in seconds (null = the default)")
     runtime: int = Field(..., description="Programme runtime in minutes")
     status: str = Field(..., description="Schedule status (scheduled, running, completed, cancelled, failed, missed)")
     last_error: str | None = Field(None, description="Reason the run failed, if any")
     created_at: str = Field(..., description="Schedule creation timestamp in ISO format")
-    end_time: str | None = Field(None, description="End time of the schedule in ISO format")
+    end_time: str | None = Field(None, description="When the screening ends: play_time + runtime (ISO)")
 
 
 class ScheduleListFilters(Schema):
@@ -43,6 +46,7 @@ class ScheduleListFilters(Schema):
 class ScheduleListDataSchema(Schema):
     schedules: list[ScheduleSchema] = Field(..., description="List of scheduled programmes")
     count: int = Field(..., description="Total number of schedules returned")
+    default_lead_in: int = Field(0, description="The global lead-in in seconds (scheduler.lead_in)")
 
 
 class ScheduleListResponseSchema(SuccessResponseSchema):
@@ -51,13 +55,15 @@ class ScheduleListResponseSchema(SuccessResponseSchema):
 
 class CreateScheduleSchema(Schema):
     programme_id: int = Field(..., description="ID of programme to schedule")
-    start_time: str = Field(..., description="Start time in ISO format")
+    start_time: str = Field(..., description="When the lead-in begins, in ISO format")
     timezone: str = Field("UTC", description="Timezone for the start time")
+    lead_in: int | None = Field(None, ge=0, description="Lead-in override in seconds (null = the default)")
 
 
 class UpdateScheduleSchema(Schema):
-    start_time: str = Field(..., description="New start time in ISO format")
+    start_time: str = Field(..., description="When the lead-in begins, in ISO format")
     timezone: str = Field("UTC", description="Timezone for the start time")
+    lead_in: int | None = Field(None, ge=0, description="Lead-in override in seconds (null = the default)")
 
 
 class ScheduleDataSchema(Schema):
@@ -81,6 +87,24 @@ class RunnerStatusResponseSchema(SuccessResponseSchema):
 
 
 schedules_api = Router()
+
+
+def _reject_overlap(schedule: ProgrammeSchedule) -> None:
+    """A screening occupies start_time (lead-in) → end_time; two active ones may not overlap."""
+    default = default_lead_in()
+    start, end = schedule.start_time, schedule.end_time(default)
+    others = ProgrammeSchedule.objects.filter(status__in=["scheduled", "running"], start_time__lt=end).exclude(
+        id=schedule.id
+    )
+    clash = next((o for o in others.select_related("programme") if o.end_time(default) > start), None)
+    if clash:
+        raise ConflictError(
+            f"Overlaps “{clash.programme.name}” "
+            f"({timezone.localtime(clash.start_time):%H:%M}–{timezone.localtime(clash.end_time(default)):%H:%M})",
+            error_code="SCHEDULE_OVERLAP",
+            details={"schedule_id": clash.id},
+        )
+
 
 # Schedule status is owned by the in-process schedule runner
 # (services/schedule_runner.py); the API only reads/writes rows.
@@ -108,12 +132,14 @@ def serialize_programme_basic(programme: Programme) -> ProgrammeBasicSchema:
     )
 
 
-def serialize_schedule(schedule: ProgrammeSchedule) -> ScheduleSchema:
+def serialize_schedule(schedule: ProgrammeSchedule, default_lead_in: int | None = None) -> ScheduleSchema:
     return ScheduleSchema(
         id=schedule.id,
         programme=serialize_programme_basic(schedule.programme),
         start_time=schedule.start_time.isoformat(),
-        end_time=schedule.end_time().isoformat() if schedule.start_time and schedule.runtime else None,
+        play_time=schedule.play_time(default_lead_in).isoformat(),
+        lead_in=schedule.lead_in,
+        end_time=schedule.end_time(default_lead_in).isoformat() if schedule.start_time and schedule.runtime else None,
         runtime=schedule.runtime,
         status=schedule.status,
         last_error=schedule.last_error or None,
@@ -133,16 +159,15 @@ def serialize_schedule(schedule: ProgrammeSchedule) -> ScheduleSchema:
 def list_schedules(request: HttpRequest, filters: ScheduleListFilters = Query(...)):
     """Get all schedules with filtering."""
     schedules = ProgrammeSchedule.objects.select_related("programme").all()
+    default = default_lead_in()
 
     if not filters.show_past:
         now = timezone.now()
         past_schedule_ids = []
 
         for schedule in schedules:
-            if schedule.start_time and schedule.runtime:
-                end_time = schedule.start_time + timedelta(minutes=schedule.runtime)
-                if end_time <= now:
-                    past_schedule_ids.append(schedule.id)
+            if schedule.start_time and schedule.runtime and schedule.end_time(default) <= now:
+                past_schedule_ids.append(schedule.id)
 
         if past_schedule_ids:
             schedules = schedules.exclude(id__in=past_schedule_ids)
@@ -171,13 +196,13 @@ def list_schedules(request: HttpRequest, filters: ScheduleListFilters = Query(..
 
     schedules = schedules.order_by("start_time")
 
-    schedules_data = [serialize_schedule(schedule) for schedule in schedules]
+    schedules_data = [serialize_schedule(schedule, default) for schedule in schedules]
 
     return Status(
         200,
         ScheduleListResponseSchema(
             message="Schedules retrieved successfully",
-            data=ScheduleListDataSchema(schedules=schedules_data, count=len(schedules_data)),
+            data=ScheduleListDataSchema(schedules=schedules_data, count=len(schedules_data), default_lead_in=default),
         ),
     )
 
@@ -188,6 +213,7 @@ def list_schedules(request: HttpRequest, filters: ScheduleListFilters = Query(..
         201: ScheduleCreateResponseSchema,
         400: ErrorResponseSchema,
         404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
         422: ErrorResponseSchema,
         500: ErrorResponseSchema,
     },
@@ -216,8 +242,9 @@ def create_schedule(request: HttpRequest, data: CreateScheduleSchema):
     if start_time_dt <= timezone.now():
         raise ValidationError("Start time must be in the future", error_code="INVALID_START_TIME")
 
-    # Overlapping schedules are allowed; the runner plays whichever comes due while MPV is free.
-    schedule = ProgrammeSchedule.objects.create(programme=programme, start_time=start_time_dt, runtime=runtime)
+    schedule = ProgrammeSchedule(programme=programme, start_time=start_time_dt, runtime=runtime, lead_in=data.lead_in)
+    _reject_overlap(schedule)
+    schedule.save()
 
     return Status(
         201,
@@ -247,6 +274,7 @@ def delete_schedule(request: HttpRequest, schedule_id: int):
         200: ScheduleCreateResponseSchema,
         400: ErrorResponseSchema,
         404: ErrorResponseSchema,
+        409: ErrorResponseSchema,
         422: ErrorResponseSchema,
         500: ErrorResponseSchema,
     },
@@ -280,7 +308,9 @@ def update_schedule(request: HttpRequest, schedule_id: int, data: UpdateSchedule
     # and a stale runtime drives end_time() (and the past-schedule filter) wrongly.
     schedule.start_time = new_start_time_dt
     schedule.runtime = schedule.programme.get_runtime()
-    schedule.save(update_fields=["start_time", "runtime"])
+    schedule.lead_in = data.lead_in
+    _reject_overlap(schedule)
+    schedule.save(update_fields=["start_time", "runtime", "lead_in"])
 
     return Status(
         200,

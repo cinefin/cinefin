@@ -89,8 +89,8 @@
 			);
 			const now = Date.now();
 			schedules = (data?.schedules ?? [])
-				.filter((s) => s.status === 'scheduled' && new Date(s.start_time).getTime() > now)
-				.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+				.filter((s) => s.status === 'scheduled' && new Date(s.play_time).getTime() > now)
+				.sort((a, b) => new Date(a.play_time).getTime() - new Date(b.play_time).getTime());
 			scheduleId = schedules.length ? String(schedules[0].id) : '';
 		} catch (e) {
 			console.error('Failed to load schedules for tickets:', e);
@@ -279,7 +279,7 @@
 				Showtime
 				<Select bind:value={scheduleId} onchange={onShowtimeChange}>
 					{#each schedules as s (s.id)}
-						<option value={String(s.id)}>{formatShowtime(s.start_time)}</option>
+						<option value={String(s.id)}>{formatShowtime(s.play_time)}</option>
 					{/each}
 					<option value="">Now (no schedule)</option>
 				</Select>

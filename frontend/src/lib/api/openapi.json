@@ -2085,13 +2085,26 @@
       },
       "CreateScheduleSchema": {
         "properties": {
+          "lead_in": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lead-in override in seconds (null = the default)",
+            "title": "Lead In"
+          },
           "programme_id": {
             "description": "ID of programme to schedule",
             "title": "Programme Id",
             "type": "integer"
           },
           "start_time": {
-            "description": "Start time in ISO format",
+            "description": "When the lead-in begins, in ISO format",
             "title": "Start Time",
             "type": "string"
           },
@@ -4136,6 +4149,20 @@
           "status"
         ],
         "title": "KioskScreeningSchema",
+        "type": "object"
+      },
+      "LeadInSchema": {
+        "properties": {
+          "programme_id": {
+            "description": "Programme to run the lead-in for",
+            "title": "Programme Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "programme_id"
+        ],
+        "title": "LeadInSchema",
         "type": "object"
       },
       "LoadProgrammeDataSchema": {
@@ -7101,146 +7128,28 @@
         "title": "PluginFailureSchema",
         "type": "object"
       },
-      "PreshowCueInfoSchema": {
+      "PreshowStepSchema": {
         "properties": {
           "command": {
-            "description": "Command ID",
-            "title": "Command",
-            "type": "integer"
-          },
-          "lead": {
-            "description": "Seconds before scheduled start it fires (0 = at start)",
-            "title": "Lead",
-            "type": "integer"
-          },
-          "name": {
-            "description": "Command name",
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "command",
-          "name",
-          "lead"
-        ],
-        "title": "PreshowCueInfoSchema",
-        "type": "object"
-      },
-      "PreshowCueSchema": {
-        "properties": {
-          "command": {
-            "description": "Command ID to run",
-            "title": "Command",
-            "type": "integer"
-          },
-          "lead": {
-            "default": 0,
-            "description": "Seconds before scheduled start to fire it (0 = at the show start)",
-            "title": "Lead",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "command"
-        ],
-        "title": "PreshowCueSchema",
-        "type": "object"
-      },
-      "PreshowDataSchema": {
-        "properties": {
-          "count": {
-            "description": "Number of configured pre-show cues",
-            "title": "Count",
-            "type": "integer"
-          },
-          "cues": {
-            "description": "Configured cues, in order",
-            "items": {
-              "$ref": "#/components/schemas/PreshowCueInfoSchema"
-            },
-            "title": "Cues",
-            "type": "array"
-          }
-        },
-        "required": [
-          "count"
-        ],
-        "title": "PreshowDataSchema",
-        "type": "object"
-      },
-      "PreshowResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/PreshowDataSchema"
-          },
-          "message": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
+            "description": "Command ID to run (omit for the cue step)",
+            "title": "Command"
           },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
+          "cue": {
+            "default": false,
+            "description": "The step that cues the programme and holds its title slate",
+            "title": "Cue",
             "type": "boolean"
           }
         },
-        "required": [
-          "data"
-        ],
-        "title": "PreshowResponseSchema",
-        "type": "object"
-      },
-      "PreshowRunDataSchema": {
-        "properties": {
-          "fired": {
-            "description": "How many commands were fired",
-            "title": "Fired",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "fired"
-        ],
-        "title": "PreshowRunDataSchema",
-        "type": "object"
-      },
-      "PreshowRunResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/PreshowRunDataSchema"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
-          },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "PreshowRunResponseSchema",
+        "title": "PreshowStepSchema",
         "type": "object"
       },
       "PreviewTrailerItemSchema": {
@@ -7927,6 +7836,12 @@
           "title_file_generated": {
             "description": "Whether a title card file has been generated",
             "title": "Title File Generated",
+            "type": "boolean"
+          },
+          "title_hold": {
+            "default": false,
+            "description": "When cued, play the title's fade-in, then hold",
+            "title": "Title Hold",
             "type": "boolean"
           },
           "title_template_id": {
@@ -9318,6 +9233,12 @@
             "title": "Count",
             "type": "integer"
           },
+          "default_lead_in": {
+            "default": 0,
+            "description": "The global lead-in in seconds (scheduler.lead_in)",
+            "title": "Default Lead In",
+            "type": "integer"
+          },
           "schedules": {
             "description": "List of scheduled programmes",
             "items": {
@@ -9441,7 +9362,7 @@
                 "type": "null"
               }
             ],
-            "description": "End time of the schedule in ISO format",
+            "description": "When the screening ends: play_time + runtime (ISO)",
             "title": "End Time"
           },
           "id": {
@@ -9461,6 +9382,23 @@
             "description": "Reason the run failed, if any",
             "title": "Last Error"
           },
+          "lead_in": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lead-in override in seconds (null = the default)",
+            "title": "Lead In"
+          },
+          "play_time": {
+            "description": "When the programme plays: start_time + lead-in (ISO)",
+            "title": "Play Time",
+            "type": "string"
+          },
           "programme": {
             "$ref": "#/components/schemas/ProgrammeBasicSchema",
             "description": "Associated programme details"
@@ -9471,7 +9409,7 @@
             "type": "integer"
           },
           "start_time": {
-            "description": "Scheduled start time in ISO format",
+            "description": "When the lead-in begins (ISO)",
             "title": "Start Time",
             "type": "string"
           },
@@ -9485,6 +9423,7 @@
           "id",
           "programme",
           "start_time",
+          "play_time",
           "runtime",
           "status",
           "created_at"
@@ -9851,6 +9790,12 @@
             "title": "Kiosk Takeover",
             "type": "boolean"
           },
+          "lead_in": {
+            "default": 0,
+            "description": "Default lead-in: seconds between a screening starting and its programme playing",
+            "title": "Lead In",
+            "type": "integer"
+          },
           "playout_server_url": {
             "default": "",
             "description": "Base URL the playout host uses to fetch streamed media from Cinefin",
@@ -9858,9 +9803,9 @@
             "type": "string"
           },
           "preshow_commands": {
-            "description": "Commands run before a scheduled programme plays, each with a lead time",
+            "description": "Ordered lead-in steps: commands plus the one cue step",
             "items": {
-              "$ref": "#/components/schemas/PreshowCueSchema"
+              "$ref": "#/components/schemas/PreshowStepSchema"
             },
             "title": "Preshow Commands",
             "type": "array"
@@ -13123,6 +13068,18 @@
             "description": "Fade out duration in seconds (0 = no fade)",
             "title": "Title Fade Out"
           },
+          "title_hold": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When cued, play the title's fade-in, then hold",
+            "title": "Title Hold"
+          },
           "title_template_id": {
             "anyOf": [
               {
@@ -13141,8 +13098,21 @@
       },
       "UpdateScheduleSchema": {
         "properties": {
+          "lead_in": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lead-in override in seconds (null = the default)",
+            "title": "Lead In"
+          },
           "start_time": {
-            "description": "New start time in ISO format",
+            "description": "When the lead-in begins, in ISO format",
             "title": "Start Time",
             "type": "string"
           },
@@ -13345,6 +13315,19 @@
             "description": "Now Showing takeover on/off",
             "title": "Kiosk Takeover"
           },
+          "lead_in": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default lead-in in seconds (0 = none)",
+            "title": "Lead In"
+          },
           "playout_server_url": {
             "anyOf": [
               {
@@ -13361,7 +13344,7 @@
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/PreshowCueSchema"
+                  "$ref": "#/components/schemas/PreshowStepSchema"
                 },
                 "type": "array"
               },
@@ -13369,7 +13352,7 @@
                 "type": "null"
               }
             ],
-            "description": "Commands run before a scheduled programme plays, each with a lead time",
+            "description": "Ordered lead-in steps: commands plus the one cue step",
             "title": "Preshow Commands"
           },
           "ratings_system": {
@@ -19320,6 +19303,64 @@
         ]
       }
     },
+    "/api/v2/playout/lead-in": {
+      "post": {
+        "description": "Run the pre-show sequence now (commands + cue, in order) \u2014 the programme is left cued with\nits title slate up, for the operator to start. Returns at once; the sequence runs in the background.",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_start_lead_in",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadInSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Start Lead In",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
     "/api/v2/playout/load": {
       "post": {
         "operationId": "cinefin_api_ninja_views_playout_ninja_load_programme",
@@ -19520,62 +19561,6 @@
           }
         ],
         "summary": "Control Playlist",
-        "tags": [
-          "Playout"
-        ]
-      }
-    },
-    "/api/v2/playout/preshow": {
-      "get": {
-        "description": "The configured pre-show cues (for the remote's manual trigger).",
-        "operationId": "cinefin_api_ninja_views_playout_ninja_get_preshow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreshowResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Get Preshow",
-        "tags": [
-          "Playout"
-        ]
-      }
-    },
-    "/api/v2/playout/preshow/run": {
-      "post": {
-        "description": "Fire the whole pre-show sequence now, in order \u2014 independent of starting a programme.",
-        "operationId": "cinefin_api_ninja_views_playout_ninja_run_preshow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreshowRunResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Run Preshow",
         "tags": [
           "Playout"
         ]
@@ -20951,6 +20936,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -21272,6 +21267,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {

@@ -89,6 +89,7 @@ class MPVService:
         # True while a hold-black command item is on screen (surfaced in status)
         self._executing_command = False
         self._hold_progress = None  # {'duration','elapsed'} while a hold-black command runs
+        self._title_hold_at = None  # seconds into the cued title card to pause at (title_hold)
 
         # Live playback cache, updated from the mpv property observers so the SSE
         # status stream (and its poll fallback) can build a snapshot with no
@@ -441,10 +442,16 @@ class MPVService:
                     programme.get_title_stream_url() if hasattr(programme, "get_title_stream_url") else None
                 )
 
+                self._title_hold_at = None
                 if title_stream_url:
                     logger.info(f"Loading programme title (streamed): {programme.name}")
                     self.controller.load_file(title_stream_url, replace=True)
-                    self.controller.pause()
+                    fade_in = programme.title_fade_in or 0
+                    if programme.title_hold and fade_in > 0:
+                        self._title_hold_at = fade_in  # play the fade-in; _handle_time_pos pauses after it
+                        self.controller.play()
+                    else:
+                        self.controller.pause()
                 else:
                     # No title configured, reset to load the System Ident
                     logger.info("No programme title configured, loading the System Ident")
@@ -500,7 +507,7 @@ class MPVService:
                 logger.error(f"Error loading programme: {e}")
                 return False
 
-    def start_programme(self, preshow: bool = False):
+    def start_programme(self):
         """Start programme playback"""
         with self._playout_lock:
             if not self.current_programme or not self.current_playlist:
@@ -518,16 +525,6 @@ class MPVService:
             )
 
             self._set_state(ProgrammeState.RUNNING)
-
-            # Fire the configured pre-show commands (Settings → Scheduler) only
-            # when the schedule runner starts the show — a manual run from the
-            # remote/dashboard is an operator poking at playback, not the start
-            # of a screening. Sequential, on a background thread, so a slow
-            # command never delays the show; failures are logged and swallowed
-            # inside _run_preshow_commands (a broken lighting/projector command
-            # must never stop the feature from playing).
-            if preshow:
-                self._run_preshow_commands()
 
             # Start playback from current position
             # If we're at position 0 (the System Ident), let it play in full
@@ -797,14 +794,17 @@ class MPVService:
         else:
             logger.info(f"Hold '{name}' superseded (playback moved on); not advancing")
 
-    def _run_preshow_commands(self):
-        """Fire the at-start pre-show cues (lead 0). Advance cues fire earlier, in the schedule runner."""
-        try:
-            from cinefin.api.services import preshow
-
-            preshow.fire_at_start()
-        except Exception:
-            logger.exception("Failed to start pre-show commands")
+    def _check_title_hold(self, time_pos):
+        """Pause the cued title card once its fade-in is done (never past its end, which would
+        advance into the programme). Dropped as soon as the programme starts or moves on."""
+        pos = self.controller.get_property("playlist_pos") if self.controller else None
+        if self.programme_state != ProgrammeState.LOADED or pos != 0:
+            self._title_hold_at = None
+            return
+        duration = self._live["duration"]
+        if time_pos >= self._title_hold_at or (duration and time_pos >= duration - 0.5):
+            self._title_hold_at = None
+            self.controller.pause()
 
     def _handle_time_pos(self, time_pos):
         """Handle time position changes and check for credits markers"""
@@ -816,6 +816,9 @@ class MPVService:
             d = self.controller.get_property("duration")
             if d not in (None, "none"):
                 self._live["duration"] = d
+
+        if self._title_hold_at is not None and time_pos is not None:
+            self._check_title_hold(time_pos)
 
         if not self.running or not self.current_playlist or time_pos is None:
             return

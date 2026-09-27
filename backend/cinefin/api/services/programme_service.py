@@ -888,6 +888,7 @@ class ProgrammeService:
         title_background_file: str | None = None,
         title_fade_in: float | None = None,
         title_fade_out: float | None = None,
+        title_hold: bool | None = None,
     ) -> Programme:
         with transaction.atomic():
             try:
@@ -935,6 +936,9 @@ class ProgrammeService:
 
             if title_fade_out is not None:
                 programme.title_fade_out = max(0.0, title_fade_out)
+
+            if title_hold is not None:
+                programme.title_hold = title_hold
 
             if items is not None:
                 programme.blocks.all().delete()

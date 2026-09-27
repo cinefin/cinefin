@@ -7,7 +7,7 @@ from typing import Any, Literal
 from django.http import HttpRequest
 from ninja import Field, Router, Schema, Status
 
-from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
+from cinefin.api.exceptions import ConflictError, NotFoundError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import Playlist, PlaylistItem, PlayoutHost, Programme
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
@@ -374,55 +374,41 @@ def run_programme(request: HttpRequest):
     )
 
 
-class PreshowCueInfoSchema(Schema):
-    command: int = Field(..., description="Command ID")
-    name: str = Field(..., description="Command name")
-    lead: int = Field(..., description="Seconds before scheduled start it fires (0 = at start)")
+class LeadInSchema(Schema):
+    programme_id: int = Field(..., description="Programme to run the lead-in for")
 
 
-class PreshowDataSchema(Schema):
-    count: int = Field(..., description="Number of configured pre-show cues")
-    cues: list[PreshowCueInfoSchema] = Field(default_factory=list, description="Configured cues, in order")
+@playout_api.post("/lead-in", response={200: MessageResponseSchema, 404: ErrorResponseSchema, 409: ErrorResponseSchema})
+def start_lead_in(request: HttpRequest, data: LeadInSchema):
+    """Run the pre-show sequence now (commands + cue, in order) — the programme is left cued with
+    its title slate up, for the operator to start. Returns at once; the sequence runs in the background."""
+    import threading
 
+    from django.db import close_old_connections
 
-class PreshowResponseSchema(SuccessResponseSchema):
-    data: PreshowDataSchema
-
-
-class PreshowRunDataSchema(Schema):
-    fired: int = Field(..., description="How many commands were fired")
-
-
-class PreshowRunResponseSchema(SuccessResponseSchema):
-    data: PreshowRunDataSchema
-
-
-@playout_api.get("/preshow", response={200: PreshowResponseSchema})
-def get_preshow(request: HttpRequest):
-    """The configured pre-show cues (for the remote's manual trigger)."""
-    from cinefin.api.models import Command
+    from cinefin.api.mpv_service import ProgrammeState
     from cinefin.api.services import preshow
 
-    cue_list = preshow.cues()
-    names = dict(Command.objects.filter(id__in=[c for c, _ in cue_list]).values_list("id", "name"))
-    cues = [
-        PreshowCueInfoSchema(command=cid, name=names.get(cid, f"Command {cid}"), lead=lead)
-        for cid, lead in cue_list
-        if cid in names
-    ]
-    return Status(200, PreshowResponseSchema(data=PreshowDataSchema(count=len(cues), cues=cues)))
+    programme = Programme.objects.filter(id=data.programme_id).first()
+    if programme is None:
+        raise NotFoundError("Programme not found", error_code="PROGRAMME_NOT_FOUND")
+    if mpv_service.programme_state in (ProgrammeState.RUNNING, ProgrammeState.PAUSED):
+        raise ConflictError("A programme is playing — stop it before starting a lead-in", error_code="PLAYER_BUSY")
+    if not preshow.lock.acquire(blocking=False):
+        raise ConflictError("A lead-in is already running", error_code="LEAD_IN_RUNNING")
 
+    def _target():
+        close_old_connections()
+        try:
+            preshow.run(programme)
+        except Exception:  # noqa: BLE001 - logged; the page sees the player never reach 'cued'
+            logger.exception("Manual lead-in for programme %s failed", programme.id)
+        finally:
+            preshow.lock.release()
+            close_old_connections()
 
-@playout_api.post("/preshow/run", response={200: PreshowRunResponseSchema})
-def run_preshow(request: HttpRequest):
-    """Fire the whole pre-show sequence now, in order — independent of starting a programme."""
-    from cinefin.api.services import preshow
-
-    fired = preshow.fire_all()
-    return Status(
-        200,
-        PreshowRunResponseSchema(message=f"Fired {fired} pre-show command(s)", data=PreshowRunDataSchema(fired=fired)),
-    )
+    threading.Thread(target=_target, daemon=True, name=f"lead-in-{programme.id}").start()
+    return Status(200, MessageResponseSchema(message="Lead-in started"))
 
 
 @playout_api.get(

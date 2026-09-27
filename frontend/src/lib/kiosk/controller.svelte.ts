@@ -397,7 +397,7 @@ export class KioskController {
 				.map((s) => ({
 					id: s.id,
 					programme: s.programme.name,
-					start: s.start_time,
+					start: s.play_time, // the showtime, not the lead-in
 					end: s.end_time!,
 					runtime: s.runtime,
 					status: s.status,

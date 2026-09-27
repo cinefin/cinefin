@@ -2,7 +2,10 @@
 	import { fade } from 'svelte/transition';
 	import {
 		Check,
+		ChevronDown,
+		ChevronUp,
 		CircleCheck,
+		Clapperboard,
 		Info,
 		MonitorPlay,
 		Pencil,
@@ -354,18 +357,25 @@
 		const id = parseInt(preshowPick, 10);
 		preshowPick = '';
 		if (!id || store.main.preshow_commands.some((c) => c.command === id)) return;
-		store.main.preshow_commands = [...store.main.preshow_commands, { command: id, lead: 0 }];
+		store.main.preshow_commands = [...store.main.preshow_commands, { command: id, cue: false }];
 	}
 
-	function removePreshow(id: number) {
-		store.main.preshow_commands = store.main.preshow_commands.filter((c) => c.command !== id);
+	function removePreshow(i: number) {
+		store.main.preshow_commands = store.main.preshow_commands.filter((_, j) => j !== i);
 	}
 
-	function setPreshowLead(id: number, value: string) {
-		const lead = Math.max(0, Math.round(Number(value) || 0));
-		store.main.preshow_commands = store.main.preshow_commands.map((c) =>
-			c.command === id ? { ...c, lead } : c
-		);
+	function movePreshow(i: number, by: number) {
+		const list = [...store.main.preshow_commands];
+		const j = i + by;
+		if (j < 0 || j >= list.length) return;
+		[list[i], list[j]] = [list[j], list[i]];
+		store.main.preshow_commands = list;
+	}
+
+	// Stored in seconds; edited in whole minutes.
+	const leadInMinutes = $derived(Math.round((Number(store.main.lead_in) || 0) / 60));
+	function setLeadInMinutes(value: string) {
+		store.main.lead_in = String(Math.max(0, Math.round(Number(value) || 0)) * 60);
 	}
 
 	const subtitleInputCls =
@@ -747,59 +757,91 @@
 					</div>
 				</section>
 
-				<!-- ── Pre-show commands ─────────────────────────────────────────── -->
-				<section class="space-y-2">
+				<!-- ── Lead-in ─────────────────────────────────────────────────────── -->
+				<section class="space-y-3">
 					<div>
-						<h3 class="text-sm font-medium">
-							Pre-show commands
-							<span class="ml-1 font-mono text-xs text-faint"
-								>{store.main.preshow_commands.length}</span
-							>
-						</h3>
+						<h3 class="text-sm font-medium">Lead-in</h3>
 						<p class="mt-0.5 max-w-2xl text-xs text-muted">
-							Commands run for every <strong class="text-text">scheduled</strong> screening - dimming
-							lights, waking the projector. Each fires its set number of seconds before the start
-							(0 = at the start). Manual starts skip them; run the sequence by hand from the
-							<a href="{base}/remote" class="text-accent hover:underline">remote</a>.
+							A scheduled screening starts with its lead-in: the steps below run in order, then the
+							programme's title slate holds until it plays. The lead-in counts towards the
+							screening's length. Run it by hand with <strong class="text-text"
+								>Start lead-in</strong
+							> on a programme.
 						</p>
 					</div>
 					<Field
-						label="Commands"
+						label="Default lead-in"
+						forId="set-lead-in"
+						dirty={store.isDirty('lead_in')}
+						error={store.errorFor('lead_in')}
+						hint="Minutes from a screening's start to its programme playing. Each screening can override it."
+					>
+						<div class="flex items-center gap-2">
+							<input
+								id="set-lead-in"
+								type="number"
+								min="0"
+								step="1"
+								class="h-9 w-24 rounded-md border border-border-strong bg-surface-2 px-2 text-sm text-text focus:border-accent-dim"
+								value={leadInMinutes}
+								oninput={(e) => setLeadInMinutes(e.currentTarget.value)}
+							/>
+							<span class="text-sm text-muted">min</span>
+						</div>
+					</Field>
+					<Field
+						label="Steps"
 						dirty={store.isDirty('preshow_commands')}
 						error={store.errorFor('preshow_commands')}
 					>
-						{#if store.main.preshow_commands.length}
-							<div class="mb-3 max-w-xl divide-y divide-border rounded-md border border-border">
-								{#each store.main.preshow_commands as cue (cue.command)}
-									<div class="flex items-center gap-2 px-3 py-1.5 text-sm">
+						<ol class="mb-3 max-w-xl divide-y divide-border rounded-md border border-border">
+							{#each store.main.preshow_commands as step, i (step.cue ? 'cue' : step.command)}
+								<li class="flex items-center gap-2 px-3 py-1.5 text-sm">
+									<span class="w-4 shrink-0 text-right font-mono text-xs text-faint">{i + 1}</span>
+									{#if step.cue}
+										<Clapperboard size={13} class="shrink-0 text-accent" />
+										<span class="min-w-0 flex-1 truncate">
+											Cue the programme <span class="text-faint">· title slate holds</span>
+										</span>
+									{:else}
 										<Terminal size={13} class="shrink-0 text-muted" />
-										<span class="min-w-0 flex-1 truncate">{store.commandName(cue.command)}</span>
-										<label class="flex shrink-0 items-center gap-1.5 text-xs text-muted">
-											<input
-												type="number"
-												min="0"
-												step="1"
-												class="w-16 rounded-sm border border-border bg-surface-2 px-1.5 py-0.5 text-right font-mono text-xs"
-												value={cue.lead}
-												oninput={(e) => setPreshowLead(cue.command, e.currentTarget.value)}
-											/>
-											s before
-										</label>
+										<span class="min-w-0 flex-1 truncate"
+											>{store.commandName(step.command ?? 0)}</span
+										>
+									{/if}
+									<button
+										type="button"
+										class="shrink-0 rounded-sm p-0.5 text-muted hover:bg-surface-3 hover:text-text disabled:opacity-30"
+										aria-label="Move up"
+										disabled={i === 0}
+										onclick={() => movePreshow(i, -1)}
+									>
+										<ChevronUp size={14} />
+									</button>
+									<button
+										type="button"
+										class="shrink-0 rounded-sm p-0.5 text-muted hover:bg-surface-3 hover:text-text disabled:opacity-30"
+										aria-label="Move down"
+										disabled={i === store.main.preshow_commands.length - 1}
+										onclick={() => movePreshow(i, 1)}
+									>
+										<ChevronDown size={14} />
+									</button>
+									{#if step.cue}
+										<span class="w-5 shrink-0"></span>
+									{:else}
 										<button
 											type="button"
 											class="shrink-0 rounded-sm p-0.5 text-muted hover:bg-surface-3 hover:text-danger"
-											title="Remove command"
 											aria-label="Remove command"
-											onclick={() => removePreshow(cue.command)}
+											onclick={() => removePreshow(i)}
 										>
 											<X size={14} />
 										</button>
-									</div>
-								{/each}
-							</div>
-						{:else}
-							<p class="mb-3 text-sm text-muted">No pre-show commands yet</p>
-						{/if}
+									{/if}
+								</li>
+							{/each}
+						</ol>
 						<div class="flex max-w-xl gap-2">
 							<Select bind:value={preshowPick} class="w-full">
 								<option value="">Select a command…</option>
@@ -810,9 +852,9 @@
 							<Button onclick={addPreshow}><Plus size={14} /> Add</Button>
 						</div>
 						{#snippet hintSnippet()}
-							Pick from your configured
-							<a href="{base}/commands" class="text-accent hover:underline">commands</a>.
-							Best-effort - a command that fails is logged and skipped, the show still starts.
+							Each <a href="{base}/commands" class="text-accent hover:underline">command</a> finishes
+							(and waits out its configured duration) before the next step. Move the cue below any step
+							that must happen first, such as restarting the player. A failing command is logged and skipped.
 						{/snippet}
 					</Field>
 				</section>

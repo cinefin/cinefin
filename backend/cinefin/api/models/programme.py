@@ -147,6 +147,7 @@ class Programme(models.Model):
     )
     title_fade_in = models.FloatField(default=0.0, help_text="Fade in duration in seconds (0 = no fade)")
     title_fade_out = models.FloatField(default=0.0, help_text="Fade out duration in seconds (0 = no fade)")
+    title_hold = models.BooleanField(default=False, help_text="When cued, play the title's fade-in, then hold")
 
     playlist_stale = models.BooleanField(
         default=False, help_text="Playlist needs regeneration due to block or streaming changes"

@@ -104,10 +104,10 @@ class TestScheduleRunnerPath:
 
         programme = ProgrammeFactory()
         PlaylistItemFactory(playlist=PlaylistFactory(programme=programme), order=0)
-        schedule = ProgrammeScheduleFactory(programme=programme)
+        schedule = ProgrammeScheduleFactory(programme=programme, status="running")  # as claimed by tick()
 
         monkeypatch.setattr(mpv_module.mpv_service, "load_programme", lambda prog: True, raising=False)
-        monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda preshow=False: True, raising=False)
+        monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda: True, raising=False)
         monkeypatch.setattr(schedule_runner.time, "sleep", lambda seconds: None)
 
         schedule_runner.execute_schedule(schedule)

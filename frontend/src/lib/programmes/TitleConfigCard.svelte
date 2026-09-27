@@ -25,6 +25,7 @@
 	let backgroundFile = $state('');
 	let fadeIn = $state('0');
 	let fadeOut = $state('0');
+	let hold = $state(false);
 
 	function resetForm() {
 		templateId = programme.title_template_id ? String(programme.title_template_id) : '';
@@ -34,6 +35,7 @@
 		backgroundFile = programme.title_background_file || '';
 		fadeIn = String(programme.title_fade_in ?? 0);
 		fadeOut = String(programme.title_fade_out ?? 0);
+		hold = !!programme.title_hold;
 	}
 
 	// Re-sync the form only when the SAVED values change, so a background detail
@@ -47,7 +49,8 @@
 			programme.title_background_color,
 			programme.title_background_file,
 			programme.title_fade_in,
-			programme.title_fade_out
+			programme.title_fade_out,
+			programme.title_hold
 		].join('|')
 	);
 	let syncedSignature = $state('');
@@ -105,7 +108,8 @@
 						title_background_color: backgroundColor,
 						title_background_file: backgroundFile,
 						title_fade_in: parseFloat(fadeIn) || 0,
-						title_fade_out: parseFloat(fadeOut) || 0
+						title_fade_out: parseFloat(fadeOut) || 0,
+						title_hold: hold
 					}
 				})
 			);
@@ -222,6 +226,23 @@
 		<label class="flex flex-col gap-1 text-xs text-muted">
 			Fade out (s)
 			<Input type="number" bind:value={fadeOut} />
+		</label>
+
+		<label class="flex items-start gap-2 text-sm sm:col-span-2">
+			<input
+				type="checkbox"
+				class="mt-0.5 accent-accent"
+				bind:checked={hold}
+				disabled={!(parseFloat(fadeIn) > 0)}
+			/>
+			<span>
+				Fade in and hold when cued
+				<span class="block text-xs text-faint">
+					{parseFloat(fadeIn) > 0
+						? 'On cue the title card fades in, then holds until the programme starts.'
+						: 'Needs a fade-in above 0.'}
+				</span>
+			</span>
 		</label>
 	</div>
 

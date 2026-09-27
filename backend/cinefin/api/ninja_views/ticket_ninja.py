@@ -193,7 +193,7 @@ def print_programme_ticket(request: HttpRequest, programme_id: int, data: Progra
         seats=data.seats,
         programme=programme,
         schedule=schedule,
-        when=schedule.start_time if schedule else None,
+        when=schedule.play_time() if schedule else None,
         scheduled=schedule is not None,
         programme_name=programme.name,
         features=ticket_service.programme_features(programme),

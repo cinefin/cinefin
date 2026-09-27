@@ -23,10 +23,10 @@ export interface CommandRef {
 	name: string;
 }
 
-/** A pre-show cue: a command plus the seconds before scheduled start it fires (0 = at start). */
-export interface PreshowCue {
-	command: number;
-	lead: number;
+/** One step of the ordered lead-in sequence: a command, or the single cue step. */
+export interface PreshowStep {
+	command: number | null;
+	cue: boolean;
 }
 
 /** Keys match the backend payload field names so field-level save errors map 1:1. */
@@ -56,7 +56,8 @@ export interface MainDraft {
 	subtitle_use_margins: boolean;
 	subtitle_bold: boolean;
 	playout_server_url: string;
-	preshow_commands: PreshowCue[];
+	preshow_commands: PreshowStep[];
+	lead_in: string; // default lead-in, seconds
 	accent_color: string;
 	display_time_format: string;
 	kiosk_layout: string;
@@ -126,6 +127,7 @@ function emptyMain(): MainDraft {
 		subtitle_bold: false,
 		playout_server_url: '',
 		preshow_commands: [],
+		lead_in: '0',
 		accent_color: DEFAULT_ACCENT,
 		display_time_format: '24h',
 		kiosk_layout: 'wall',
@@ -268,9 +270,10 @@ export class SettingsStore {
 				subtitle_bold: !!s.subtitle_bold,
 				playout_server_url: s.playout_server_url ?? '',
 				preshow_commands: (s.preshow_commands ?? []).map((c) => ({
-					command: c.command,
-					lead: c.lead ?? 0
+					command: c.command ?? null,
+					cue: !!c.cue
 				})),
+				lead_in: String(s.lead_in ?? 0),
 				accent_color: s.accent_color || DEFAULT_ACCENT,
 				display_time_format: s.display_time_format === '12h' ? '12h' : '24h',
 				kiosk_layout: s.kiosk_layout ?? 'wall',
@@ -344,6 +347,7 @@ export class SettingsStore {
 						subtitle_bold: m.subtitle_bold,
 						playout_server_url: m.playout_server_url.trim(),
 						preshow_commands: m.preshow_commands,
+						lead_in: int(m.lead_in, 0),
 						// Empty string = reset to the built-in theme (server stores None).
 						accent_color: this.accentCleared ? '' : m.accent_color,
 						display_time_format: m.display_time_format,

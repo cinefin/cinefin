@@ -497,7 +497,7 @@ def reset_printer():
 
 def reprint_issue(issue) -> None:
     """Reprint a stored TicketIssue WITHOUT recording a new issue or touching seat occupancy. Falls back to the title snapshot if FKs were nulled."""
-    when = issue.schedule.start_time if issue.schedule_id and issue.schedule else None
+    when = issue.schedule.play_time() if issue.schedule_id and issue.schedule else None
     scheduled = when is not None
     design = resolve_ticket_design(issue.programme)
     programme_name = issue.programme.name if issue.programme_id and issue.programme else None

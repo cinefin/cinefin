@@ -47,7 +47,7 @@
 	const pb = $derived(playout.status?.playback ?? null);
 	const progressPct = $derived(itemProgress(pb));
 	const next = $derived(data.nextScreening);
-	const nextStart = $derived(next ? new Date(next.start_time) : null);
+	const nextStart = $derived(next ? new Date(next.play_time) : null);
 
 	// Tied to the programme, not the item, so the hero doesn't change picture at every trailer.
 	const heroArt = $derived.by(() => {
@@ -369,7 +369,7 @@
 		{:else}
 			<ul class="-mx-4 -my-1 divide-y divide-border">
 				{#each data.upcoming.slice(0, 4) as s (s.id)}
-					{@const start = new Date(s.start_time)}
+					{@const start = new Date(s.play_time)}
 					<li class="flex items-center gap-3 px-4 py-1.5">
 						<span class="w-12 shrink-0 font-mono text-sm">{formatClock(start)}</span>
 						<span class="w-16 shrink-0 text-xs text-faint">{dayLabel(start)}</span>

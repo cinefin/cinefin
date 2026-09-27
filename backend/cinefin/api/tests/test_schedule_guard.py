@@ -31,6 +31,7 @@ def test_due_schedule_deferred_while_player_busy(monkeypatch):
 
 def test_due_schedule_fires_when_player_free(monkeypatch):
     monkeypatch.setattr(schedule_runner, "_mpv_busy", lambda: False)
+    monkeypatch.setattr(schedule_runner, "_spawn", schedule_runner._execute)  # run inline, not on a thread
     ran = []
     monkeypatch.setattr(schedule_runner, "execute_schedule", lambda s: ran.append(s.id))
     s = _due_schedule()

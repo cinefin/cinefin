@@ -118,8 +118,10 @@ class Settings(models.Model):
             },
         },
         "scheduler": {
-            # Command IDs run in order on programme start; a failing one is logged and skipped.
+            # The ordered lead-in sequence: [{"command": id} | {"cue": true}], see services/preshow.py.
             "preshow_commands": [],
+            # Default seconds between a screening's start (the lead-in) and the programme playing.
+            "lead_in": 0,
         },
         "kiosk": {
             # Server-side defaults; URL params and the per-screen localStorage picker override.

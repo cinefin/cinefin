@@ -53,6 +53,7 @@ class ProgrammeDetailSchema(Schema):
     title_background_file: str = Field(..., description="Title card background image/video path")
     title_fade_in: float = Field(..., description="Title card fade in duration in seconds")
     title_fade_out: float = Field(..., description="Title card fade out duration in seconds")
+    title_hold: bool = Field(False, description="When cued, play the title's fade-in, then hold")
     title_file_generated: bool = Field(..., description="Whether a title card file has been generated")
     items: list[ProgrammeItemDetailSchema] = Field(..., description="List of programme items")
 
@@ -156,6 +157,7 @@ class UpdateProgrammeSchema(Schema):
     title_background_file: str | None = Field(None, description="Path to background image or video file")
     title_fade_in: float | None = Field(None, description="Fade in duration in seconds (0 = no fade)", ge=0, le=10)
     title_fade_out: float | None = Field(None, description="Fade out duration in seconds (0 = no fade)", ge=0, le=10)
+    title_hold: bool | None = Field(None, description="When cued, play the title's fade-in, then hold")
 
 
 management_api = Router()
@@ -499,6 +501,7 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
         title_background_file=programme.title_background_file or "",
         title_fade_in=programme.title_fade_in or 0.0,
         title_fade_out=programme.title_fade_out or 0.0,
+        title_hold=programme.title_hold,
         title_file_generated=bool(programme.title_file),
         items=items_data,
     )
@@ -534,6 +537,7 @@ def update_programme(request: HttpRequest, programme_id: int, data: UpdateProgra
         title_background_file=data.title_background_file,
         title_fade_in=data.title_fade_in,
         title_fade_out=data.title_fade_out,
+        title_hold=data.title_hold,
     )
 
     return get_programme_detail(request, programme_id)

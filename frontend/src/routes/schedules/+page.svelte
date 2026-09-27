@@ -101,7 +101,7 @@
 
 	function endMs(s: Schedule): number {
 		if (s.end_time) return new Date(s.end_time).getTime();
-		return new Date(s.start_time).getTime() + (s.runtime || 0) * 60000;
+		return new Date(s.play_time).getTime() + (s.runtime || 0) * 60000;
 	}
 
 	const visible = $derived.by(() => {
@@ -333,6 +333,7 @@
 	let dtValue = $state('');
 	let dtMin = $state('');
 	let tzValue = $state(browserZone);
+	let leadInValue = $state<number | null>(null); // minutes; blank (null) = the default lead-in
 	let saving = $state(false);
 	let modalError = $state<string | null>(null);
 
@@ -343,6 +344,7 @@
 		pickerSearch = '';
 		dtValue = defaultDateTime();
 		dtMin = localNow();
+		leadInValue = null;
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -356,6 +358,7 @@
 		start.setMinutes(start.getMinutes() - start.getTimezoneOffset());
 		dtValue = start.toISOString().slice(0, 16);
 		dtMin = localNow();
+		leadInValue = s.lead_in == null ? null : Math.round(s.lead_in / 60);
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -367,7 +370,11 @@
 		return q ? list.filter((p) => p.name.toLowerCase().includes(q)) : list;
 	});
 
-	const canSave = $derived(Boolean(dtValue) && Boolean(selectedProgramme));
+	const defaultLeadIn = $derived(schedules.data?.default_lead_in ?? 0); // seconds
+	// The screening's lead-in in ms: its own value, else the default.
+	const leadInMs = $derived(
+		(leadInValue == null ? defaultLeadIn : Math.max(0, Math.round(leadInValue)) * 60) * 1000
+	);
 
 	const currentRuntime = $derived.by(() => {
 		if (mode === 'edit' && editing) {
@@ -376,28 +383,36 @@
 		return selectedProgramme ? runtimes[selectedProgramme.id] || 0 : 0;
 	});
 
-	// "Ends ~21:47" hint. Wall-clock arithmetic in the terms the start time is entered in.
+	// "Lead-in 10 min · plays 20:00 · ends ~22:15". Wall-clock arithmetic in the terms the
+	// start time is entered in; the lead-in counts towards the screening's length.
 	const endHint = $derived.by(() => {
 		const startWall = parseWallClock(dtValue);
 		const runtime = currentRuntime;
-		if (startWall == null || !runtime || !Number.isFinite(runtime)) return '';
-		const end = new Date(startWall + Math.round(runtime) * 60000);
+		if (startWall == null) return '';
 		const pad = (n: number) => String(n).padStart(2, '0');
-		const time = `${pad(end.getUTCHours())}:${pad(end.getUTCMinutes())}`;
-		const sameDay =
-			dtValue.slice(0, 10) ===
-			`${end.getUTCFullYear()}-${pad(end.getUTCMonth() + 1)}-${pad(end.getUTCDate())}`;
-		return `Ends ~${time}${sameDay ? '' : ' (next day)'}`;
+		const clock = (d: Date) => `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+		const play = new Date(startWall + leadInMs);
+		const parts = leadInMs ? [`Lead-in ${leadInMs / 60000} min`, `plays ${clock(play)}`] : [];
+		if (runtime && Number.isFinite(runtime)) {
+			const end = new Date(play.getTime() + Math.round(runtime) * 60000);
+			const sameDay =
+				dtValue.slice(0, 10) ===
+				`${end.getUTCFullYear()}-${pad(end.getUTCMonth() + 1)}-${pad(end.getUTCDate())}`;
+			parts.push(`ends ~${clock(end)}${sameDay ? '' : ' (next day)'}`);
+		}
+		const text = parts.join(' · ');
+		return text && text[0].toUpperCase() + text.slice(1);
 	});
 
-	// Non-blocking heads-up when the slot overlaps another scheduled/running screening.
+	// A screening may not overlap another scheduled/running one (lead-in included); Save is
+	// disabled while it does, and the server refuses it too.
 	const conflict = $derived.by(() => {
 		if (!dtValue || !selectedProgramme) return null;
 		const runtime = currentRuntime;
 		if (!runtime) return null; // unknown runtime: don't guess
 		const start = wallClockToEpoch(dtValue, tzValue);
 		if (start == null) return null;
-		const end = start + Math.round(runtime) * 60000;
+		const end = start + leadInMs + Math.round(runtime) * 60000;
 
 		const clash = all.find((s) => {
 			if (mode === 'edit' && editing && s.id === editing.id) return false;
@@ -415,6 +430,12 @@
 		};
 	});
 
+	const canSave = $derived(Boolean(dtValue) && Boolean(selectedProgramme) && !conflict);
+
+	function leadInPayload(): number | null {
+		return leadInValue == null ? null : Math.max(0, Math.round(leadInValue)) * 60;
+	}
+
 	async function save() {
 		if (!canSave || saving) return;
 		saving = true;
@@ -424,14 +445,19 @@
 				await unwrap(
 					api.PUT('/api/v2/schedules/{schedule_id}', {
 						params: { path: { schedule_id: editing.id } },
-						body: { start_time: dtValue, timezone: tzValue }
+						body: { start_time: dtValue, timezone: tzValue, lead_in: leadInPayload() }
 					})
 				);
 				notice.show('success', 'Schedule updated');
 			} else {
 				await unwrap(
 					api.POST('/api/v2/schedules/create', {
-						body: { programme_id: selectedProgramme!.id, start_time: dtValue, timezone: tzValue }
+						body: {
+							programme_id: selectedProgramme!.id,
+							start_time: dtValue,
+							timezone: tzValue,
+							lead_in: leadInPayload()
+						}
 					})
 				);
 				notice.show('success', 'Schedule created');
@@ -698,6 +724,11 @@
 										<Clock size={12} />
 										{s.runtime} min
 									</span>
+									{#if s.play_time !== s.start_time}
+										<span class="font-mono text-faint"
+											>plays {formatClock(new Date(s.play_time))}</span
+										>
+									{/if}
 									{#if rel}<span class="text-faint">{rel}</span>{/if}
 								</div>
 								{#if s.status === 'failed' && s.last_error}
@@ -820,13 +851,33 @@
 			</div>
 		</div>
 
+		<div>
+			<label class="mb-1 block text-sm text-muted" for="schedLeadIn">Lead-in</label>
+			<div class="flex flex-wrap items-center gap-2">
+				<input
+					id="schedLeadIn"
+					type="number"
+					min="0"
+					step="1"
+					bind:value={leadInValue}
+					placeholder={String(Math.round(defaultLeadIn / 60))}
+					class="h-9 w-24 rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim"
+				/>
+				<span class="text-sm text-muted">min</span>
+				<span class="text-xs text-faint">
+					Blank uses the default ({Math.round(defaultLeadIn / 60)} min)
+				</span>
+			</div>
+		</div>
+
 		{#if conflict}
 			<div
 				class="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
 			>
 				<TriangleAlert size={14} class="mt-0.5 shrink-0" />
 				<span>
-					Overlaps with <strong>“{conflict.name}”</strong> at {conflict.from}-{conflict.to}
+					Overlaps <strong>“{conflict.name}”</strong> ({conflict.from}–{conflict.to}) — move it to
+					save
 				</span>
 			</div>
 		{/if}

@@ -250,49 +250,6 @@ class TestHoldItems:
         service.controller.next.assert_not_called()
 
 
-class TestPreshowOnStart:
-    def test_start_programme_fires_configured_preshow_list(self, monkeypatch):
-        from cinefin.api.models import Settings
-
-        fired = []
-        monkeypatch.setattr(
-            command_runner, "execute_many_sequential", lambda commands, trigger: fired.append((list(commands), trigger))
-        )
-
-        first = CommandFactory(name="Lights")
-        second = CommandFactory(name="Curtains")
-        Settings.set("scheduler.preshow_commands", [first.id, 9999, second.id])
-
-        service, _ = running_service(["bumper", "system"])
-        service.controller.get_property.return_value = 0
-        service.controller.get_playlist.return_value = [{"filename": "a"}]
-        service.controller.play.return_value = True
-
-        assert service.start_programme(preshow=True) is True
-
-        assert len(fired) == 1
-        commands, trigger = fired[0]
-        assert commands == [first, second]
-        assert trigger == "preshow"
-
-    def test_manual_start_skips_preshow(self, monkeypatch):
-        from cinefin.api.models import Settings
-
-        fired = []
-        monkeypatch.setattr(
-            command_runner, "execute_many_sequential", lambda commands, trigger: fired.append((list(commands), trigger))
-        )
-        Settings.set("scheduler.preshow_commands", [CommandFactory(name="Lights").id])
-
-        service, _ = running_service(["bumper", "system"])
-        service.controller.get_property.return_value = 0
-        service.controller.get_playlist.return_value = [{"filename": "a"}]
-        service.controller.play.return_value = True
-
-        assert service.start_programme() is True
-        assert fired == []
-
-
 class TestHoldClockInStatus:
     def test_status_reports_hold_progress_not_black_clip(self):
         service, _ = running_service(["bumper", "system"])
