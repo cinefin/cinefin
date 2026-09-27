@@ -7844,6 +7844,18 @@
             "title": "Title Hold",
             "type": "boolean"
           },
+          "title_length": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How long the title card runs, in seconds (None = no title)",
+            "title": "Title Length"
+          },
           "title_template_id": {
             "anyOf": [
               {

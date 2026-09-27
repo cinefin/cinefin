@@ -57,6 +57,22 @@ def bundled_fonts_dir() -> Path:
     return Path(settings.BASE_DIR) / "cinefin" / "static" / "fonts"
 
 
+def title_length(programme) -> int | None:
+    """How long the programme's title card runs, in seconds: its set duration, else the
+    background video's length, else the template default. None without a title template."""
+    if not programme.title_template_id:
+        return None
+    if programme.title_duration:
+        return programme.title_duration
+    if programme.title_background_type == "video" and programme.title_background_file:
+        from cinefin.api.ninja_views.media.utils import get_media_duration
+
+        video_duration = get_media_duration(usermedia_abs_path(programme.title_background_file))
+        if video_duration:
+            return int(video_duration)
+    return programme.title_template.default_duration
+
+
 class TitleGenService:
     def __init__(self, programme):
         self.programme = programme
@@ -131,17 +147,7 @@ class TitleGenService:
         return background
 
     def _get_duration(self) -> int:
-        if self.programme.title_duration:
-            return self.programme.title_duration
-
-        if self.programme.title_background_type == "video" and self.programme.title_background_file:
-            from cinefin.api.ninja_views.media.utils import get_media_duration
-
-            video_duration = get_media_duration(usermedia_abs_path(self.programme.title_background_file))
-            if video_duration:
-                return int(video_duration)
-
-        return self.template.default_duration
+        return title_length(self.programme)
 
     def _render_frame(self, width: int, height: int, config: dict) -> Image.Image:
         image = Image.new("RGBA", (width, height), (0, 0, 0, 0))

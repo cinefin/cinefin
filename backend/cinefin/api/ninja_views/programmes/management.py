@@ -15,6 +15,7 @@ from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema,
 from cinefin.api.schemas.movies import MovieInfoSchema
 from cinefin.api.services import ProgrammeService
 from cinefin.api.services.certification_service import CertificationService
+from cinefin.api.services.titlegen_service import title_length
 from cinefin.api.utils.programme_utils import build_filter_description_from_block, build_random_movie_query
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class ProgrammeDetailSchema(Schema):
     title_fade_out: float = Field(..., description="Title card fade out duration in seconds")
     title_hold: bool = Field(False, description="When cued, play the title's fade-in, then hold")
     title_file_generated: bool = Field(..., description="Whether a title card file has been generated")
+    title_length: int | None = Field(None, description="How long the title card runs, in seconds (None = no title)")
     items: list[ProgrammeItemDetailSchema] = Field(..., description="List of programme items")
 
 
@@ -503,6 +505,7 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
         title_fade_out=programme.title_fade_out or 0.0,
         title_hold=programme.title_hold,
         title_file_generated=bool(programme.title_file),
+        title_length=title_length(programme),
         items=items_data,
     )
 

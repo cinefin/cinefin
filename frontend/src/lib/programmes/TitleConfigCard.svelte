@@ -2,6 +2,7 @@
 	import { Images, RotateCcw, Save, Wand2 } from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
 	import type { components } from '$lib/api/types.gen';
+	import { formatTime } from '$lib/format';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
@@ -143,7 +144,10 @@
 		{:else if missingCard}
 			<span class="text-warning">Title card not generated yet - save to render it.</span>
 		{:else}
-			<span class="text-muted">Title card generated.</span>
+			<span class="text-muted">
+				Title card generated{#if programme.title_length}
+					· runs <span class="font-mono text-text">{formatTime(programme.title_length)}</span>{/if}.
+			</span>
 		{/if}
 	</p>
 
@@ -179,7 +183,13 @@
 
 		<label class="flex flex-col gap-1 text-xs text-muted">
 			Duration (s)
-			<Input type="number" bind:value={duration} placeholder="template default" />
+			<Input
+				type="number"
+				bind:value={duration}
+				placeholder={programme.title_length && programme.title_duration == null
+					? `${programme.title_length} (automatic)`
+					: 'automatic'}
+			/>
 		</label>
 
 		<label class="flex flex-col gap-1 text-xs text-muted">

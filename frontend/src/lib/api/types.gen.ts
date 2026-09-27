@@ -7676,6 +7676,11 @@ export interface components {
              */
             title_hold: boolean;
             /**
+             * Title Length
+             * @description How long the title card runs, in seconds (None = no title)
+             */
+            title_length?: number | null;
+            /**
              * Title Template Id
              * @description Title template ID for the programme title card
              */
