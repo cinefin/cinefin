@@ -37,3 +37,14 @@ class TestTrailerLibraryColumns:
         TrailerFactory(title="Short", duration=60)
         TrailerFactory(title="Long", duration=300)
         assert [r["title"] for r in _rows(client, "?sort=-duration")] == ["Long", "Short"]
+
+    def test_on_disk_count_resolves_relative_paths(self, client, settings, tmp_path):
+        """Trailer paths are stored MEDIA_ROOT-relative; the on-disk count must resolve them."""
+        settings.MEDIA_ROOT = str(tmp_path)
+        (tmp_path / "trailers").mkdir()
+        (tmp_path / "trailers" / "here.mp4").write_bytes(b"x")
+        TrailerFactory(title="Here", file_path="trailers/here.mp4")
+        TrailerFactory(title="Gone", file_path="trailers/gone.mp4")
+
+        stats = client.get(f"{API}/trailers/library").json()["data"]["stats"]
+        assert (stats["with_file"], stats["missing"]) == (1, 1)

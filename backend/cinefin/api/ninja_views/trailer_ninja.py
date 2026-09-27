@@ -711,7 +711,7 @@ def trailer_library(
 
     all_rows = list(Trailer.objects.values("file_path", "content_rating"))
     total_lib = len(all_rows)
-    with_file = sum(1 for t in all_rows if t["file_path"] and os.path.exists(t["file_path"]))
+    with_file = sum(1 for t in all_rows if t["file_path"] and os.path.exists(usermedia_abs_path(t["file_path"])))
     issues = sum(1 for t in all_rows if not t["content_rating"] or t["content_rating"] not in valid)
     present_ratings = sorted({(t["content_rating"] or "") for t in all_rows} - {""})
     genres = sorted(Genre.objects.filter(trailer__isnull=False).values_list("name", flat=True).distinct())
