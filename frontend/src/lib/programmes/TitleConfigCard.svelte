@@ -20,7 +20,6 @@
 	let { programme, onsaved }: Props = $props();
 
 	let templateId = $state('');
-	let duration = $state('');
 	let backgroundType = $state('color');
 	let backgroundColor = $state('#000000');
 	let backgroundFile = $state('');
@@ -30,7 +29,6 @@
 
 	function resetForm() {
 		templateId = programme.title_template_id ? String(programme.title_template_id) : '';
-		duration = programme.title_duration != null ? String(programme.title_duration) : '';
 		backgroundType = programme.title_background_type || 'color';
 		backgroundColor = programme.title_background_color || '#000000';
 		backgroundFile = programme.title_background_file || '';
@@ -45,7 +43,6 @@
 		[
 			programme.id,
 			programme.title_template_id,
-			programme.title_duration,
 			programme.title_background_type,
 			programme.title_background_color,
 			programme.title_background_file,
@@ -104,7 +101,6 @@
 					body: {
 						// 0 clears the template (matches the legacy save payload).
 						title_template_id: templateId === '' ? 0 : parseInt(templateId, 10),
-						title_duration: duration ? parseInt(duration, 10) : null,
 						title_background_type: backgroundType,
 						title_background_color: backgroundColor,
 						title_background_file: backgroundFile,
@@ -144,10 +140,7 @@
 		{:else if missingCard}
 			<span class="text-warning">Title card not generated yet - save to render it.</span>
 		{:else}
-			<span class="text-muted">
-				Title card generated{#if programme.title_length}
-					· runs <span class="font-mono text-text">{formatTime(programme.title_length)}</span>{/if}.
-			</span>
+			<span class="text-muted">Title card generated.</span>
 		{/if}
 	</p>
 
@@ -162,7 +155,7 @@
 			</div>
 			<figcaption class="mt-1 text-xs text-faint">
 				Preview of the selected design, rendered with this programme's features. The saved card may
-				differ if you change the background or duration below.
+				differ if you change the background below.
 			</figcaption>
 		</figure>
 	{/if}
@@ -181,16 +174,21 @@
 			</Select>
 		</label>
 
-		<label class="flex flex-col gap-1 text-xs text-muted">
-			Duration (s)
-			<Input
-				type="number"
-				bind:value={duration}
-				placeholder={programme.title_length && programme.title_duration == null
-					? `${programme.title_length} (automatic)`
-					: 'automatic'}
-			/>
-		</label>
+		<div class="flex flex-col gap-1 text-xs text-muted">
+			Length
+			<p class="flex h-9 items-center gap-2 text-sm">
+				{#if programme.title_length}
+					<span class="font-mono text-text">{formatTime(programme.title_length)}</span>
+					<span class="text-xs text-faint">
+						from the {programme.title_background_type === 'video' && programme.title_background_file
+							? 'background video'
+							: 'template'}
+					</span>
+				{:else}
+					<span class="text-faint">-</span>
+				{/if}
+			</p>
+		</div>
 
 		<label class="flex flex-col gap-1 text-xs text-muted">
 			Background

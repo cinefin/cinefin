@@ -24,10 +24,6 @@ def test_template_default(template):
     assert title_length(ProgrammeFactory(title_template=template)) == 8
 
 
-def test_set_duration_wins(template):
-    assert title_length(ProgrammeFactory(title_template=template, title_duration=15)) == 15
-
-
 def test_background_video_length(template, monkeypatch):
     monkeypatch.setattr("cinefin.api.ninja_views.media.utils.get_media_duration", lambda path: 21.7)
     programme = ProgrammeFactory(title_template=template, title_background_type="video", title_background_file="bg.mp4")
@@ -41,5 +37,5 @@ def test_programme_detail_reports_it(client, template):
 
 
 def test_generation_uses_the_same_rule(template):
-    programme = ProgrammeFactory(title_template=template, title_duration=12)
-    assert titlegen_service.TitleGenService(programme)._get_duration() == 12
+    programme = ProgrammeFactory(title_template=template)
+    assert titlegen_service.TitleGenService(programme)._get_duration() == 8

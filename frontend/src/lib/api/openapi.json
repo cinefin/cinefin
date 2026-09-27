@@ -7811,18 +7811,6 @@
             "title": "Title Background Type",
             "type": "string"
           },
-          "title_duration": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Title card duration override in seconds (null = template default)",
-            "title": "Title Duration"
-          },
           "title_fade_in": {
             "description": "Title card fade in duration in seconds",
             "title": "Title Fade In",
@@ -13039,18 +13027,6 @@
             ],
             "description": "Background type: color, image, or video",
             "title": "Title Background Type"
-          },
-          "title_duration": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Override duration for title card in seconds",
-            "title": "Title Duration"
           },
           "title_fade_in": {
             "anyOf": [

@@ -140,11 +140,6 @@ class Programme(models.Model):
         max_length=1000, blank=True, help_text="Path to background image or video file"
     )
     title_file = models.CharField(max_length=1000, blank=True, help_text="Path to the generated title card MP4 file")
-    title_duration = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        help_text="Duration of title card in seconds (optional, uses template default or video length)",
-    )
     title_fade_in = models.FloatField(default=0.0, help_text="Fade in duration in seconds (0 = no fade)")
     title_fade_out = models.FloatField(default=0.0, help_text="Fade out duration in seconds (0 = no fade)")
     title_hold = models.BooleanField(default=False, help_text="When cued, play the title's fade-in, then hold")

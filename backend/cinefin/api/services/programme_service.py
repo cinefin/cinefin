@@ -882,7 +882,6 @@ class ProgrammeService:
         description: str | None = None,
         items: list[dict[str, Any]] | None = None,
         title_template_id: int | None = None,
-        title_duration: int | None = None,
         title_background_type: str | None = None,
         title_background_color: str | None = None,
         title_background_file: str | None = None,
@@ -918,9 +917,6 @@ class ProgrammeService:
                         logger.info(f"Linked title template {template.name} to programme {programme_id}")
                     except ProgrammeTitleTemplate.DoesNotExist:
                         logger.warning(f"Title template {title_template_id} not found")
-
-            if title_duration is not None:
-                programme.title_duration = title_duration if title_duration > 0 else None
 
             if title_background_type is not None:
                 programme.title_background_type = title_background_type

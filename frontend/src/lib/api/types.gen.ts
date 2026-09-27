@@ -7650,11 +7650,6 @@ export interface components {
              */
             title_background_type: string;
             /**
-             * Title Duration
-             * @description Title card duration override in seconds (null = template default)
-             */
-            title_duration?: number | null;
-            /**
              * Title Fade In
              * @description Title card fade in duration in seconds
              */
@@ -10414,11 +10409,6 @@ export interface components {
              * @description Background type: color, image, or video
              */
             title_background_type?: string | null;
-            /**
-             * Title Duration
-             * @description Override duration for title card in seconds
-             */
-            title_duration?: number | null;
             /**
              * Title Fade In
              * @description Fade in duration in seconds (0 = no fade)

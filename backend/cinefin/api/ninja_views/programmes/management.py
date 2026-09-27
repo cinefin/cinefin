@@ -46,9 +46,6 @@ class ProgrammeDetailSchema(Schema):
     total_blocks: int = Field(..., description="Total number of blocks")
     playlist_stale: bool = Field(..., description="True only when automatic playlist regeneration failed after an edit")
     title_template_id: int | None = Field(None, description="Title template ID for the programme title card")
-    title_duration: int | None = Field(
-        None, description="Title card duration override in seconds (null = template default)"
-    )
     title_background_type: str = Field(..., description="Title card background type: color, image, or video")
     title_background_color: str = Field(..., description="Title card background color (hex)")
     title_background_file: str = Field(..., description="Title card background image/video path")
@@ -153,7 +150,6 @@ class UpdateProgrammeSchema(Schema):
     description: str | None = Field(None, description="Updated programme description")
     items: list[dict[str, Any]] | None = Field(None, description="Updated list of programme items")
     title_template_id: int | None = Field(None, description="Title template ID for programme title card")
-    title_duration: int | None = Field(None, description="Override duration for title card in seconds")
     title_background_type: str | None = Field(None, description="Background type: color, image, or video")
     title_background_color: str | None = Field(None, description="Background color (hex format)")
     title_background_file: str | None = Field(None, description="Path to background image or video file")
@@ -497,7 +493,6 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
         total_blocks=len(items_data),
         playlist_stale=programme.playlist_stale,
         title_template_id=programme.title_template_id,
-        title_duration=programme.title_duration,
         title_background_type=programme.title_background_type,
         title_background_color=programme.title_background_color or "#000000",
         title_background_file=programme.title_background_file or "",
@@ -534,7 +529,6 @@ def update_programme(request: HttpRequest, programme_id: int, data: UpdateProgra
         description=data.description,
         items=data.items,
         title_template_id=data.title_template_id,
-        title_duration=data.title_duration,
         title_background_type=data.title_background_type,
         title_background_color=data.title_background_color,
         title_background_file=data.title_background_file,

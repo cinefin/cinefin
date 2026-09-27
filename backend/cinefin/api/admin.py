@@ -170,7 +170,6 @@ class ProgrammeAdmin(admin.ModelAdmin):
                     "title_background_type",
                     "title_background_color",
                     "title_background_file",
-                    "title_duration",
                     "title_file",
                 ),
                 "classes": ("collapse",),

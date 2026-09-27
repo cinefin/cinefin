@@ -7,7 +7,7 @@ from pydantic import Field
 
 from ..exceptions import ConflictError, UnprocessableEntityError, ValidationError
 from ..models import Programme, ProgrammeTitleTemplate
-from ..services.titlegen_service import TitleGenService
+from ..services.titlegen_service import TitleGenService, title_length
 from ..utils.media_paths import usermedia_abs_path
 from .media.utils import sanitize_filename
 
@@ -260,7 +260,7 @@ def get_programme_title_status(request, programme_id: int):
         "background_type": programme.title_background_type,
         "has_title_file": has_title_file,
         "title_file_path": programme.title_file if has_title_file else None,
-        "duration": programme.title_duration,
+        "duration": title_length(programme),
         "feature_count": len(programme.get_feature_movies()),
     }
 

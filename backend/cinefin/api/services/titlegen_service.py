@@ -58,12 +58,10 @@ def bundled_fonts_dir() -> Path:
 
 
 def title_length(programme) -> int | None:
-    """How long the programme's title card runs, in seconds: its set duration, else the
-    background video's length, else the template default. None without a title template."""
+    """How long the programme's title card runs, in seconds: the background video's length,
+    else the template default. None without a title template."""
     if not programme.title_template_id:
         return None
-    if programme.title_duration:
-        return programme.title_duration
     if programme.title_background_type == "video" and programme.title_background_file:
         from cinefin.api.ninja_views.media.utils import get_media_duration
 
