@@ -15,5 +15,5 @@ test('settings save persists across reload', async ({ page }) => {
 	await page.reload();
 	await expect(page.getByLabel(/Theater name/i)).toHaveValue(newName);
 	// The topbar brand follows the setting.
-	await expect(page.getByRole('heading', { name: newName })).toBeVisible();
+	await expect(page.getByRole('link', { name: newName })).toBeVisible();
 });

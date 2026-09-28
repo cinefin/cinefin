@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		Clapperboard,
@@ -1181,13 +1182,12 @@
 	}
 </script>
 
-<svelte:head><title>Trailers - Cinefin</title></svelte:head>
 <svelte:window onkeydown={onWindowKeydown} />
 
 <ConfirmDialog bind:this={confirmDialog} confirmLabel="Delete" />
 
-<div class="mb-3 flex flex-wrap items-center gap-2">
-	<h1 class="mr-auto text-lg font-semibold">Trailer library</h1>
+<PageHeader title="Trailer library" {actions} />
+{#snippet actions()}
 	<Button onclick={openMatchTest} title="See which trailers a trailer rule would pick for a movie">
 		<Crosshair size={14} /> Test matching…
 	</Button>
@@ -1201,7 +1201,7 @@
 	>
 		<Download size={14} /> Get trailers…
 	</Button>
-</div>
+{/snippet}
 
 {#if stats}
 	<p class="mb-3 flex flex-wrap gap-x-3 font-mono text-xs text-muted">

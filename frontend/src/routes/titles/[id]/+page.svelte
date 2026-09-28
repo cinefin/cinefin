@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	/**
 	 * Title template detail = the editor itself.
 	 *
@@ -13,11 +14,10 @@
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, Trash2 } from '@lucide/svelte';
+	import { Trash2 } from '@lucide/svelte';
 	import { api, toApiError } from '$lib/api/client';
 	import { Query } from '$lib/api/query.svelte';
 	import { showToast } from '$lib/toast.svelte';
-	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import TitleEditor from '$lib/titles/TitleEditor.svelte';
 
@@ -67,27 +67,20 @@
 	}
 </script>
 
-<svelte:head>
-	<title>{isNew ? 'New title card' : (tpl.data?.name ?? 'Title card')} - Cinefin</title>
-</svelte:head>
-
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<Button href="{base}/titles" variant="ghost" size="sm">
-		<ArrowLeft size={14} /> Titles
-	</Button>
-	<h1 class="mr-auto text-lg font-semibold">
-		{isNew ? 'New title card' : (tpl.data?.name ?? 'Title card')}
-	</h1>
-	{#if !isNew}
-		<button
-			type="button"
-			class="inline-flex items-center gap-1.5 text-xs text-faint transition-colors hover:text-danger"
-			onclick={() => void confirmAndRemove()}
-		>
-			<Trash2 size={12} /> Delete title card
-		</button>
-	{/if}
-</div>
+<PageHeader
+	title={isNew ? 'New title card' : (tpl.data?.name ?? 'Title card')}
+	back={{ href: `${base}/titles`, label: 'Titles' }}
+	actions={isNew ? undefined : actions}
+/>
+{#snippet actions()}
+	<button
+		type="button"
+		class="inline-flex items-center gap-1.5 text-xs text-faint transition-colors hover:text-danger"
+		onclick={() => void confirmAndRemove()}
+	>
+		<Trash2 size={12} /> Delete title card
+	</button>
+{/snippet}
 
 <!-- Remount when the id changes (new → saved, or listing → listing) so the
      editor reboots against the right template; see its `booted` contract. -->

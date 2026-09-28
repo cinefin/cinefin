@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { FilterX, ListVideo, PenLine, Trash2, Wand2 } from '@lucide/svelte';
@@ -178,24 +179,19 @@
 	const colHeader = 'transition-colors hover:text-text';
 </script>
 
-<svelte:head><title>Programmes - Cinefin</title></svelte:head>
-
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<h1 class="mr-auto text-lg font-semibold">Programmes</h1>
-
-	<div class="flex items-center gap-2">
-		<Button
-			href="{base}/programmes/create"
-			variant="primary"
-			title="Pick your films and build from a matching template"
-		>
-			<Wand2 size={14} /> Guided
-		</Button>
-		<Button href="{base}/programmes/new" title="Start with an empty running order in the editor">
-			<PenLine size={14} /> From scratch
-		</Button>
-	</div>
-</div>
+<PageHeader title="Programmes" {actions} />
+{#snippet actions()}
+	<Button
+		href="{base}/programmes/create"
+		variant="primary"
+		title="Pick your films and build from a matching template"
+	>
+		<Wand2 size={14} /> Guided
+	</Button>
+	<Button href="{base}/programmes/new" title="Start with an empty running order in the editor">
+		<PenLine size={14} /> From scratch
+	</Button>
+{/snippet}
 
 <FilterBar
 	search={{

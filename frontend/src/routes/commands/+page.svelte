@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import {
 		Check,
 		Copy,
@@ -341,12 +342,10 @@
 	const suggestionCount = $derived(Object.values(suggestions).reduce((n, l) => n + l.length, 0));
 </script>
 
-<svelte:head><title>Commands - Cinefin</title></svelte:head>
-
-<div class="mb-1 flex items-center gap-2">
-	<h1 class="mr-auto text-lg font-semibold">Commands</h1>
+<PageHeader title="Commands" {actions} />
+{#snippet actions()}
 	<Button variant="primary" onclick={showCreateModal}><Plus size={14} /> Create command</Button>
-</div>
+{/snippet}
 <p class="mb-4 text-sm text-muted">
 	Actions Cinefin can run — from a programme rundown, on credits, in a screening's lead-in, or as
 	buttons on the dashboard and the <a href="{base}/remote" class="text-accent hover:underline"

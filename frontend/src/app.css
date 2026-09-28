@@ -123,8 +123,8 @@
 	--color-type-system: #7e899c;
 
 	/* Three voices, one of them ceremonial: Tilt Warp is the WORDMARK's
-	 * face only (the maintainer demoted it from headings — too loud for
-	 * daily chrome); Archivo EXPLAINS everything including headings (bold
+	 * face and the topbar's page title only (never in-page headings — too
+	 * loud for daily chrome); Archivo EXPLAINS everything including headings (bold
 	 * sentence case); IBM Plex Mono MEASURES (timecodes, durations, counts,
 	 * paths — the only place caps tracking is legal). */
 	--font-display: 'Tilt Warp', ui-sans-serif, system-ui, sans-serif;

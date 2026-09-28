@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { display } from '$lib/display.svelte';
 	import {
 		Check,
@@ -172,13 +173,9 @@
 	}
 </script>
 
-<svelte:head><title>Settings - Cinefin</title></svelte:head>
-
 <ConfirmDialog bind:this={confirmDialog} />
 
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<h1 class="mr-auto text-lg font-semibold">Settings</h1>
-</div>
+<PageHeader title="Settings" />
 
 {#if store.loading}
 	<Spinner label="Loading settings…" />

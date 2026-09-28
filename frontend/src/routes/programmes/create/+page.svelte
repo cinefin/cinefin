@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import {
 		ArrowLeft,
 		ArrowRight,
@@ -561,16 +562,12 @@
 		'flex cursor-pointer items-start gap-2 rounded-sm -mx-2 px-2 py-1.5 text-sm hover:bg-surface-2';
 </script>
 
-<svelte:head><title>Create programme - Cinefin</title></svelte:head>
+<PageHeader title="Create programme" back={{ href: `${base}/programmes`, label: 'Programmes' }} />
 
 {#if loading}
 	<Spinner label="Loading movies…" />
 {:else}
-	<h1 class="text-lg font-semibold">Create programme</h1>
-
-	<div class="mt-4">
-		<Stepper {steps} current={step} onselect={goToStep} />
-	</div>
+	<Stepper {steps} current={step} onselect={goToStep} />
 
 	{#if step === 'films'}
 		<section class="mt-6">

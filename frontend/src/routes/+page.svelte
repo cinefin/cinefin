@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	// The home screen: Screen (the player now, and every screening to come) above
 	// Library, beside a rail of quick actions (data in lib/dashboard/data.svelte.ts).
 	import { base } from '$app/paths';
@@ -147,7 +148,7 @@
 	});
 </script>
 
-<svelte:head><title>Dashboard - Cinefin</title></svelte:head>
+<PageHeader title="Dashboard" />
 
 <GettingStarted steps={gettingStartedSteps} ready={firstRunReady} bind:visible={gettingStartedUp} />
 

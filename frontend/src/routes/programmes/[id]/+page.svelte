@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	// Editing happens here (issue #404): `?edit=1` swaps the Rundown tab for the
 	// ProgrammeEditor. `/programmes/new` is this route with a virtual id — nothing
 	// is written until the first save, so an abandoned start leaves nothing behind.
@@ -7,7 +8,6 @@
 	import { goto } from '$app/navigation';
 	import { fly } from 'svelte/transition';
 	import {
-		ArrowLeft,
 		CalendarPlus,
 		Check,
 		PanelLeftOpen,
@@ -332,19 +332,11 @@
 	}
 </script>
 
-<svelte:head>
-	<title>{isNew ? 'New programme' : (programme?.name ?? 'Programme')} - Cinefin</title>
-</svelte:head>
+<PageHeader
+	title={isNew ? 'New programme' : (programme?.name ?? 'Programme')}
+	back={{ href: `${base}/programmes`, label: 'Programmes' }}
+/>
 <svelte:window bind:innerHeight />
-
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<Button href="{base}/programmes" variant="ghost" size="sm">
-		<ArrowLeft size={14} /> Programmes
-	</Button>
-	{#if isNew}
-		<h1 class="text-lg font-semibold">New programme</h1>
-	{/if}
-</div>
 
 {#if isNew}
 	<div class="border border-border bg-surface-1">
@@ -395,11 +387,10 @@
 			<div class="space-y-4 {billCollapsed ? 'lg:hidden' : ''}">
 				<section class="border border-border bg-surface-1">
 					<div class="p-4">
-						<h1 class="text-xl leading-tight font-semibold">{programme.name}</h1>
 						{#if programme.description}
-							<p class="mt-1.5 text-sm text-muted">{programme.description}</p>
+							<p class="mb-2 text-sm text-muted">{programme.description}</p>
 						{/if}
-						<p class="mt-2 text-sm text-muted">
+						<p class="text-sm text-muted">
 							{formatLongRuntime(programme.total_runtime)}
 							<span class="mx-1 text-faint">·</span>
 							{items.length} items

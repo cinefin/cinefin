@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
 	import { SvelteSet } from 'svelte/reactivity';
 	import {
@@ -570,11 +571,10 @@
 	}
 </script>
 
-<svelte:head><title>User media - Cinefin</title></svelte:head>
 <svelte:window onkeydowncapture={onEditKeydown} />
 
-<div class="mb-1 flex flex-wrap items-center gap-2">
-	<h1 class="mr-auto text-lg font-semibold">User media</h1>
+<PageHeader title="User media" {actions} />
+{#snippet actions()}
 	<Button
 		onclick={askRegenerateAll}
 		disabled={rethumbBusy}
@@ -583,7 +583,7 @@
 		<RotateCw size={14} /> Regenerate thumbnails
 	</Button>
 	<Button variant="primary" onclick={openAdd}><Plus size={14} /> Add media</Button>
-</div>
+{/snippet}
 
 <p class="mb-4 text-sm text-muted">
 	Theater idents, audio-format intros and the other clips used as programme building blocks. Movies

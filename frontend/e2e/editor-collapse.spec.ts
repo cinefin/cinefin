@@ -15,19 +15,19 @@ test('the programme bill collapses to a poster rail and comes back', async ({ pa
 	const railButton = bill.getByRole('button', { name: 'Show the bill' });
 
 	// Open: the bill is on screen, the rail is not.
-	await expect(bill.getByRole('heading', { level: 1 })).toBeVisible();
+	await expect(bill.locator('section').first()).toBeVisible();
 	await expect(railButton).toBeHidden();
 
 	// Collapse from the tab strip.
 	await page.getByRole('button', { name: 'Hide the bill' }).click();
-	await expect(bill.getByRole('heading', { level: 1 })).toBeHidden();
+	await expect(bill.locator('section').first()).toBeHidden();
 	await expect(railButton).toBeVisible();
 	// The rail still says which films: one poster cell per feature.
 	await expect(railButton.locator('img, span[title]')).not.toHaveCount(0);
 
 	// The rail itself is the way back.
 	await railButton.click();
-	await expect(bill.getByRole('heading', { level: 1 })).toBeVisible();
+	await expect(bill.locator('section').first()).toBeVisible();
 	await expect(railButton).toBeHidden();
 });
 
@@ -47,7 +47,7 @@ test('editing the rundown takes the width for you, once', async ({ page }) => {
 
 	// Reopening it stands: the auto-collapse does not fight you.
 	await page.getByRole('button', { name: 'Show the bill' }).first().click();
-	await expect(bill.getByRole('heading', { level: 1 })).toBeVisible();
+	await expect(bill.locator('section').first()).toBeVisible();
 	await expect(bill.getByRole('button', { name: 'Show the bill' })).toBeHidden();
 });
 
@@ -62,13 +62,13 @@ test('the template details collapse to a rail of feature slots', async ({ page }
 	const aside = page.locator('aside');
 	const railButton = aside.getByRole('button', { name: 'Show the template details' });
 
-	await expect(aside.getByRole('heading', { level: 1 })).toBeVisible();
+	await expect(aside.locator('section').first()).toBeVisible();
 	await page.getByRole('button', { name: 'Hide the template details' }).click();
-	await expect(aside.getByRole('heading', { level: 1 })).toBeHidden();
+	await expect(aside.locator('section').first()).toBeHidden();
 	await expect(railButton).toBeVisible();
 	// One empty frame per feature slot — a template's slots are what it is.
 	await expect(railButton.locator('span[title^="Feature"]')).toHaveCount(1);
 
 	await railButton.click();
-	await expect(aside.getByRole('heading', { level: 1 })).toBeVisible();
+	await expect(aside.locator('section').first()).toBeVisible();
 });

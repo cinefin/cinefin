@@ -1,10 +1,11 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	// Twin of the programme page: `?edit=1` swaps the read-only running order for
 	// the TemplateEditor; `/templates/new` is this route with a virtual id.
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, Check, Copy, ListVideo, PanelLeftOpen, Pencil, Trash2 } from '@lucide/svelte';
+	import { Check, Copy, ListVideo, PanelLeftOpen, Pencil, Trash2 } from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
 	import { Query } from '$lib/api/query.svelte';
 	import { showToast } from '$lib/toast.svelte';
@@ -118,18 +119,10 @@
 		'font-medium whitespace-nowrap transition-colors hover:bg-surface-2';
 </script>
 
-<svelte:head>
-	<title>{isNew ? 'New template' : (template?.name ?? 'Template')} - Cinefin</title>
-</svelte:head>
-
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<Button href="{base}/templates" variant="ghost" size="sm">
-		<ArrowLeft size={14} /> Templates
-	</Button>
-	{#if isNew}
-		<h1 class="text-lg font-semibold">New template</h1>
-	{/if}
-</div>
+<PageHeader
+	title={isNew ? 'New template' : (template?.name ?? 'Template')}
+	back={{ href: `${base}/templates`, label: 'Templates' }}
+/>
 
 {#if isNew}
 	<div class="border border-border bg-surface-1">
@@ -172,11 +165,10 @@
 
 			<section class="border border-border bg-surface-1 {detailsCollapsed ? 'lg:hidden' : ''}">
 				<div class="p-4">
-					<h1 class="text-xl leading-tight font-semibold">{template.name}</h1>
 					{#if template.template?.description}
-						<p class="mt-1.5 text-sm text-muted">{template.template.description}</p>
+						<p class="mb-2 text-sm text-muted">{template.template.description}</p>
 					{/if}
-					<p class="mt-2 text-sm text-muted">
+					<p class="text-sm text-muted">
 						{items.length} items
 						<span class="mx-1 text-faint">·</span>
 						{featureCount}

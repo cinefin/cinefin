@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	// Remote — the operator / playout console. Reads mpv + playlist + playout stores
 	// plus the commands picked on this device (CommandPad).
 	import {
@@ -513,7 +514,7 @@
 	}
 </script>
 
-<svelte:head><title>Remote - Cinefin</title></svelte:head>
+<PageHeader title="Remote" />
 
 <ConfirmDialog bind:this={confirmDlg} title="End programme?" />
 
@@ -522,9 +523,9 @@
 		<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
 			<div class="min-w-0 flex-1">
 				<div class="flex min-w-0 items-center gap-2.5">
-					<h1 class="min-w-0 text-lg font-semibold sm:truncate sm:text-xl">
+					<h2 class="min-w-0 text-lg font-semibold sm:truncate sm:text-xl">
 						{programme?.name || 'No programme cued'}
-					</h1>
+					</h2>
 					{#if stateBadge.tally}
 						<Tally label={stateBadge.label} />
 					{:else}

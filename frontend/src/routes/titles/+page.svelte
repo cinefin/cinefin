@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { Clock, Copy, Layers, PaintbrushVertical, Pencil, Plus, Trash2 } from '@lucide/svelte';
@@ -79,19 +80,16 @@
 	const total = $derived(templates.data?.length ?? 0);
 </script>
 
-<svelte:head><title>Title templates - Cinefin</title></svelte:head>
-
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<h1 class="mr-2 text-lg font-semibold">Title templates</h1>
-	{#if !templates.loading && !templates.error}
-		<span class="mr-auto font-mono text-xs text-muted">{total} total</span>
-	{:else}
-		<span class="mr-auto"></span>
-	{/if}
+<PageHeader
+	title="Title templates"
+	count={templates.data ? `${total} total` : undefined}
+	{actions}
+/>
+{#snippet actions()}
 	<Button href="{base}/titles/new" variant="primary" title="Design a new title card layout">
 		<Plus size={14} /> New template
 	</Button>
-</div>
+{/snippet}
 
 <p class="mb-4 max-w-2xl text-sm text-muted">
 	Title templates lay out generated title cards - posters, movie metadata and artwork on a 1920×1080

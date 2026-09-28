@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { untrack } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { base } from '$app/paths';
@@ -718,12 +719,10 @@
 	}
 </script>
 
-<svelte:head><title>Library - Cinefin</title></svelte:head>
-
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div class="mb-3 flex flex-wrap items-center gap-2">
-	<h1 class="mr-auto text-lg font-semibold">Library</h1>
+<PageHeader title="Library" {actions} />
+{#snippet actions()}
 	{#if canSync}
 		<div class="inline-flex items-stretch">
 			<Button
@@ -748,7 +747,7 @@
 			<RefreshCw size={13} /> Sync
 		</Button>
 	{/if}
-</div>
+{/snippet}
 
 <FilterBar
 	search={{

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import LeadInSteps, { type LeadInStep } from '$lib/schedules/LeadInSteps.svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
@@ -511,19 +512,12 @@
 	});
 </script>
 
-<svelte:head><title>Schedules - Cinefin</title></svelte:head>
-
-<div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-	<h1 class="text-lg font-semibold">Schedules</h1>
-	<div class="mr-auto flex items-center gap-4 text-xs text-muted">
-		<span>Total <span class="font-mono text-text">{all.length}</span></span>
-		<span>Active <span class="font-mono text-text">{activeCount}</span></span>
-		<span>Today <span class="font-mono text-text">{todayCount}</span></span>
-	</div>
+<PageHeader title="Schedules" count="{activeCount} active · {todayCount} today" {actions} />
+{#snippet actions()}
 	<Button variant="primary" onclick={() => openCreate()}>
 		<Plus size={14} /> New schedule
 	</Button>
-</div>
+{/snippet}
 
 <ActionNotice {notice} class="mb-4" />
 

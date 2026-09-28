@@ -1,4 +1,5 @@
 <script lang="ts">
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { Copy, FilterX, Layers, Pencil, Plus, Trash2 } from '@lucide/svelte';
 	import { base } from '$app/paths';
 	import { api, toApiError, unwrap } from '$lib/api/client';
@@ -92,17 +93,12 @@
 		'bg-surface-2 text-muted transition-colors hover:bg-surface-3 hover:text-text';
 </script>
 
-<svelte:head><title>Templates - Cinefin</title></svelte:head>
-
-<div class="mb-4 flex flex-wrap items-center gap-2">
-	<h1 class="mr-2 text-lg font-semibold">Templates</h1>
-	{#if !templates.loading && !templates.error}
-		<span class="mr-auto font-mono text-xs text-muted">
-			{templates.data?.templates?.length ?? 0} total
-		</span>
-	{:else}
-		<span class="mr-auto"></span>
-	{/if}
+<PageHeader
+	title="Templates"
+	count={templates.data ? `${templates.data.templates?.length ?? 0} total` : undefined}
+	{actions}
+/>
+{#snippet actions()}
 	<Button
 		href="{base}/templates/new"
 		variant="primary"
@@ -110,7 +106,7 @@
 	>
 		<Plus size={14} /> New template
 	</Button>
-</div>
+{/snippet}
 
 <div class="mb-4 flex flex-wrap items-center gap-2">
 	<Input
