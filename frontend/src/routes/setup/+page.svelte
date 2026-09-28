@@ -448,8 +448,8 @@
 				'warn',
 				"Not connected - playback won't work until the playout host is up",
 				{
-					label: 'Settings',
-					href: `${base}/settings`
+					label: 'Playout settings',
+					href: `${base}/settings?tab=playout`
 				}
 			);
 		}

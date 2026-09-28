@@ -31,8 +31,24 @@ def _human_bytes(n: float) -> str:
     return f"{n:.1f} TB"
 
 
-def _check(key, label, status, detail, hint=None, action=None):
-    """``action`` is an optional {"label", "href"} link to where the fix lives."""
+# Where each check's fix lives. Every check links there, whatever its status.
+_FIX = {
+    "mpv": ("Open playout settings", "/app/settings?tab=playout"),
+    "scheduler": ("Open schedules", "/app/schedules"),
+    "disk_media": ("Open the trailer library", "/app/trailers"),
+    "disk_db": ("Open backup & restore", "/app/settings?tab=backup"),
+    "db": ("Open backup & restore", "/app/settings?tab=backup"),
+    "media_writable": ("Open user media", "/app/media"),
+    "printer": ("Open printer settings", "/app/settings?tab=tickets&view=printer"),
+    "auth": ("Open security settings", "/app/settings?tab=security"),
+    "ratings": ("Open theater settings", "/app/settings?tab=cinema"),
+    "sync_sources": ("Open library source", "/app/settings?tab=library"),
+}
+
+
+def _check(key, label, status, detail, hint=None):
+    fix = _FIX.get(key)
+    action = {"label": fix[0], "href": fix[1]} if fix else None
     return {"key": key, "label": label, "status": status, "detail": detail, "hint": hint, "action": action}
 
 
@@ -56,7 +72,7 @@ def _check_mpv():
             "mpv",
             "MPV player",
             "warn",
-            "No playout host configured — add one in Settings > Playout. Playout is unavailable until then.",
+            "No playout host configured — add one in Settings → Playout. Playout is unavailable until then.",
         )
     try:
         status = playout_agent_service.get_status()
@@ -74,7 +90,7 @@ def _check_mpv():
         "mpv",
         "MPV player",
         "warn",
-        "Playout agent reachable but the player is stopped — start it from Settings > Playout.",
+        "Playout agent reachable but the player is stopped — start it from Settings → Playout.",
     )
 
 
@@ -179,8 +195,7 @@ def _check_printer():
         "Ticket printer",
         "warn",
         result.get("message", "Printer is configured but not reachable"),
-        "Only affects ticket printing. Check the printer connection in Settings.",
-        action={"label": "Open ticket settings", "href": "/app/settings"},
+        "Only affects ticket printing. Check the printer connection in Settings → Tickets → Printer.",
     )
 
 
@@ -195,7 +210,6 @@ def _check_auth():
         "warn",
         "Authentication is OFF — anyone on the network can control this cinema",
         "Turn on authentication in Settings → Security to require a login.",
-        action={"label": "Open security settings", "href": "/app/settings"},
     )
 
 
@@ -211,14 +225,13 @@ def _check_ratings():
             "Certificate lookups",
             "warn",
             f"No rating provider is registered for the {system} system",
-            action={"label": "Open cinema settings", "href": "/app/settings"},
         )
     if not Settings.get("trailers.rating_lookup_enabled", True):
         return _check(
             "ratings",
             "Certificate lookups",
             "info",
-            "Certificate lookups are turned off in Settings → Trailers",
+            "Certificate lookups for trailers are turned off",
         )
     return _check("ratings", "Certificate lookups", "info", f"{system} certificates via {provider.display_name}")
 
@@ -257,9 +270,8 @@ def _check_sync_sources():
         lines.append(f"{src.name}: {result} ({when})")
 
     detail = f"{len(sources)} configured — " + "; ".join(lines)
-    hint = "A source's last run did not succeed — check the Sync page." if worst == "warn" else None
-    action = {"label": "Open the sync page", "href": "/app/sync"} if worst == "warn" else None
-    return _check("sync_sources", "Sync sources", worst, detail, hint, action)
+    hint = "A source's last run did not succeed — check Settings → Library source." if worst == "warn" else None
+    return _check("sync_sources", "Sync sources", worst, detail, hint)
 
 
 _CHECKS = (

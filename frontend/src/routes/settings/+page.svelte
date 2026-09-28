@@ -87,7 +87,9 @@
 	const ALL_SECTIONS = NAV.flatMap((g) => g.items.map((i) => i.id));
 
 	const initialTab = page.url.searchParams.get('tab');
-	let ticketsTab = $state<'designs' | 'printer'>('designs');
+	let ticketsTab = $state<'designs' | 'printer'>(
+		page.url.searchParams.get('view') === 'printer' ? 'printer' : 'designs'
+	);
 	let section = $state<Section>(
 		ALL_SECTIONS.includes(initialTab as Section) ? (initialTab as Section) : 'playout'
 	);

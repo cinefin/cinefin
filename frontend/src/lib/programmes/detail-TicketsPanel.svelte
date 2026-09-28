@@ -462,10 +462,13 @@
 			<RotateCcw size={13} /> Reset printer
 		</Button>
 		<p class="ml-auto text-xs text-faint">
-			Printer, paper and seating are global -
-			<a class="text-accent hover:underline" href="{base}/settings?tab=tickets">
-				Settings → Tickets
-			</a>
+			The
+			<a class="text-accent hover:underline" href="{base}/settings?tab=tickets&view=printer"
+				>printer and paper</a
+			>
+			and
+			<a class="text-accent hover:underline" href="{base}/settings?tab=cinema">seating</a>
+			are global
 		</p>
 	</div>
 </div>

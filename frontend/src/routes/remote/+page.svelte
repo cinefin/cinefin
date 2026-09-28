@@ -2,6 +2,7 @@
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	// Remote — the operator / playout console. Reads mpv + playlist + playout stores
 	// plus the commands picked on this device (CommandPad).
+	import { base } from '$app/paths';
 	import {
 		Captions,
 		Cpu,
@@ -563,7 +564,8 @@
 
 		{#if !connected && mpv.loaded}
 			<Banner severity="danger">
-				Player not connected - check the playout host under Settings → Playout.
+				Player not connected - check the playout host under
+				<a href="{base}/settings?tab=playout" class="font-medium underline">Settings → Playout</a>.
 			</Banner>
 		{/if}
 

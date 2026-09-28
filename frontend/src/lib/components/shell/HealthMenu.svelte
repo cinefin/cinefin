@@ -104,12 +104,24 @@
 					</div>
 				{/each}
 				{#each rest as check (check.key)}
-					<div class="flex items-center gap-3 px-3 py-1.5" title={check.detail}>
+					{#snippet row()}
 						<StatusLamp colour={lamp(check)} quiet class="shrink-0 whitespace-nowrap"
 							>{check.label}</StatusLamp
 						>
 						<span class="ml-auto min-w-0 truncate text-[0.7rem] text-faint">{check.detail}</span>
-					</div>
+					{/snippet}
+					{#if check.action}
+						<a
+							href={check.action.href}
+							class="flex items-center gap-3 px-3 py-1.5 hover:bg-surface-2"
+							title="{check.detail} — {check.action.label}"
+							onclick={() => (open = false)}>{@render row()}</a
+						>
+					{:else}
+						<div class="flex items-center gap-3 px-3 py-1.5" title={check.detail}>
+							{@render row()}
+						</div>
+					{/if}
 				{/each}
 			</div>
 		</div>
