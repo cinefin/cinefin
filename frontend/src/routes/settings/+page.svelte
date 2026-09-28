@@ -86,18 +86,22 @@
 	];
 	const ALL_SECTIONS = NAV.flatMap((g) => g.items.map((i) => i.id));
 
-	const initialTab = page.url.searchParams.get('tab');
-	let ticketsTab = $state<'designs' | 'printer'>(
-		page.url.searchParams.get('view') === 'printer' ? 'printer' : 'designs'
-	);
-	let section = $state<Section>(
-		ALL_SECTIONS.includes(initialTab as Section) ? (initialTab as Section) : 'playout'
-	);
+	let ticketsTab = $state<'designs' | 'printer'>('designs');
+	let section = $state<Section>('playout');
+
+	// Follow the URL, not just the first one: a link to another tab while
+	// already here (the health menu) navigates without remounting the page.
+	$effect.pre(() => {
+		const tab = page.url.searchParams.get('tab') as Section;
+		if (ALL_SECTIONS.includes(tab)) section = tab;
+		if (page.url.searchParams.get('view') === 'printer') ticketsTab = 'printer';
+	});
 
 	function goSection(id: Section) {
 		section = id;
 		const url = new URL(page.url);
 		url.searchParams.set('tab', id);
+		url.searchParams.delete('view');
 		replaceState(url, {});
 	}
 
