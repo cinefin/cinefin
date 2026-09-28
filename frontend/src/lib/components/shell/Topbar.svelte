@@ -8,6 +8,7 @@
 	import { trailerActivity } from '$lib/stores/trailerActivity.svelte';
 	import { display } from '$lib/display.svelte';
 	import { pageHeader } from '$lib/stores/pageHeader.svelte';
+	import { familyClasses } from '$lib/item-types';
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import DisplayMenu from '$lib/components/shell/DisplayMenu.svelte';
 	import HealthMenu from '$lib/components/shell/HealthMenu.svelte';
@@ -24,6 +25,7 @@
 	const cinemaName = $derived(settings.data?.settings?.cinema_name || 'Theater');
 
 	const h = $derived(pageHeader.current);
+	const tone = $derived(h?.tone ? familyClasses(h.tone) : null);
 
 	// Server accent (display.accent_color): apply once settings land; display
 	// caches it so the next boot paints right.
@@ -70,7 +72,7 @@
      border inside too, and without this the two rules meet 1px apart in the
      top-left corner (and the sticky selection strip below leaves a hairline
      gap under the topbar). -->
-<header class="sticky top-0 z-10 h-14 border-b border-border bg-shell">
+<header class="sticky top-0 z-10 h-14 border-b border-border bg-shell {tone?.wash ?? ''}">
 	<div class="flex h-full w-full items-center gap-3 px-4 md:px-6">
 		<button
 			type="button"
@@ -95,6 +97,7 @@
 				>
 				<span class="text-faint">/</span>
 			{/if}
+			{#if tone}<span class="size-2 shrink-0 {tone.bar}" aria-hidden="true"></span>{/if}
 			<h1 class="min-w-0 truncate font-display text-xl font-normal">{h.title}</h1>
 			{#if h.count}
 				<span class="hidden shrink-0 font-mono text-xs text-faint sm:block">{h.count}</span>

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { pageHeader, type PageHeaderSpec } from '$lib/stores/pageHeader.svelte';
 
-	let { title, count, back, actions }: PageHeaderSpec = $props();
+	let { title, count, back, actions, tone }: PageHeaderSpec = $props();
 
 	$effect(() => {
-		const spec = { title, count, back, actions };
+		const spec = { title, count, back, actions, tone };
 		pageHeader.current = spec;
 		return () => {
 			if (pageHeader.current === spec) pageHeader.current = null;

@@ -721,7 +721,7 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<PageHeader title="Library" {actions} />
+<PageHeader title="Library" tone="film" {actions} />
 {#snippet actions()}
 	{#if canSync}
 		<div class="inline-flex items-stretch">

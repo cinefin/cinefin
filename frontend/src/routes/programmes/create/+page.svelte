@@ -562,7 +562,11 @@
 		'flex cursor-pointer items-start gap-2 rounded-sm -mx-2 px-2 py-1.5 text-sm hover:bg-surface-2';
 </script>
 
-<PageHeader title="Create programme" back={{ href: `${base}/programmes`, label: 'Programmes' }} />
+<PageHeader
+	title="Create programme"
+	tone="film"
+	back={{ href: `${base}/programmes`, label: 'Programmes' }}
+/>
 
 {#if loading}
 	<Spinner label="Loading movies…" />

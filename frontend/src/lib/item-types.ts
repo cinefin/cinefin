@@ -42,6 +42,8 @@ export interface ItemTypeClasses {
 	edge: string;
 	/** Solid fill, for timeline segments and meters. */
 	bar: string;
+	/** A faint left-to-right tint, for a content page's topbar. */
+	wash: string;
 }
 
 // Written out per family (no string interpolation) so Tailwind's source scan sees every class.
@@ -50,37 +52,43 @@ const FAMILY_CLASSES: Record<ItemTypeFamily, ItemTypeClasses> = {
 		icon: 'text-type-film',
 		badge: 'border border-type-film/30 bg-type-film/15 text-type-film',
 		edge: 'border-l-2 border-l-type-film',
-		bar: 'bg-type-film'
+		bar: 'bg-type-film',
+		wash: 'bg-linear-to-r from-type-film/12 to-transparent to-50%'
 	},
 	trailer: {
 		icon: 'text-type-trailer',
 		badge: 'border border-type-trailer/30 bg-type-trailer/15 text-type-trailer',
 		edge: 'border-l-2 border-l-type-trailer',
-		bar: 'bg-type-trailer'
+		bar: 'bg-type-trailer',
+		wash: 'bg-linear-to-r from-type-trailer/12 to-transparent to-50%'
 	},
 	media: {
 		icon: 'text-type-media',
 		badge: 'border border-type-media/30 bg-type-media/15 text-type-media',
 		edge: 'border-l-2 border-l-type-media',
-		bar: 'bg-type-media'
+		bar: 'bg-type-media',
+		wash: 'bg-linear-to-r from-type-media/12 to-transparent to-50%'
 	},
 	command: {
 		icon: 'text-type-command',
 		badge: 'border border-type-command/30 bg-type-command/15 text-type-command',
 		edge: 'border-l-2 border-l-type-command',
-		bar: 'bg-type-command'
+		bar: 'bg-type-command',
+		wash: 'bg-linear-to-r from-type-command/12 to-transparent to-50%'
 	},
 	certification: {
 		icon: 'text-type-certification',
 		badge: 'border border-type-certification/30 bg-type-certification/15 text-type-certification',
 		edge: 'border-l-2 border-l-type-certification',
-		bar: 'bg-type-certification'
+		bar: 'bg-type-certification',
+		wash: 'bg-linear-to-r from-type-certification/12 to-transparent to-50%'
 	},
 	system: {
 		icon: 'text-type-system',
 		badge: 'border border-type-system/30 bg-type-system/15 text-type-system',
 		edge: 'border-l-2 border-l-type-system',
-		bar: 'bg-type-system'
+		bar: 'bg-type-system',
+		wash: 'bg-linear-to-r from-type-system/12 to-transparent to-50%'
 	}
 };
 
@@ -245,6 +253,10 @@ export function itemTypeFamily(type: string | null | undefined): ItemTypeFamily 
 
 export function itemTypeClasses(type: string | null | undefined): ItemTypeClasses {
 	return FAMILY_CLASSES[itemType(type).family];
+}
+
+export function familyClasses(family: ItemTypeFamily): ItemTypeClasses {
+	return FAMILY_CLASSES[family];
 }
 
 export interface ItemTypeDisplay extends ItemTypeMeta {

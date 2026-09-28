@@ -23,6 +23,8 @@
 	import Logo from '$lib/components/shell/Logo.svelte';
 	import { display } from '$lib/display.svelte';
 	import { session } from '$lib/stores/session.svelte';
+	import { pageHeader } from '$lib/stores/pageHeader.svelte';
+	import { familyClasses } from '$lib/item-types';
 
 	interface Props {
 		/** Mobile: whether the drawer is open (bind from the layout). */
@@ -155,17 +157,20 @@
 			<ul class="space-y-0.5" aria-labelledby={display.rail ? undefined : `nav-group-${gi}`}>
 				{#each group.items as item (item.href)}
 					{@const active = isActive(item.href)}
+					{@const tone =
+						active && pageHeader.current?.tone ? familyClasses(pageHeader.current.tone) : null}
 					<li>
 						<a
 							href="{base}{item.href}"
 							aria-current={active ? 'page' : undefined}
 							title={display.rail ? item.label : undefined}
 							onclick={() => (open = false)}
-							class="flex items-center gap-3 rounded-md py-1.5 text-sm transition-colors
+							class="relative flex items-center gap-3 rounded-md py-1.5 text-sm transition-colors
 								{display.rail ? 'justify-center px-0' : 'px-3'}
 								{active ? 'bg-surface-2 font-medium text-text' : 'text-muted hover:bg-surface-1 hover:text-text'}"
 						>
-							<item.icon size={18} class={active ? 'text-accent' : ''} />
+							{#if tone}<span class="absolute inset-y-1 left-0 w-0.5 {tone.bar}"></span>{/if}
+							<item.icon size={18} class={tone ? tone.icon : active ? 'text-accent' : ''} />
 							{#if !display.rail}
 								<span class="flex-1">{item.label}</span>
 							{/if}
