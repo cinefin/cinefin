@@ -9,7 +9,7 @@ from ninja import Field, File, Form, Query, Router, Schema, Status, UploadedFile
 
 from cinefin.api import ratings
 from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
-from cinefin.api.models import Genre, Job, Settings, Trailer, TrailerTag
+from cinefin.api.models import Genre, Job, Movie, Settings, Trailer, TrailerTag
 from cinefin.api.schemas.base import ErrorResponseSchema, SuccessResponseSchema
 from cinefin.api.services.trailer_service import TrailerService
 from cinefin.api.utils.media_paths import usermedia_abs_path
@@ -277,13 +277,10 @@ def get_trailer_detail(request: HttpRequest, trailer_id: int):
         trailer = Trailer.objects.get(id=trailer_id)
     except Trailer.DoesNotExist:
         raise NotFoundError("Trailer not found", error_code="TRAILER_NOT_FOUND") from None
-    associated_movie = None
-    try:
-        movie = trailer.associated_movie
-        if movie:
-            associated_movie = {"id": movie.id, "title": movie.title, "year": movie.year, "tmdbid": movie.tmdbid}
-    except Exception:
-        pass
+    movie = trailer.linked_movie()
+    associated_movie = (
+        {"id": movie.id, "title": movie.title, "year": movie.year, "tmdbid": movie.tmdbid} if movie else None
+    )
     trailer_data = {
         "id": trailer.id,
         "title": trailer.title,
@@ -575,7 +572,6 @@ def match_test(
     count: int = 3,
 ):
     """Dry-run a trailer rule's matching; flags the top `count` candidates that would play."""
-    from cinefin.api.models import Movie, TrailerTag
     from cinefin.api.services.trailer_matching import Criteria, _rank, build_pool
 
     movie = None
@@ -643,7 +639,7 @@ def _valid_ratings() -> set:
     return Settings.get_valid_ratings()
 
 
-def _trailer_row(t, exists, valid, file_size=0):
+def _trailer_row(t, exists, valid, file_size=0, movie_tmdbids=frozenset()):
     return {
         "id": t.id,
         "title": t.title,
@@ -660,7 +656,7 @@ def _trailer_row(t, exists, valid, file_size=0):
         "file_name": os.path.basename(t.file_path) if t.file_path else "",
         "file_exists": exists,
         "stream_url": f"/stream/trailer/{t.id}/",
-        "has_movie": t.associated_movie_id is not None,
+        "has_movie": t.associated_movie_id is not None or t.tmdbid in movie_tmdbids,
         "genres": [g.name for g in t.genres.all()],
         "trailer_tags": [{"id": tg.id, "name": tg.name} for tg in t.trailer_tags.all()],
     }
@@ -733,7 +729,8 @@ def trailer_library(
         rows.sort(key=lambda r: r[2], reverse=sort.startswith("-"))
 
     page = rows[offset : offset + limit]
-    trailers = [_trailer_row(t, exists, valid, size) for (t, exists, size) in page]
+    movie_tmdbids = set(Movie.objects.exclude(tmdbid=0).values_list("tmdbid", flat=True))
+    trailers = [_trailer_row(t, exists, valid, size, movie_tmdbids) for (t, exists, size) in page]
 
     return _ok(
         {
@@ -763,7 +760,8 @@ def _trailer_detail(t, valid):
     data = _trailer_row(t, exists, valid, os.path.getsize(abs_path) if exists else 0)
     data["certificates"] = t.certificates or {}
     data["rating_lookups"] = t.rating_lookups or {}
-    movie = t.associated_movie
+    movie = t.linked_movie()
+    data["has_movie"] = movie is not None
     data["associated_movie"] = (
         {"id": movie.id, "title": movie.title, "year": movie.year, "tmdbid": movie.tmdbid} if movie else None
     )

@@ -5,7 +5,7 @@ the real temp files here rather than a stored value."""
 
 import pytest
 
-from .factories import TrailerFactory
+from .factories import MovieFactory, TrailerFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -48,3 +48,22 @@ class TestTrailerLibraryColumns:
 
         stats = client.get(f"{API}/trailers/library").json()["data"]["stats"]
         assert (stats["with_file"], stats["missing"]) == (1, 1)
+
+
+class TestTrailerLinkedMovie:
+    def test_library_film_with_the_same_tmdbid_is_linked(self, client):
+        movie = MovieFactory(title="Heat", tmdbid=949)
+        t = TrailerFactory(title="Heat", tmdbid=949, associated_movie=None)
+
+        assert _rows(client)[0]["has_movie"] is True
+        detail = client.get(f"{API}/trailers/library/{t.id}").json()["data"]["trailer"]
+        assert detail["associated_movie"]["id"] == movie.id
+
+    def test_stored_link_wins_and_unmatched_stays_unlinked(self, client):
+        linked = MovieFactory(title="Linked", tmdbid=1)
+        MovieFactory(title="Same id", tmdbid=2)
+        t = TrailerFactory(title="Trailer", tmdbid=2, associated_movie=linked)
+        lone = TrailerFactory(title="Lone", tmdbid=3)
+
+        assert t.linked_movie() == linked
+        assert lone.linked_movie() is None
