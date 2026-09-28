@@ -65,9 +65,7 @@ class PlaylistUtils:
                         "year": getattr(content_obj, "year", None),
                         "certification": getattr(content_obj, "content_rating", None),
                         # Trailers have no artwork — borrow the advertised film's poster if in the library.
-                        "thumbnail_url": (
-                            content_obj.associated_movie.thumbnail_url if content_obj.associated_movie else None
-                        ),
+                        "thumbnail_url": getattr(content_obj.linked_movie(), "thumbnail_url", None),
                         **(playlist_item.metadata or {}),
                     },
                 }

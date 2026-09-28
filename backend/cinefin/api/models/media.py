@@ -153,6 +153,12 @@ class Trailer(CertificateStoreMixin, VideoContent):
         token = make_stream_token("trailer", self.id)
         return {"stream_url": f"{base_url}/stream/trailer/{self.id}/?t={token}", "provider": "local"}
 
+    def linked_movie(self):
+        """The film this trailer advertises: the stored link, else the library film with its TMDB id."""
+        if self.associated_movie_id:
+            return self.associated_movie
+        return Movie.objects.filter(tmdbid=self.tmdbid).first() if self.tmdbid else None
+
     def __str__(self):
         return self.title + " (" + str(self.year) + ")"
 
