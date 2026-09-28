@@ -34,7 +34,7 @@
 			{/if}
 		</header>
 	{/if}
-	<div class="p-4">
+	<div class="min-h-0 flex-1 p-4">
 		{@render children()}
 	</div>
 </section>

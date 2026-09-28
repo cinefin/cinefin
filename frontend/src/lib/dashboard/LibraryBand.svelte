@@ -115,7 +115,7 @@
 		</ul>
 	</Card>
 
-	<Card title="Recently added">
+	<Card title="Recently added" class="flex flex-col">
 		{#snippet actions()}
 			<a class="text-xs text-muted hover:text-text" href="{base}/library">Library</a>
 		{/snippet}
