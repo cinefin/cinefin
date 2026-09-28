@@ -1617,7 +1617,12 @@
 						<dt class="text-muted">Linked movie</dt>
 						<dd class="min-w-0 truncate">
 							{#if t.associated_movie}
-								{t.associated_movie.title} ({t.associated_movie.year ?? '-'})
+								<a
+									href="{base}/library?movie={t.associated_movie.id}"
+									class="text-accent hover:underline"
+									title="Open this film in the library"
+									>{t.associated_movie.title} ({t.associated_movie.year ?? '-'})</a
+								>
 							{:else}
 								<span class="text-faint">not linked</span>
 							{/if}
