@@ -1,30 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
-	import {
-		LayoutDashboard,
-		Film,
-		MonitorPlay,
-		ListVideo,
-		PaintbrushVertical,
-		Layers,
-		CalendarClock,
-		Clapperboard,
-		FolderOpen,
-		SquareTerminal,
-		Settings,
-		Info,
-		LogOut,
-		PanelLeftClose,
-		PanelLeftOpen,
-		type LucideIcon
-	} from '@lucide/svelte';
-	import type { Component } from 'svelte';
+	import { Info, LogOut, PanelLeftClose, PanelLeftOpen } from '@lucide/svelte';
 	import Logo from '$lib/components/shell/Logo.svelte';
 	import { display } from '$lib/display.svelte';
 	import { session } from '$lib/stores/session.svelte';
-	import { pageHeader } from '$lib/stores/pageHeader.svelte';
 	import { familyClasses } from '$lib/item-types';
+	import { NAV_GROUPS, isActive as navActive } from '$lib/components/shell/nav';
 
 	interface Props {
 		/** Mobile: whether the drawer is open (bind from the layout). */
@@ -32,74 +14,7 @@
 	}
 	let { open = $bindable(false) }: Props = $props();
 
-	interface NavItem {
-		href: string;
-		label: string;
-		icon: LucideIcon;
-	}
-
-	interface NavGroup {
-		/** Sentence-case group label; shown only in the expanded sidebar. */
-		label: string;
-		items: NavItem[];
-	}
-
-	// Grouped by what you are doing, not by where the code lives. Labels stay
-	// quiet (small, muted, sentence case) — the grouping is the signal, not
-	// the heading.
-	const groups: NavGroup[] = [
-		{
-			label: 'Operate',
-			items: [
-				{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
-				{ href: '/remote', label: 'Remote', icon: MonitorPlay }
-			]
-		},
-		{
-			label: 'Content',
-			items: [
-				{ href: '/library', label: 'Library', icon: Film },
-				{ href: '/trailers', label: 'Trailers', icon: Clapperboard },
-				{ href: '/media', label: 'Media', icon: FolderOpen },
-				{ href: '/schedules', label: 'Schedules', icon: CalendarClock }
-			]
-		},
-		{
-			label: 'Programme',
-			items: [
-				{ href: '/programmes', label: 'Programmes', icon: ListVideo },
-				{ href: '/templates', label: 'Templates', icon: Layers },
-				{ href: '/titles', label: 'Titles', icon: PaintbrushVertical }
-			]
-		},
-		{
-			label: 'System',
-			items: [
-				{ href: '/commands', label: 'Commands', icon: SquareTerminal },
-				{ href: '/settings', label: 'Settings', icon: Settings }
-			]
-		}
-	];
-
-	const allHrefs = groups.flatMap((g) => g.items.map((i) => i.href));
-
-	function matches(href: string, path: string): boolean {
-		const target = `${base}${href}`.replace(/\/$/, '') || '/';
-		if (href === '/') return path === target;
-		return path === target || path.startsWith(`${target}/`);
-	}
-
-	/**
-	 * The most specific nav entry wins: /programmes/create is a child of
-	 * /programmes, and only the deeper one should light up.
-	 */
-	function isActive(href: string): boolean {
-		const path = page.url.pathname.replace(/\/$/, '') || '/';
-		if (!matches(href, path)) return false;
-		return !allHrefs.some(
-			(other) => other !== href && other.startsWith(href) && matches(other, path)
-		);
-	}
+	const isActive = (href: string) => navActive(href, page.url.pathname);
 
 	// Version + "is there a session to log out of" — fetched once per boot.
 	session.load();
@@ -143,7 +58,7 @@
 	</div>
 
 	<nav class="flex-1 overflow-y-auto p-2" aria-label="Main">
-		{#each groups as group, gi (group.label)}
+		{#each NAV_GROUPS as group, gi (group.label)}
 			{#if gi > 0}
 				<!-- Rail: a hairline between groups stands in for the label. -->
 				<div
@@ -157,8 +72,7 @@
 			<ul class="space-y-0.5" aria-labelledby={display.rail ? undefined : `nav-group-${gi}`}>
 				{#each group.items as item (item.href)}
 					{@const active = isActive(item.href)}
-					{@const tone =
-						active && pageHeader.current?.tone ? familyClasses(pageHeader.current.tone) : null}
+					{@const tone = active ? familyClasses(group.tone) : null}
 					<li>
 						<a
 							href="{base}{item.href}"

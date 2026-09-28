@@ -342,7 +342,7 @@
 	const suggestionCount = $derived(Object.values(suggestions).reduce((n, l) => n + l.length, 0));
 </script>
 
-<PageHeader title="Commands" tone="command" {actions} />
+<PageHeader title="Commands" {actions} />
 {#snippet actions()}
 	<Button variant="primary" onclick={showCreateModal}><Plus size={14} /> Create command</Button>
 {/snippet}

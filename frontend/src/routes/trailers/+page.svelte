@@ -1186,7 +1186,7 @@
 
 <ConfirmDialog bind:this={confirmDialog} confirmLabel="Delete" />
 
-<PageHeader title="Trailer library" tone="trailer" {actions} />
+<PageHeader title="Trailer library" {actions} />
 {#snippet actions()}
 	<Button onclick={openMatchTest} title="See which trailers a trailer rule would pick for a movie">
 		<Crosshair size={14} /> Test matching…

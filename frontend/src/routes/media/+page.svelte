@@ -573,7 +573,7 @@
 
 <svelte:window onkeydowncapture={onEditKeydown} />
 
-<PageHeader title="User media" tone="media" {actions} />
+<PageHeader title="User media" {actions} />
 {#snippet actions()}
 	<Button
 		onclick={askRegenerateAll}

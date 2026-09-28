@@ -335,7 +335,6 @@
 <PageHeader
 	title={isNew ? 'New programme' : (programme?.name ?? 'Programme')}
 	back={{ href: `${base}/programmes`, label: 'Programmes' }}
-	tone="film"
 />
 <svelte:window bind:innerHeight />
 

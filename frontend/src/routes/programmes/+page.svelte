@@ -179,7 +179,7 @@
 	const colHeader = 'transition-colors hover:text-text';
 </script>
 
-<PageHeader title="Programmes" tone="film" {actions} />
+<PageHeader title="Programmes" {actions} />
 {#snippet actions()}
 	<Button
 		href="{base}/programmes/create"

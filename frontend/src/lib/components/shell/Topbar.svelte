@@ -9,6 +9,8 @@
 	import { display } from '$lib/display.svelte';
 	import { pageHeader } from '$lib/stores/pageHeader.svelte';
 	import { familyClasses } from '$lib/item-types';
+	import { navGroupFor } from '$lib/components/shell/nav';
+	import { page } from '$app/state';
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import DisplayMenu from '$lib/components/shell/DisplayMenu.svelte';
 	import HealthMenu from '$lib/components/shell/HealthMenu.svelte';
@@ -25,7 +27,8 @@
 	const cinemaName = $derived(settings.data?.settings?.cinema_name || 'Theater');
 
 	const h = $derived(pageHeader.current);
-	const tone = $derived(h?.tone ? familyClasses(h.tone) : null);
+	const group = $derived(navGroupFor(page.url.pathname));
+	const tone = $derived(h && group ? familyClasses(group.tone) : null);
 
 	// Server accent (display.accent_color): apply once settings land; display
 	// caches it so the next boot paints right.
