@@ -38,6 +38,9 @@
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import Cued from '$lib/remote/Cued.svelte';
 	import Idle from '$lib/remote/Idle.svelte';
+	import ManualQueue from '$lib/remote/ManualQueue.svelte';
+	import ManualSearch from '$lib/remote/ManualSearch.svelte';
+	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -97,6 +100,27 @@
 	const programme = $derived(st?.programme ?? null);
 	const isRunning = $derived(!!programme?.running);
 	const isPaused = $derived(!pb?.playing || !!pb?.paused);
+
+	// Manual mode: one-off items the player holds outside any programme (server-side queue).
+	const manual = $derived(playout.status?.manual ?? null);
+	const manualOn = $derived(!!manual);
+	const manualCurrent = $derived(manual?.items[manual.position ?? -1] ?? null);
+	/** Something plays under the operator's hand: the transport and tracks apply. */
+	const playing = $derived(isRunning || manualOn);
+	let mode = $state<'programme' | 'manual'>('programme');
+	// Follow the player: manual play shows the manual tab, a (newly) loaded programme the programme tab.
+	const programmeId = $derived(programme?.id ?? null);
+	$effect(() => {
+		if (manualOn) mode = 'manual';
+	});
+	$effect(() => {
+		if (programmeId != null) mode = 'programme';
+	});
+	function refreshPlayer() {
+		void mpv.refresh();
+		void playout.refresh();
+		playlist.refresh();
+	}
 
 	const items = $derived((playlist.data?.playlist ?? []) as PlayoutPlaylistItem[]);
 	const offset = $derived(playlist.data?.programme_offset ?? 0);
@@ -512,6 +536,45 @@
 
 <PageHeader title="Remote" />
 
+{#snippet itemBar()}
+	<div class="mt-4">
+		<div class="flex items-baseline justify-between font-mono text-xs">
+			<span class="text-muted">{formatTime(itemTime)}</span>
+			<span class="text-faint">
+				{holding ? 'Command hold' : 'Current item'}
+			</span>
+			<span class="text-muted">{formatTime(itemDuration)}</span>
+		</div>
+		<div
+			bind:this={itemTrackEl}
+			class="group relative mt-1 h-2.5 cursor-pointer touch-none"
+			role="slider"
+			aria-label="Seek within the current item"
+			aria-valuemin={0}
+			aria-valuemax={100}
+			aria-valuenow={Math.round(dragPct ?? itemPct)}
+			tabindex="-1"
+			onpointerdown={onItemTrackDown}
+			onpointermove={onItemTrackMove}
+			onpointerup={(e) => void onItemTrackUp(e)}
+		>
+			<div
+				class="absolute inset-0 bg-surface-3"
+				style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
+			>
+				<div
+					class="h-full {holding ? 'bg-live' : 'bg-text'} {dragPct == null ? 'fill-smooth' : ''}"
+					style="width: {(dragPct ?? itemPct).toFixed(2)}%"
+				></div>
+			</div>
+			<div
+				class="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 bg-accent opacity-0 transition-opacity group-hover:opacity-100"
+				style="left: {(dragPct ?? itemPct).toFixed(2)}%"
+			></div>
+		</div>
+	</div>
+{/snippet}
+
 <ConfirmDialog bind:this={confirmDlg} title="End programme?" />
 
 <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -523,17 +586,37 @@
 			</Banner>
 		{/if}
 
+		<Tabs
+			tabs={[
+				{ id: 'programme', label: 'Programme' },
+				{ id: 'manual', label: 'Manual' }
+			]}
+			value={mode}
+			onselect={(id) => (mode = id as typeof mode)}
+			label="Playout mode"
+		/>
+
 		{#if !mpv.loaded}
 			<Spinner label="Connecting to the player…" />
+		{:else if mode === 'manual'}
+			{#if manual}
+				<section class="panel panel-lifted p-4">
+					<p class="font-mono text-xs text-faint">
+						Manual{manual.position != null
+							? ` · item ${manual.position + 1} of ${manual.items.length}`
+							: ''}
+					</p>
+					<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">
+						{manualCurrent?.title ?? 'Starting…'}
+					</h2>
+					{@render itemBar()}
+				</section>
+			{/if}
 		{:else if !programme}
 			<Idle
 				programmes={programmesQ.data?.programmes ?? []}
 				schedules={schedulesQ.data?.schedules ?? []}
-				oncued={() => {
-					void mpv.refresh();
-					void playout.refresh();
-					playlist.refresh();
-				}}
+				oncued={refreshPlayer}
 			/>
 		{:else if !isRunning}
 			<Cued
@@ -610,44 +693,7 @@
 					</div>
 				</div>
 
-				<div class="mt-4">
-					<div class="flex items-baseline justify-between font-mono text-xs">
-						<span class="text-muted">{formatTime(itemTime)}</span>
-						<span class="text-faint">
-							{holding ? 'Command hold' : 'Current item'}
-						</span>
-						<span class="text-muted">{formatTime(itemDuration)}</span>
-					</div>
-					<div
-						bind:this={itemTrackEl}
-						class="group relative mt-1 h-2.5 cursor-pointer touch-none"
-						role="slider"
-						aria-label="Seek within the current item"
-						aria-valuemin={0}
-						aria-valuemax={100}
-						aria-valuenow={Math.round(dragPct ?? itemPct)}
-						tabindex="-1"
-						onpointerdown={onItemTrackDown}
-						onpointermove={onItemTrackMove}
-						onpointerup={(e) => void onItemTrackUp(e)}
-					>
-						<div
-							class="absolute inset-0 bg-surface-3"
-							style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
-						>
-							<div
-								class="h-full {holding ? 'bg-live' : 'bg-text'} {dragPct == null
-									? 'fill-smooth'
-									: ''}"
-								style="width: {(dragPct ?? itemPct).toFixed(2)}%"
-							></div>
-						</div>
-						<div
-							class="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 bg-accent opacity-0 transition-opacity group-hover:opacity-100"
-							style="left: {(dragPct ?? itemPct).toFixed(2)}%"
-						></div>
-					</div>
-				</div>
+				{@render itemBar()}
 
 				{#if inPreshow}
 					<p class="mt-3 flex items-baseline justify-between font-mono text-xs">
@@ -681,7 +727,7 @@
 		{/if}
 
 		<section class="panel p-4">
-			{#if isRunning}
+			{#if playing}
 				<div class="mx-auto grid max-w-md grid-cols-5 gap-2">
 					<button
 						type="button"
@@ -741,7 +787,7 @@
 			{/if}
 
 			<div
-				class="flex flex-wrap items-center gap-x-4 gap-y-3 {isRunning
+				class="flex flex-wrap items-center gap-x-4 gap-y-3 {playing
 					? 'mt-4 border-t border-border pt-4'
 					: ''}"
 			>
@@ -771,7 +817,7 @@
 					<span class="w-9 text-right font-mono text-xs text-muted">{volume}%</span>
 				</div>
 
-				{#if isRunning}
+				{#if playing}
 					<label class="flex items-center gap-1.5 text-xs text-muted" title="Playback speed">
 						<Gauge size={14} class="shrink-0" />
 						<span class="sr-only">Playback speed</span>
@@ -820,7 +866,17 @@
 			</div>
 		</section>
 
-		{#if isRunning}
+		{#if mode === 'manual'}
+			<ManualSearch
+				onchanged={refreshPlayer}
+				confirmEnd={(msg) =>
+					confirmDlg!.confirm(`${msg}. End it and play this instead?`, {
+						confirmLabel: 'End and play'
+					})}
+			/>
+		{/if}
+
+		{#if playing}
 			<details class="panel" bind:open={tracksOpen}>
 				<summary class="phone-summary sm:hidden">
 					<span class="inline-flex items-center gap-1.5"><Headphones size={13} /> Tracks</span>
@@ -915,114 +971,128 @@
 		{/if}
 	</div>
 
-	<details class="panel min-w-0 xl:sticky xl:top-[4.5rem]" bind:open={upNextOpen}>
-		<summary class="phone-summary sm:hidden">
-			<span class="inline-flex items-center gap-1.5"><ListOrdered size={13} /> Rundown</span>
-			<span class="ml-3 font-mono text-xs text-muted">
-				{programmeCount} item{programmeCount === 1 ? '' : 's'}
-			</span>
-		</summary>
-		<header
-			class="hidden items-center justify-between gap-3 border-b border-border px-4 py-2.5 sm:flex"
-		>
-			<p class="panel-label"><ListOrdered size={13} /> Rundown</p>
-			<span class="font-mono text-xs text-muted">
-				{programmeCount} item{programmeCount === 1 ? '' : 's'}
-			</span>
-		</header>
+	{#if mode === 'manual'}
+		<div class="min-w-0 xl:sticky xl:top-[4.5rem]">
+			<ManualQueue
+				items={manual?.items ?? []}
+				position={manual?.position ?? null}
+				onchanged={refreshPlayer}
+			/>
+		</div>
+	{:else}
+		<details class="panel min-w-0 xl:sticky xl:top-[4.5rem]" bind:open={upNextOpen}>
+			<summary class="phone-summary sm:hidden">
+				<span class="inline-flex items-center gap-1.5"><ListOrdered size={13} /> Rundown</span>
+				<span class="ml-3 font-mono text-xs text-muted">
+					{programmeCount} item{programmeCount === 1 ? '' : 's'}
+				</span>
+			</summary>
+			<header
+				class="hidden items-center justify-between gap-3 border-b border-border px-4 py-2.5 sm:flex"
+			>
+				<p class="panel-label"><ListOrdered size={13} /> Rundown</p>
+				<span class="font-mono text-xs text-muted">
+					{programmeCount} item{programmeCount === 1 ? '' : 's'}
+				</span>
+			</header>
 
-		<div bind:this={timelineEl} class="max-h-[70vh] overflow-y-auto xl:max-h-[calc(100dvh-10rem)]">
-			{#if !mpv.loaded && !playlist.data}
-				<Spinner label="Waiting for playlist…" />
-			{:else if !visibleItems.length}
-				<EmptyState icon={Disc3} title="No playlist loaded" compact />
-			{:else}
-				{#each visibleItems as item (item.index)}
-					{@const rowType = item.programme_position == null ? 'ident' : item.type || 'item'}
-					{@const rowTypeInfo = itemTypeDisplay(rowType)}
-					{@const RowIcon = rowTypeInfo.icon}
-					{@const meta = (item.details?.metadata ?? {}) as ItemMeta}
-					{@const rowTitle =
-						item.title ||
-						meta.movie_title ||
-						(rowType === 'ident' ? openingItemLabel(item) : fileName(item.file)) ||
-						'Untitled'}
-					{@const sub = [meta.year, meta.certification].filter(Boolean).join(' · ')}
-					{@const artUrl =
-						rowType === 'movie' || rowType === 'feature' || rowType === 'trailer'
-							? meta.thumbnail_url || ''
-							: ''}
-					{@const isCurrent = item.index === mpvPos}
-					{@const played = mpvPos != null && item.index < mpvPos}
-					{@const startMs = startTimes.starts.get(item.index)}
-					<button
-						type="button"
-						data-index={item.index}
-						title={item.file || ''}
-						onclick={() => void jumpTo(item.index)}
-						class="relative flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-surface-2
+			<div
+				bind:this={timelineEl}
+				class="max-h-[70vh] overflow-y-auto xl:max-h-[calc(100dvh-10rem)]"
+			>
+				{#if !mpv.loaded && !playlist.data}
+					<Spinner label="Waiting for playlist…" />
+				{:else if !visibleItems.length}
+					<EmptyState icon={Disc3} title="No playlist loaded" compact />
+				{:else}
+					{#each visibleItems as item (item.index)}
+						{@const rowType = item.programme_position == null ? 'ident' : item.type || 'item'}
+						{@const rowTypeInfo = itemTypeDisplay(rowType)}
+						{@const RowIcon = rowTypeInfo.icon}
+						{@const meta = (item.details?.metadata ?? {}) as ItemMeta}
+						{@const rowTitle =
+							item.title ||
+							meta.movie_title ||
+							(rowType === 'ident' ? openingItemLabel(item) : fileName(item.file)) ||
+							'Untitled'}
+						{@const sub = [meta.year, meta.certification].filter(Boolean).join(' · ')}
+						{@const artUrl =
+							rowType === 'movie' || rowType === 'feature' || rowType === 'trailer'
+								? meta.thumbnail_url || ''
+								: ''}
+						{@const isCurrent = item.index === mpvPos}
+						{@const played = mpvPos != null && item.index < mpvPos}
+						{@const startMs = startTimes.starts.get(item.index)}
+						<button
+							type="button"
+							data-index={item.index}
+							title={item.file || ''}
+							onclick={() => void jumpTo(item.index)}
+							class="relative flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-surface-2
 							{rowTypeInfo.classes.edge}
 							{isCurrent ? 'bg-surface-2' : ''}
 							{played ? 'opacity-45' : ''}"
-					>
-						{#if isCurrent}
-							<span class="absolute inset-y-0 left-0 w-0.5 bg-accent"></span>
-						{/if}
-						<span class="w-5 shrink-0 text-center font-mono text-xs text-faint">
-							{item.programme_position != null ? item.programme_position + 1 : '·'}
-						</span>
-						<span
-							class="relative flex h-12 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xs border border-border bg-surface-2"
 						>
-							<RowIcon size={13} class={rowTypeInfo.classes.icon} aria-hidden="true" />
-							{#if artUrl}
-								<img
-									src={artUrl}
-									alt=""
-									loading="lazy"
-									class="absolute inset-0 h-full w-full object-cover"
-									onerror={hideBrokenImage}
-								/>
+							{#if isCurrent}
+								<span class="absolute inset-y-0 left-0 w-0.5 bg-accent"></span>
 							{/if}
-						</span>
-						<span class="min-w-0 flex-1">
-							<span class="block truncate text-sm {isCurrent ? 'text-accent' : ''}">{rowTitle}</span
+							<span class="w-5 shrink-0 text-center font-mono text-xs text-faint">
+								{item.programme_position != null ? item.programme_position + 1 : '·'}
+							</span>
+							<span
+								class="relative flex h-12 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xs border border-border bg-surface-2"
 							>
-							<span class="mt-0.5 flex items-center gap-1.5">
-								<TypeBadge type={rowType} short col class="!text-[0.6rem]" />
-								{#if sub}
-									<span class="truncate text-xs text-faint">{sub}</span>
+								<RowIcon size={13} class={rowTypeInfo.classes.icon} aria-hidden="true" />
+								{#if artUrl}
+									<img
+										src={artUrl}
+										alt=""
+										loading="lazy"
+										class="absolute inset-0 h-full w-full object-cover"
+										onerror={hideBrokenImage}
+									/>
 								{/if}
 							</span>
-						</span>
-						<span class="shrink-0 text-right">
-							{#if startMs != null}
-								<span
-									class="block font-mono text-[0.68rem] {startTimes.projected
-										? 'text-faint italic'
-										: 'text-muted'}"
-									title={startTimes.projected
-										? 'Projected start if playout begins now'
-										: 'Estimated start time'}
+							<span class="min-w-0 flex-1">
+								<span class="block truncate text-sm {isCurrent ? 'text-accent' : ''}"
+									>{rowTitle}</span
 								>
-									{startTimes.projected ? '~' : ''}{formatClock(new Date(startMs))}
+								<span class="mt-0.5 flex items-center gap-1.5">
+									<TypeBadge type={rowType} short col class="!text-[0.6rem]" />
+									{#if sub}
+										<span class="truncate text-xs text-faint">{sub}</span>
+									{/if}
 								</span>
-							{/if}
-							<span class="block font-mono text-xs text-muted">
-								{item.duration ? formatTime(item.duration) : ''}
 							</span>
-						</span>
-						{#if isCurrent}
-							<span
-								class="absolute bottom-0 left-0 h-0.5 bg-accent"
-								style="width: {(dragPct ?? itemPct).toFixed(1)}%"
-							></span>
-						{/if}
-					</button>
-				{/each}
-			{/if}
-		</div>
-	</details>
+							<span class="shrink-0 text-right">
+								{#if startMs != null}
+									<span
+										class="block font-mono text-[0.68rem] {startTimes.projected
+											? 'text-faint italic'
+											: 'text-muted'}"
+										title={startTimes.projected
+											? 'Projected start if playout begins now'
+											: 'Estimated start time'}
+									>
+										{startTimes.projected ? '~' : ''}{formatClock(new Date(startMs))}
+									</span>
+								{/if}
+								<span class="block font-mono text-xs text-muted">
+									{item.duration ? formatTime(item.duration) : ''}
+								</span>
+							</span>
+							{#if isCurrent}
+								<span
+									class="absolute bottom-0 left-0 h-0.5 bg-accent"
+									style="width: {(dragPct ?? itemPct).toFixed(1)}%"
+								></span>
+							{/if}
+						</button>
+					{/each}
+				{/if}
+			</div>
+		</details>
+	{/if}
 </div>
 
 <style>

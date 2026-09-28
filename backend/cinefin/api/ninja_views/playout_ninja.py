@@ -7,10 +7,11 @@ from typing import Any, Literal
 from django.http import HttpRequest
 from ninja import Field, Router, Schema, Status
 
-from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
-from cinefin.api.models import Playlist, PlaylistItem, PlayoutHost, Programme
+from cinefin.api.exceptions import ConflictError, NotFoundError, UnprocessableEntityError, ValidationError
+from cinefin.api.models import Bumper, Movie, Playlist, PlaylistItem, PlayoutHost, Programme, Trailer
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
+from cinefin.api.services.block_types import resolve_media_path
 from cinefin.api.services.playlist_utils import PlaylistUtils
 from cinefin.api.services.playout_agent_service import playout_agent_service
 from cinefin.api.services.playout_service import PlayoutService, mark_programme_played
@@ -149,6 +150,16 @@ class PlaybackStatusSchema(Schema):
     percentage: float = Field(..., description="Playback progress percentage")
 
 
+class ManualItemSchema(Schema):
+    title: str
+    kind: str
+
+
+class ManualQueueSchema(Schema):
+    items: list[ManualItemSchema]
+    position: int | None = Field(None, description="Index of the item on screen")
+
+
 class PlayoutStatusDataSchema(Schema):
     programme: ProgrammeInfoSchema | None = Field(None, description="Current programme information")
     playlist: PlaylistStatusSchema | None = Field(None, description="Playlist status")
@@ -158,6 +169,7 @@ class PlayoutStatusDataSchema(Schema):
     )
     playback: PlaybackStatusSchema | None = Field(None, description="Playback status")
     executing_command: bool = Field(False, description="True while a hold-black command item is holding the screen")
+    manual: ManualQueueSchema | None = Field(None, description="The manual queue, while one plays")
 
 
 class PlayoutStatusResponseSchema(SuccessResponseSchema):
@@ -397,6 +409,12 @@ def _playout_status_data() -> "PlayoutStatusDataSchema":
         executing_command=mpv_service.executing_command,
     )
 
+    if mpv_service.manual_items:
+        response_data.manual = ManualQueueSchema(
+            items=[ManualItemSchema(**i) for i in mpv_service.manual_items],
+            position=mpv_status.get("playlist_pos"),
+        )
+
     if mpv_service.current_programme:
         programme = mpv_service.current_programme
 
@@ -529,7 +547,7 @@ def _playout_status_data() -> "PlayoutStatusDataSchema":
 
         # Player state only (playing/paused/stopped). Pre-show is a programme
         # state reported above; mixing it in here wedged the footer's play/pause.
-        if mpv_service.programme_state == "not_loaded":
+        if mpv_service.programme_state == "not_loaded" and not mpv_service.manual_items:
             state = "stopped"
         else:
             state = playback.get("state", "stopped")
@@ -574,6 +592,68 @@ def reset_playout(request: HttpRequest):
     if not mpv_service.reset():
         raise UnprocessableEntityError("Could not reach the player", error_code="PLAYER_UNREACHABLE")
     return Status(200, MessageResponseSchema(message="Player reset to the idle ident"))
+
+
+class ManualAddSchema(Schema):
+    kind: Literal["movie", "trailer", "media", "url"]
+    id: int | None = Field(None, description="The film, trailer or media item (not for a URL)")
+    url: str | None = Field(None, description="An http(s) stream URL (kind 'url' only)")
+    now: bool = Field(False, description="Play it now instead of adding it to the end of the queue")
+    end_programme: bool = Field(False, description="End a loaded programme first (else 409)")
+
+
+class ManualMoveSchema(Schema):
+    to: int
+
+
+_MANUAL_MODELS = {"movie": Movie, "trailer": Trailer, "media": Bumper}
+
+
+def _manual_source(data: ManualAddSchema) -> tuple[str, str]:
+    """(title, stream URL) for a manual item."""
+    if data.kind == "url":
+        url = (data.url or "").strip()
+        if not re.match(r"^https?://", url):
+            raise ValidationError("Enter an http:// or https:// URL")
+        return url.rstrip("/").rsplit("/", 1)[-1].split("?")[0] or url, url
+    obj = _MANUAL_MODELS[data.kind].objects.filter(id=data.id).first()
+    if obj is None:
+        raise NotFoundError(f"No such {data.kind}")
+    url = resolve_media_path(obj)
+    if not url:
+        raise UnprocessableEntityError(f"'{obj.title}' has no stream", error_code="NO_STREAM")
+    year = getattr(obj, "year", None)
+    return (f"{obj.title} ({year})" if year else obj.title), url
+
+
+@playout_api.post("/manual", response={200: MessageResponseSchema, 409: ErrorResponseSchema, 422: ErrorResponseSchema})
+def manual_add(request: HttpRequest, data: ManualAddSchema):
+    """Manual mode: play or queue a film, trailer, media item or URL outside any programme."""
+    title, url = _manual_source(data)
+    if mpv_service.current_programme is not None:
+        if not data.end_programme:
+            raise ConflictError(
+                f"'{mpv_service.current_programme.name}' is loaded",
+                error_code="PROGRAMME_LOADED",
+            )
+        mpv_service.reset()
+    if not mpv_service.manual_add(title, data.kind, url, now=data.now):
+        raise UnprocessableEntityError("The player didn't take the item", error_code="PLAYER_UNREACHABLE")
+    return Status(200, MessageResponseSchema(message=f"{'Playing' if data.now else 'Queued'} {title}"))
+
+
+@playout_api.delete("/manual/{int:index}", response={200: MessageResponseSchema, 422: ErrorResponseSchema})
+def manual_remove(request: HttpRequest, index: int):
+    if not mpv_service.manual_remove(index):
+        raise UnprocessableEntityError("Couldn't remove that item", error_code="MANUAL_REMOVE_FAILED")
+    return Status(200, MessageResponseSchema(message="Removed from the queue"))
+
+
+@playout_api.post("/manual/{int:index}/move", response={200: MessageResponseSchema, 422: ErrorResponseSchema})
+def manual_move(request: HttpRequest, index: int, data: ManualMoveSchema):
+    if not mpv_service.manual_move(index, data.to):
+        raise UnprocessableEntityError("Couldn't move that item", error_code="MANUAL_MOVE_FAILED")
+    return Status(200, MessageResponseSchema(message="Queue reordered"))
 
 
 @playout_api.post(

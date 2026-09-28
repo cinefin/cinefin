@@ -60,6 +60,10 @@
 		const state = playout.status?.programme?.state;
 		if (state === 'running' || state === 'pre_show')
 			return { tally: true, label: 'On air', colour: 'red' };
+		if (playout.status?.manual)
+			return playout.status.playback?.state === 'paused'
+				? { label: 'Paused', colour: 'amber' }
+				: { tally: true, label: 'On air · manual', colour: 'red' };
 		if (state === 'paused') return { label: 'Paused', colour: 'amber' };
 		if (state === 'loaded') return { label: 'Cued', colour: 'green' };
 		if (playout.error && !playout.status)

@@ -153,6 +153,29 @@ class FakeMPVAgent(StubAgent):
             reply()
             if current:
                 self._emit_property("playlist-pos", 0)
+        elif name == "playlist-move":
+            # mpv semantics: move entry i so it lands before entry j (j may be len).
+            i, j = int(cmd[1]), int(cmd[2])
+            with self._state_lock:
+                current = self.current_file
+                entry = self.playlist.pop(i)
+                self.playlist.insert(j - 1 if j > i else j, entry)
+                if current is not None:
+                    self.pos = self.playlist.index(current)
+            reply()
+        elif name == "playlist-remove":
+            i = int(cmd[1])
+            with self._state_lock:
+                self.playlist.pop(i)
+                removing_current = i == self.pos
+                if self.pos is not None and i < self.pos:
+                    self.pos -= 1
+            reply()
+            if removing_current:
+                self._set_pos(i)
+        elif name == "playlist-play-index":
+            reply()
+            self._set_pos(int(cmd[1]))
         elif name == "stop":
             reply()
             with self._state_lock:

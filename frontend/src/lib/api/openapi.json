@@ -4747,6 +4747,120 @@
         "title": "MPVStatusSchema",
         "type": "object"
       },
+      "ManualAddSchema": {
+        "properties": {
+          "end_programme": {
+            "default": false,
+            "description": "End a loaded programme first (else 409)",
+            "title": "End Programme",
+            "type": "boolean"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The film, trailer or media item (not for a URL)",
+            "title": "Id"
+          },
+          "kind": {
+            "enum": [
+              "movie",
+              "trailer",
+              "media",
+              "url"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "now": {
+            "default": false,
+            "description": "Play it now instead of adding it to the end of the queue",
+            "title": "Now",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An http(s) stream URL (kind 'url' only)",
+            "title": "Url"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ManualAddSchema",
+        "type": "object"
+      },
+      "ManualItemSchema": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "kind"
+        ],
+        "title": "ManualItemSchema",
+        "type": "object"
+      },
+      "ManualMoveSchema": {
+        "properties": {
+          "to": {
+            "title": "To",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "to"
+        ],
+        "title": "ManualMoveSchema",
+        "type": "object"
+      },
+      "ManualQueueSchema": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManualItemSchema"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Index of the item on screen",
+            "title": "Position"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ManualQueueSchema",
+        "type": "object"
+      },
       "MatchTestDataSchema": {
         "properties": {
           "matched": {
@@ -5398,7 +5512,7 @@
       "MediaSourceInput": {
         "properties": {
           "libraries": {
-            "default": "Films,Movies",
+            "default": "Movies",
             "description": "Comma-separated library names",
             "title": "Libraries",
             "type": "string"
@@ -7113,6 +7227,17 @@
             "description": "True while a hold-black command item is holding the screen",
             "title": "Executing Command",
             "type": "boolean"
+          },
+          "manual": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManualQueueSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The manual queue, while one plays"
           },
           "next_item": {
             "anyOf": [
@@ -19452,6 +19577,168 @@
           }
         ],
         "summary": "Load Programme",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/manual": {
+      "post": {
+        "description": "Manual mode: play or queue a film, trailer, media item or URL outside any programme.",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_manual_add",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualAddSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Manual Add",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/manual/{index}": {
+      "delete": {
+        "operationId": "cinefin_api_ninja_views_playout_ninja_manual_remove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "index",
+            "required": true,
+            "schema": {
+              "title": "Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Manual Remove",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/manual/{index}/move": {
+      "post": {
+        "operationId": "cinefin_api_ninja_views_playout_ninja_manual_move",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "index",
+            "required": true,
+            "schema": {
+              "title": "Index",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualMoveSchema"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Manual Move",
         "tags": [
           "Playout"
         ]

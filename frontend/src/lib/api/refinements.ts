@@ -50,6 +50,8 @@ export interface PlayoutStatus {
 	/** True while a hold-black command item is holding the screen. While it is,
 	 * `playback.position/duration` report the command's dwell, not MPV's clock. */
 	executing_command?: boolean;
+	/** The manual queue (ManualQueueSchema), while one plays. */
+	manual?: { items: { title: string; kind: string }[]; position: number | null } | null;
 }
 
 /**

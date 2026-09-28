@@ -268,3 +268,55 @@ class TestErrorAdvance:
             assert wait_until(lambda: service._programme_cursor == 1)
             assert wait_until(lambda: any("playback error" in r.message.lower() for r in caplog.records), timeout=5)
         assert service.programme_state == ProgrammeState.RUNNING
+
+
+# Manual mode: one-off items on the player outside any programme.
+
+A, B, C = "http://d/a.mp4", "http://d/b.mp4", "http://d/c.mp4"
+
+
+def titles(svc):
+    return [i["title"] for i in svc.manual_items]
+
+
+class TestManualQueue:
+    def test_first_item_plays_with_a_black_sentinel_after_it(self, service, fake):
+        assert service.manual_add("A", "url", A) is True
+        assert wait_until(lambda: len(fake.playlist) == 2)
+        assert fake.playlist[0] == A and "/stream/system/black" in fake.playlist[1]
+        assert titles(service) == ["A"]
+
+    def test_queue_appends_before_the_sentinel_and_play_now_goes_next(self, service, fake):
+        service.manual_add("A", "url", A)
+        service.manual_add("B", "url", B)
+        assert wait_until(lambda: len(fake.playlist) == 3)
+        assert fake.playlist[:2] == [A, B]
+        service.manual_add("C", "url", C, now=True)
+        assert wait_until(lambda: fake.current_file == C)
+        assert fake.playlist[:3] == [A, C, B] and titles(service) == ["A", "C", "B"]
+
+    def test_move_and_remove_keep_titles_in_step_with_the_player(self, service, fake):
+        for t, u in (("A", A), ("B", B), ("C", C)):
+            service.manual_add(t, "url", u)
+        assert wait_until(lambda: len(fake.playlist) == 4)
+        assert service.manual_move(2, 1) is True
+        assert wait_until(lambda: fake.playlist[:3] == [A, C, B])
+        assert service.manual_move(0, 2) is True
+        assert wait_until(lambda: fake.playlist[:3] == [C, B, A])
+        assert titles(service) == ["C", "B", "A"]
+        assert service.manual_remove(1) is True
+        assert wait_until(lambda: fake.playlist[:2] == [C, A])
+        assert titles(service) == ["C", "A"]
+
+    def test_the_sentinel_returns_the_player_to_the_ident(self, service, fake):
+        service.manual_add("A", "url", A)
+        assert wait_until(lambda: len(fake.playlist) == 2)
+        fake.finish_current()
+        assert wait_until(lambda: not service.manual_items)
+        assert wait_until(lambda: len(fake.playlist) == 1 and "/stream/" in fake.playlist[0])
+
+    def test_loading_a_programme_replaces_manual_play(self, service, fake):
+        service.manual_add("A", "url", A)
+        programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        assert service.load_programme(programme) is True
+        assert service.manual_items == []

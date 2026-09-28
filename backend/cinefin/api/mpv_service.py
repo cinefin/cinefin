@@ -13,7 +13,7 @@ from .models import (
     Settings,
 )
 from .mpv_controller import MPVController
-from .utils.assets import system_ident_path, system_ident_stream_url
+from .utils.assets import system_black_stream_url, system_ident_path, system_ident_stream_url
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,11 @@ class MPVService:
         # status stream (and its poll fallback) can build a snapshot with no
         # per-request mpv round-trips. See services/playout_events.py.
         self._live = {"time": None, "duration": None, "pause": None, "playlist_pos": None, "file": None}
+
+        # Manual mode: one-off items played outside any programme, 1:1 with MPV's
+        # playlist ahead of a trailing black sentinel (whose start returns the
+        # player to the ident, as at a programme's end). Empty = not in manual mode.
+        self.manual_items = []
 
         # Don't auto-connect - use lazy initialization instead
 
@@ -376,7 +381,7 @@ class MPVService:
         next status poll. Never clobbers a loaded/running programme, and never
         raises: a wedged or absent player just leaves the screen as it was."""
         try:
-            if self.programme_state != ProgrammeState.NOT_LOADED:
+            if self.programme_state != ProgrammeState.NOT_LOADED or self.manual_items:
                 return False
             if not self._ensure_connected():
                 return False
@@ -393,6 +398,7 @@ class MPVService:
             return False
 
         self._programme_cursor = -1
+        self.manual_items = []
         self._set_state(ProgrammeState.NOT_LOADED)
         self.current_programme = None
         self.current_playlist = None
@@ -449,6 +455,7 @@ class MPVService:
 
                 self._title_index = self._title_pause_at = None
                 self._title_armed = False
+                self.manual_items = []  # a programme (or a screening's lead-in) replaces manual play
                 if title_stream_url:
                     logger.info(f"Loading programme title (streamed): {programme.name}")
                     fade_in = programme.title_fade_in or 0
@@ -633,6 +640,14 @@ class MPVService:
 
         if self._title_pause_at is not None:
             self._title_started()
+
+        if self.manual_items and self._is_black_clip(filepath):
+            logger.info("Manual queue finished — returning to the ident")
+            self.manual_items = []
+            if not self._load_ident_paused():
+                self.controller.pause()
+            self._notify_live()
+            return
 
         # Black video at end of programme - reset to ident. The black clip is
         # streamed (/stream/system/black/) now that the player is remote;
@@ -1082,6 +1097,57 @@ class MPVService:
         if not self._ensure_connected():
             return False
         return self.controller.keypress(key)
+
+    def manual_add(self, title, kind, url, now=False):
+        """Play (``now``) or queue a one-off item. The caller ends any loaded programme first.
+
+        Play now puts the item straight after the current one and skips to it, keeping
+        the rest of the queue; the first item starts the queue (and its sentinel)."""
+        if not self._ensure_connected():
+            return False
+        with self._playout_lock:
+            entry = {"title": title, "kind": kind}
+            c = self.controller
+            if not self.manual_items:
+                ok = c.load_file(url, replace=True) and c.enqueue_file(system_black_stream_url()) and c.pause(False)
+                self.manual_items = [entry] if ok else []
+                self._notify_live()
+                return ok
+            end = len(c.get_playlist() or [])  # the sentinel is the last entry
+            to = min((c.get_property("playlist_pos") or 0) + 1, end - 1) if now else end - 1
+            ok = c.enqueue_file(url) and c._mpv_command("playlist-move", end, to)
+            if ok:
+                self.manual_items.insert(to, entry)
+                if now:
+                    ok = c._mpv_command("playlist-play-index", to) and c.pause(False)
+            self._notify_live()
+            return ok
+
+    def manual_remove(self, index):
+        """Drop a queued item (removing the one on screen skips to the next)."""
+        with self._playout_lock:
+            if not 0 <= index < len(self.manual_items) or not self._ensure_connected():
+                return False
+            if len(self.manual_items) == 1:
+                return self.reset()
+            ok = self.controller._mpv_command("playlist-remove", index)
+            if ok:
+                self.manual_items.pop(index)
+            self._notify_live()
+            return ok
+
+    def manual_move(self, index, to):
+        """Reorder the queue: move item ``index`` to position ``to``."""
+        with self._playout_lock:
+            n = len(self.manual_items)
+            if not (0 <= index < n and 0 <= to < n) or index == to or not self._ensure_connected():
+                return False
+            # MPV's playlist-move inserts *before* its target, so a move down targets one past it.
+            ok = self.controller._mpv_command("playlist-move", index, to + 1 if to > index else to)
+            if ok:
+                self.manual_items.insert(to, self.manual_items.pop(index))
+            self._notify_live()
+            return ok
 
     def get_status(self):
         """Get current playback status"""

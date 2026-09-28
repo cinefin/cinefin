@@ -1487,6 +1487,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/playout/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Manual Add
+         * @description Manual mode: play or queue a film, trailer, media item or URL outside any programme.
+         */
+        post: operations["cinefin_api_ninja_views_playout_ninja_manual_add"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/playout/manual/{index}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Manual Remove */
+        delete: operations["cinefin_api_ninja_views_playout_ninja_manual_remove"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/playout/manual/{index}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Manual Move */
+        post: operations["cinefin_api_ninja_views_playout_ninja_manual_move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/playout/playlist": {
         parameters: {
             query?: never;
@@ -5965,6 +6019,58 @@ export interface components {
              */
             volume?: number | null;
         };
+        /** ManualAddSchema */
+        ManualAddSchema: {
+            /**
+             * End Programme
+             * @description End a loaded programme first (else 409)
+             * @default false
+             */
+            end_programme: boolean;
+            /**
+             * Id
+             * @description The film, trailer or media item (not for a URL)
+             */
+            id?: number | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "movie" | "trailer" | "media" | "url";
+            /**
+             * Now
+             * @description Play it now instead of adding it to the end of the queue
+             * @default false
+             */
+            now: boolean;
+            /**
+             * Url
+             * @description An http(s) stream URL (kind 'url' only)
+             */
+            url?: string | null;
+        };
+        /** ManualItemSchema */
+        ManualItemSchema: {
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+        };
+        /** ManualMoveSchema */
+        ManualMoveSchema: {
+            /** To */
+            to: number;
+        };
+        /** ManualQueueSchema */
+        ManualQueueSchema: {
+            /** Items */
+            items: components["schemas"]["ManualItemSchema"][];
+            /**
+             * Position
+             * @description Index of the item on screen
+             */
+            position?: number | null;
+        };
         /** MatchTestDataSchema */
         MatchTestDataSchema: {
             /**
@@ -6313,7 +6419,7 @@ export interface components {
             /**
              * Libraries
              * @description Comma-separated library names
-             * @default Films,Movies
+             * @default Movies
              */
             libraries: string;
             /**
@@ -7246,6 +7352,8 @@ export interface components {
              * @default false
              */
             executing_command: boolean;
+            /** @description The manual queue, while one plays */
+            manual?: components["schemas"]["ManualQueueSchema"] | null;
             /** @description The upcoming playlist item (the readout's 'Next ·' foot) */
             next_item?: components["schemas"]["NextItemSchema"] | null;
             /** @description Playback status */
@@ -14427,6 +14535,114 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_manual_add: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualAddSchema"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponseSchema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_manual_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_manual_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                index: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualMoveSchema"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
