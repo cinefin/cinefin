@@ -24,6 +24,7 @@
 		VolumeX
 	} from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
+	import { query } from '$lib/api/query.svelte';
 	import { mutate } from '$lib/api/mutate';
 	import CommandPad from '$lib/commands/CommandPad.svelte';
 	import { showToast as toast } from '$lib/toast.svelte';
@@ -35,7 +36,8 @@
 	import type { components } from '$lib/api/types.gen';
 	import Banner from '$lib/components/ui/Banner.svelte';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
-	import Tally from '$lib/components/Tally.svelte';
+	import Cued from '$lib/remote/Cued.svelte';
+	import Idle from '$lib/remote/Idle.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -60,6 +62,14 @@
 	$effect(() => playout.subscribe());
 	$effect(() => mpv.subscribe());
 	$effect(() => playlist.subscribe());
+
+	// The idle and cued panels: what could be cued, and a cued programme's films.
+	const programmesQ = query(() => unwrap(api.GET('/api/v2/programmes/list')));
+	const schedulesQ = query(() =>
+		unwrap(api.GET('/api/v2/schedules/list', { params: { query: { show_past: false } } }))
+	);
+	$effect(() => programmesQ.invalidatesOn(['programmes']));
+	$effect(() => schedulesQ.invalidatesOn(['schedules', 'programmes']));
 
 	// Pre-flight warnings stashed by the programme page's "Cue & open console".
 	try {
@@ -87,10 +97,6 @@
 	const programme = $derived(st?.programme ?? null);
 	const isRunning = $derived(!!programme?.running);
 	const isPaused = $derived(!pb?.playing || !!pb?.paused);
-
-	// Cued (loaded, not on air): the transport acts on the paused System Ident, not the
-	// programme, so lock it until Start (Start, End, volume/mute and fullscreen stay live).
-	const transportLocked = $derived(!!programme && !isRunning);
 
 	const items = $derived((playlist.data?.playlist ?? []) as PlayoutPlaylistItem[]);
 	const offset = $derived(playlist.data?.programme_offset ?? 0);
@@ -138,19 +144,16 @@
 		timing.total > 0 ? Math.min(100, (programmeElapsed / timing.total) * 100) : 0
 	);
 
-	// On air and Pre-show are the tally (the loud state); the rest are lamps.
-	const stateBadge = $derived.by(
-		(): { label: string; tally?: boolean; colour?: 'green' | 'amber' | 'neutral' } => {
-			if (!programme) return { label: 'No programme', colour: 'neutral' };
-			if (isRunning) {
-				if (offset > 0 && mpvPos != null && mpvPos < offset)
-					return { label: 'Pre-show', tally: true };
-				if (pb?.paused) return { label: 'Paused', colour: 'amber' };
-				return { label: 'On air', tally: true };
-			}
-			return { label: 'Cued', colour: 'green' };
-		}
-	);
+	// Pre-show: on an item before the programme's first, and the time left until it.
+	const inPreshow = $derived(isRunning && mpvPos != null && mpvPos < offset);
+	const preshowLeft = $derived.by(() => {
+		if (!inPreshow || mpvPos == null) return 0;
+		// The current item's length is the player's (an ident has none stored).
+		const later = items
+			.filter((it) => it.index > mpvPos && it.index < offset)
+			.reduce((sum, it) => sum + (it.duration || 0), 0);
+		return Math.max(0, itemDuration - itemTime) + later;
+	});
 
 	function fileName(path: string | null | undefined): string {
 		if (!path) return '';
@@ -162,21 +165,26 @@
 		return (item.file || '').includes('/stream/title/') ? 'Title card' : 'System Ident';
 	}
 
-	const npMeta = $derived((current?.details?.metadata ?? {}) as ItemMeta);
-	const npType = $derived(current?.type || 'item');
-	const npTitle = $derived.by(() => {
-		if (!current) return 'No media loaded';
+	function itemTitle(item: PlayoutPlaylistItem): string {
+		const meta = (item.details?.metadata ?? {}) as ItemMeta;
 		// A pre-show opening item is a stream URL (title/ident) — label it, not its file name.
-		const fallback = programmePosition == null ? openingItemLabel(current) : fileName(current.file);
+		const fallback = item.programme_position == null ? openingItemLabel(item) : fileName(item.file);
 		return (
-			current.title ||
-			npMeta.movie_title ||
-			npMeta.trailer_title ||
-			npMeta.bumper_title ||
+			item.title ||
+			meta.movie_title ||
+			meta.trailer_title ||
+			meta.bumper_title ||
 			fallback ||
 			'Untitled'
 		);
-	});
+	}
+
+	const npMeta = $derived((current?.details?.metadata ?? {}) as ItemMeta);
+	const npType = $derived(current?.type || 'item');
+	const npTitle = $derived(current ? itemTitle(current) : 'No media loaded');
+	const cuedFilms = $derived(
+		programmesQ.data?.programmes.find((p) => p.id === programme?.id)?.movies ?? []
+	);
 	const npPosterUrl = $derived(
 		npType === 'movie' || npType === 'feature' ? npMeta.thumbnail_url || '' : ''
 	);
@@ -223,14 +231,7 @@
 		}
 	}
 
-	async function primaryAction(): Promise<void> {
-		if (isRunning) return togglePlayPause();
-		return runProgramme();
-	}
-
 	async function togglePlayPause(): Promise<void> {
-		// Cued but not on air yet: start playout rather than poking MPV's pause state.
-		if (!isRunning && programme) return runProgramme();
 		try {
 			await mpvCommand('cycle', ['pause']);
 			void mpv.refresh();
@@ -291,7 +292,6 @@
 	}
 
 	async function seekRelative(seconds: number): Promise<void> {
-		if (transportLocked) return;
 		try {
 			await mpvCommand('seek', [seconds, 'relative']);
 			void mpv.refresh();
@@ -301,7 +301,6 @@
 	}
 
 	async function playlistNav(direction: 'previous' | 'next'): Promise<void> {
-		if (transportLocked) return;
 		try {
 			await unwrap(api.POST('/api/v2/playout/control', { body: { action: direction } }));
 			void mpv.refresh();
@@ -339,7 +338,6 @@
 	}
 
 	async function setSpeed(speed: number): Promise<void> {
-		if (transportLocked) return;
 		try {
 			await setProperty('speed', speed);
 			void mpv.refresh();
@@ -349,7 +347,6 @@
 	}
 
 	async function selectTrack(type: 'audio' | 'sub', id: number | 'no'): Promise<void> {
-		if (transportLocked) return;
 		try {
 			await setProperty(type === 'audio' ? 'aid' : 'sid', id);
 			void mpv.refresh();
@@ -367,7 +364,7 @@
 	}
 
 	function onItemTrackDown(e: PointerEvent) {
-		if (transportLocked || !itemTrackEl) return;
+		if (!itemTrackEl) return;
 		itemTrackEl.setPointerCapture(e.pointerId);
 		dragPct = trackPct(e, itemTrackEl);
 	}
@@ -392,7 +389,7 @@
 	}
 
 	async function seekFromProgrammeTrack(e: MouseEvent) {
-		if (transportLocked || !timing.total) return;
+		if (!timing.total) return;
 		const el = e.currentTarget as HTMLElement;
 		const rect = el.getBoundingClientRect();
 		const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -505,8 +502,6 @@
 			?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 	});
 
-	const primaryLabel = $derived(isRunning ? (pb?.paused ? 'Resume' : 'Pause') : 'Start playout');
-
 	function hideBrokenImage(e: Event) {
 		(e.currentTarget as HTMLImageElement).style.display = 'none';
 	}
@@ -521,47 +516,6 @@
 
 <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
 	<div class="min-w-0 space-y-4">
-		<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-			<div class="min-w-0 flex-1">
-				<div class="flex min-w-0 items-center gap-2.5">
-					<h2 class="min-w-0 text-lg font-semibold sm:truncate sm:text-xl">
-						{programme?.name || 'No programme cued'}
-					</h2>
-					{#if stateBadge.tally}
-						<Tally label={stateBadge.label} />
-					{:else}
-						<span
-							class="shrink-0 text-sm font-medium {stateBadge.colour === 'green'
-								? 'text-success'
-								: stateBadge.colour === 'amber'
-									? 'text-warning'
-									: 'text-faint'}"
-						>
-							{stateBadge.label}
-						</span>
-					{/if}
-				</div>
-				{#if !mpv.loaded}
-					<p class="mt-0.5 font-mono text-xs text-faint">Connecting to the player…</p>
-				{:else if !connected}
-					<p class="mt-0.5 font-mono text-xs text-danger">Player disconnected</p>
-				{/if}
-			</div>
-			<Button
-				variant="primary"
-				disabled={!programme || starting}
-				title="Start playout when cued; pause/resume while on air"
-				onclick={() => void primaryAction()}
-			>
-				{#if isRunning && !pb?.paused}
-					<Pause size={14} />
-				{:else}
-					<Play size={14} />
-				{/if}
-				{starting ? 'Starting…' : primaryLabel}
-			</Button>
-		</div>
-
 		{#if !connected && mpv.loaded}
 			<Banner severity="danger">
 				Player not connected - check the playout host under
@@ -569,199 +523,228 @@
 			</Banner>
 		{/if}
 
-		<section class="panel panel-lifted p-4">
-			<div class="flex gap-4">
-				{#if current}
-					{@const npTypeInfo = itemTypeDisplay(npType)}
-					{@const TypeIcon = npTypeInfo.icon}
-					<div
-						class="film-grain aspect-[2/3] w-20 shrink-0 overflow-hidden border border-border bg-surface-3 sm:w-28"
-					>
-						{#if npPosterUrl}
-							<img
-								src={npPosterUrl}
-								alt=""
-								class="h-full w-full object-cover"
-								onerror={hideBrokenImage}
-								onload={showLoadedImage}
-							/>
-						{:else}
-							<div class="flex h-full items-center justify-center">
-								<TypeIcon size={30} class={npTypeInfo.classes.icon} aria-hidden="true" />
-							</div>
+		{#if !mpv.loaded}
+			<Spinner label="Connecting to the player…" />
+		{:else if !programme}
+			<Idle
+				programmes={programmesQ.data?.programmes ?? []}
+				schedules={schedulesQ.data?.schedules ?? []}
+				oncued={() => {
+					void mpv.refresh();
+					void playout.refresh();
+					playlist.refresh();
+				}}
+			/>
+		{:else if !isRunning}
+			<Cued
+				name={programme.name}
+				films={cuedFilms}
+				total={timing.total}
+				count={programmeCount}
+				firstUp={programmeItems[0] ? itemTitle(programmeItems[0]) : null}
+				holding={current ? openingItemLabel(current) : 'System Ident'}
+				{starting}
+				onstart={() => void runProgramme()}
+			/>
+		{:else}
+			<section class="panel panel-lifted p-4">
+				<p class="mb-3 truncate text-sm text-muted">{programme.name}</p>
+				<div class="flex gap-4">
+					{#if current}
+						{@const npTypeInfo = itemTypeDisplay(npType)}
+						{@const TypeIcon = npTypeInfo.icon}
+						<div
+							class="film-grain aspect-[2/3] w-20 shrink-0 overflow-hidden border border-border bg-surface-3 sm:w-28"
+						>
+							{#if npPosterUrl}
+								<img
+									src={npPosterUrl}
+									alt=""
+									class="h-full w-full object-cover"
+									onerror={hideBrokenImage}
+									onload={showLoadedImage}
+								/>
+							{:else}
+								<div class="flex h-full items-center justify-center">
+									<TypeIcon size={30} class={npTypeInfo.classes.icon} aria-hidden="true" />
+								</div>
+							{/if}
+						</div>
+					{/if}
+					<div class="flex min-w-0 flex-1 flex-col">
+						<p class="flex items-center gap-1.5 font-mono text-xs">
+							{#if current}
+								{@const npTypeInfo = itemTypeDisplay(npType)}
+								<span class="text-muted">{npTypeInfo.label}</span>
+								<span class="text-faint">·</span>
+								<span class="text-faint">
+									{programmePosition != null && programmeCount > 0
+										? `Item ${programmePosition + 1} of ${programmeCount}`
+										: 'Pre-show'}
+								</span>
+							{:else}
+								<span class="text-faint">Idle - no media loaded</span>
+							{/if}
+						</p>
+						<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">{npTitle}</h2>
+
+						{#if current}
+							<p class="mt-1.5 flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted">
+								{#each [npMeta.year, npMeta.certification, current.duration ? formatTime(current.duration) : null, npMeta.resolution].filter(Boolean) as fact, i (i)}
+									{#if i > 0}<span class="text-faint">·</span>{/if}<span>{fact}</span>
+								{/each}
+							</p>
+							{@const credits = [
+								npMeta.director,
+								Array.isArray(npMeta.genres) ? npMeta.genres.slice(0, 3).join(', ') : ''
+							].filter(Boolean)}
+							{#if credits.length}
+								<p class="mt-0.5 truncate text-xs text-faint">{credits.join(' · ')}</p>
+							{/if}
+							{#if npType === 'command' && holding}
+								<p class="mt-auto pt-2 text-xs text-live">
+									Command running - <span class="font-medium">Next</span> ends the hold.
+								</p>
+							{/if}
 						{/if}
 					</div>
-				{/if}
-				<div class="flex min-w-0 flex-1 flex-col">
-					<p class="flex items-center gap-1.5 font-mono text-xs">
-						{#if current}
-							{@const npTypeInfo = itemTypeDisplay(npType)}
-							<span class="text-muted">{npTypeInfo.label}</span>
-							<span class="text-faint">·</span>
-							<span class="text-faint">
-								{programmePosition != null && programmeCount > 0
-									? `Item ${programmePosition + 1} of ${programmeCount}`
-									: 'Pre-show'}
-							</span>
-						{:else}
-							<span class="text-faint">Idle - no media loaded</span>
-						{/if}
-					</p>
-					<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">{npTitle}</h2>
-
-					{#if current}
-						<p class="mt-1.5 flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted">
-							{#each [npMeta.year, npMeta.certification, current.duration ? formatTime(current.duration) : null, npMeta.resolution].filter(Boolean) as fact, i (i)}
-								{#if i > 0}<span class="text-faint">·</span>{/if}<span>{fact}</span>
-							{/each}
-						</p>
-						{@const credits = [
-							npMeta.director,
-							Array.isArray(npMeta.genres) ? npMeta.genres.slice(0, 3).join(', ') : ''
-						].filter(Boolean)}
-						{#if credits.length}
-							<p class="mt-0.5 truncate text-xs text-faint">{credits.join(' · ')}</p>
-						{/if}
-						{#if npType === 'command' && holding}
-							<p class="mt-auto pt-2 text-xs text-live">
-								Command running - <span class="font-medium">Next</span> ends the hold.
-							</p>
-						{/if}
-					{/if}
 				</div>
-			</div>
 
-			<div class="mt-4">
-				<div class="flex items-baseline justify-between font-mono text-xs">
-					<span class="text-muted">{formatTime(itemTime)}</span>
-					<span class="text-faint">
-						{holding ? 'Command hold' : 'Current item'}
-					</span>
-					<span class="text-muted">{formatTime(itemDuration)}</span>
-				</div>
-				<div
-					bind:this={itemTrackEl}
-					class="group relative mt-1 h-2.5 touch-none {transportLocked
-						? 'cursor-not-allowed opacity-50'
-						: 'cursor-pointer'}"
-					role="slider"
-					aria-label="Seek within the current item"
-					aria-valuemin={0}
-					aria-valuemax={100}
-					aria-valuenow={Math.round(dragPct ?? itemPct)}
-					tabindex="-1"
-					onpointerdown={onItemTrackDown}
-					onpointermove={onItemTrackMove}
-					onpointerup={(e) => void onItemTrackUp(e)}
-				>
+				<div class="mt-4">
+					<div class="flex items-baseline justify-between font-mono text-xs">
+						<span class="text-muted">{formatTime(itemTime)}</span>
+						<span class="text-faint">
+							{holding ? 'Command hold' : 'Current item'}
+						</span>
+						<span class="text-muted">{formatTime(itemDuration)}</span>
+					</div>
 					<div
-						class="absolute inset-0 bg-surface-3"
-						style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
+						bind:this={itemTrackEl}
+						class="group relative mt-1 h-2.5 cursor-pointer touch-none"
+						role="slider"
+						aria-label="Seek within the current item"
+						aria-valuemin={0}
+						aria-valuemax={100}
+						aria-valuenow={Math.round(dragPct ?? itemPct)}
+						tabindex="-1"
+						onpointerdown={onItemTrackDown}
+						onpointermove={onItemTrackMove}
+						onpointerup={(e) => void onItemTrackUp(e)}
 					>
 						<div
-							class="h-full {holding ? 'bg-live' : 'bg-text'} {dragPct == null
-								? 'fill-smooth'
-								: ''}"
-							style="width: {(dragPct ?? itemPct).toFixed(2)}%"
+							class="absolute inset-0 bg-surface-3"
+							style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
+						>
+							<div
+								class="h-full {holding ? 'bg-live' : 'bg-text'} {dragPct == null
+									? 'fill-smooth'
+									: ''}"
+								style="width: {(dragPct ?? itemPct).toFixed(2)}%"
+							></div>
+						</div>
+						<div
+							class="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 bg-accent opacity-0 transition-opacity group-hover:opacity-100"
+							style="left: {(dragPct ?? itemPct).toFixed(2)}%"
 						></div>
 					</div>
-					<div
-						class="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 bg-accent opacity-0 transition-opacity group-hover:opacity-100"
-						style="left: {(dragPct ?? itemPct).toFixed(2)}%"
-					></div>
 				</div>
-			</div>
 
-			<div class="mt-3">
-				<div class="flex items-baseline justify-between font-mono text-xs">
-					<span class="text-muted">{formatTime(programmeElapsed)}</span>
-					<span class="text-faint">Whole programme</span>
-					<span class="text-muted"
-						>{timing.total > 0 ? `-${formatTime(programmeRemaining)}` : '0:00'}</span
-					>
-				</div>
-				<button
-					type="button"
-					class="mt-1 block h-1.5 w-full bg-surface-3 {transportLocked
-						? 'cursor-not-allowed opacity-50'
-						: 'cursor-pointer'}"
-					style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
-					aria-label="Seek within the programme"
-					disabled={transportLocked}
-					onclick={(e) => void seekFromProgrammeTrack(e)}
-				>
-					<div
-						class="fill-smooth h-full bg-text/60"
-						style="width: {programmePct.toFixed(2)}%"
-					></div>
-				</button>
-			</div>
-		</section>
+				{#if inPreshow}
+					<p class="mt-3 flex items-baseline justify-between font-mono text-xs">
+						<span class="text-faint">Programme starts in</span>
+						<span class="text-text">{formatTime(preshowLeft)}</span>
+					</p>
+				{:else}
+					<div class="mt-3">
+						<div class="flex items-baseline justify-between font-mono text-xs">
+							<span class="text-muted">{formatTime(programmeElapsed)}</span>
+							<span class="text-faint">Whole programme</span>
+							<span class="text-muted"
+								>{timing.total > 0 ? `-${formatTime(programmeRemaining)}` : '0:00'}</span
+							>
+						</div>
+						<button
+							type="button"
+							class="mt-1 block h-1.5 w-full cursor-pointer bg-surface-3"
+							style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
+							aria-label="Seek within the programme"
+							onclick={(e) => void seekFromProgrammeTrack(e)}
+						>
+							<div
+								class="fill-smooth h-full bg-text/60"
+								style="width: {programmePct.toFixed(2)}%"
+							></div>
+						</button>
+					</div>
+				{/if}
+			</section>
+		{/if}
 
 		<section class="panel p-4">
-			<div class="mx-auto grid max-w-md grid-cols-5 gap-2">
-				<button
-					type="button"
-					class="tbtn"
-					title="Previous item"
-					aria-label="Previous item"
-					disabled={transportLocked || !connected}
-					onclick={() => void playlistNav('previous')}
-				>
-					<SkipBack size={20} />
-				</button>
-				<button
-					type="button"
-					class="tbtn"
-					title="Back 10 seconds"
-					aria-label="Back 10 seconds"
-					disabled={transportLocked || !connected}
-					onclick={() => void seekRelative(-10)}
-				>
-					<RotateCcw size={18} /><span class="tbtn-num">10s</span>
-				</button>
-				<button
-					type="button"
-					class="tbtn tbtn-primary"
-					title="Pause / Resume (starts playout when cued)"
-					aria-label="Pause or resume"
-					disabled={transportLocked || !connected}
-					onclick={() => void togglePlayPause()}
-				>
-					{#if isPaused}
-						<Play size={24} />
-					{:else}
-						<Pause size={24} />
-					{/if}
-				</button>
-				<button
-					type="button"
-					class="tbtn"
-					title="Forward 10 seconds"
-					aria-label="Forward 10 seconds"
-					disabled={transportLocked || !connected}
-					onclick={() => void seekRelative(10)}
-				>
-					<RotateCw size={18} /><span class="tbtn-num">10s</span>
-				</button>
-				<button
-					type="button"
-					class="tbtn"
-					title="Next item"
-					aria-label="Next item"
-					disabled={transportLocked || !connected}
-					onclick={() => void playlistNav('next')}
-				>
-					<SkipForward size={20} />
-				</button>
-			</div>
-			{#if transportLocked}
-				<p class="mt-3 text-center text-xs text-muted">
-					Cued - start the programme to unlock the transport.
-				</p>
+			{#if isRunning}
+				<div class="mx-auto grid max-w-md grid-cols-5 gap-2">
+					<button
+						type="button"
+						class="tbtn"
+						title="Previous item"
+						aria-label="Previous item"
+						disabled={!connected}
+						onclick={() => void playlistNav('previous')}
+					>
+						<SkipBack size={20} />
+					</button>
+					<button
+						type="button"
+						class="tbtn"
+						title="Back 10 seconds"
+						aria-label="Back 10 seconds"
+						disabled={!connected}
+						onclick={() => void seekRelative(-10)}
+					>
+						<RotateCcw size={18} /><span class="tbtn-num">10s</span>
+					</button>
+					<button
+						type="button"
+						class="tbtn tbtn-primary"
+						title="Pause / Resume (starts playout when cued)"
+						aria-label="Pause or resume"
+						disabled={!connected}
+						onclick={() => void togglePlayPause()}
+					>
+						{#if isPaused}
+							<Play size={24} />
+						{:else}
+							<Pause size={24} />
+						{/if}
+					</button>
+					<button
+						type="button"
+						class="tbtn"
+						title="Forward 10 seconds"
+						aria-label="Forward 10 seconds"
+						disabled={!connected}
+						onclick={() => void seekRelative(10)}
+					>
+						<RotateCw size={18} /><span class="tbtn-num">10s</span>
+					</button>
+					<button
+						type="button"
+						class="tbtn"
+						title="Next item"
+						aria-label="Next item"
+						disabled={!connected}
+						onclick={() => void playlistNav('next')}
+					>
+						<SkipForward size={20} />
+					</button>
+				</div>
 			{/if}
 
-			<div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border pt-4">
+			<div
+				class="flex flex-wrap items-center gap-x-4 gap-y-3 {isRunning
+					? 'mt-4 border-t border-border pt-4'
+					: ''}"
+			>
 				<div class="flex min-w-40 flex-1 items-center gap-2">
 					<button
 						type="button"
@@ -788,21 +771,23 @@
 					<span class="w-9 text-right font-mono text-xs text-muted">{volume}%</span>
 				</div>
 
-				<label class="flex items-center gap-1.5 text-xs text-muted" title="Playback speed">
-					<Gauge size={14} class="shrink-0" />
-					<span class="sr-only">Playback speed</span>
-					<select
-						class="speed-select"
-						disabled={transportLocked || !connected}
-						value={String(currentSpeed)}
-						onchange={(e) =>
-							void setSpeed(parseFloat((e.currentTarget as HTMLSelectElement).value))}
-					>
-						{#each SPEEDS as speed (speed)}
-							<option value={String(speed)}>{speed}×</option>
-						{/each}
-					</select>
-				</label>
+				{#if isRunning}
+					<label class="flex items-center gap-1.5 text-xs text-muted" title="Playback speed">
+						<Gauge size={14} class="shrink-0" />
+						<span class="sr-only">Playback speed</span>
+						<select
+							class="speed-select"
+							disabled={!connected}
+							value={String(currentSpeed)}
+							onchange={(e) =>
+								void setSpeed(parseFloat((e.currentTarget as HTMLSelectElement).value))}
+						>
+							{#each SPEEDS as speed (speed)}
+								<option value={String(speed)}>{speed}×</option>
+							{/each}
+						</select>
+					</label>
+				{/if}
 
 				<div class="ml-auto flex items-center gap-2">
 					<Button
@@ -821,70 +806,73 @@
 					>
 						<RotateCcw size={13} /> Return to ident
 					</Button>
-					<Button
-						size="sm"
-						variant="danger"
-						title="End the programme - the running order is cleared and the System Ident returns"
-						disabled={!programme}
-						onclick={() => void stop()}
-					>
-						<Square size={12} /> End programme
-					</Button>
+					{#if programme}
+						<Button
+							size="sm"
+							variant="danger"
+							title="End the programme - the running order is cleared and the System Ident returns"
+							onclick={() => void stop()}
+						>
+							<Square size={12} /> End programme
+						</Button>
+					{/if}
 				</div>
 			</div>
 		</section>
 
-		<details class="panel" bind:open={tracksOpen}>
-			<summary class="phone-summary sm:hidden">
-				<span class="inline-flex items-center gap-1.5"><Headphones size={13} /> Tracks</span>
-			</summary>
-			<div class="grid grid-cols-2 gap-3 p-4">
-				<div class="min-w-0">
-					<p class="panel-label"><Headphones size={12} /> Audio</p>
-					<div class="track-col mt-1.5">
-						{#if !audioTracks.length}
-							<span class="text-xs text-faint">No audio tracks</span>
-						{:else}
-							{#each audioTracks as track, i (track.id)}
+		{#if isRunning}
+			<details class="panel" bind:open={tracksOpen}>
+				<summary class="phone-summary sm:hidden">
+					<span class="inline-flex items-center gap-1.5"><Headphones size={13} /> Tracks</span>
+				</summary>
+				<div class="grid grid-cols-2 gap-3 p-4">
+					<div class="min-w-0">
+						<p class="panel-label"><Headphones size={12} /> Audio</p>
+						<div class="track-col mt-1.5">
+							{#if !audioTracks.length}
+								<span class="text-xs text-faint">No audio tracks</span>
+							{:else}
+								{#each audioTracks as track, i (track.id)}
+									<button
+										type="button"
+										class="seg seg-block {track.selected ? 'seg-on' : ''}"
+										disabled={!connected}
+										onclick={() => void selectTrack('audio', track.id)}
+										title={trackLabel(track, i, 'Audio')}
+									>
+										{trackLabel(track, i, 'Audio')}
+									</button>
+								{/each}
+							{/if}
+						</div>
+					</div>
+					<div class="min-w-0">
+						<p class="panel-label"><Captions size={12} /> Subtitles</p>
+						<div class="track-col mt-1.5">
+							<button
+								type="button"
+								class="seg seg-block {subOffActive ? 'seg-on' : ''}"
+								disabled={!connected}
+								onclick={() => void selectTrack('sub', 'no')}
+							>
+								Off
+							</button>
+							{#each subTracks as track, i (track.id)}
 								<button
 									type="button"
 									class="seg seg-block {track.selected ? 'seg-on' : ''}"
-									disabled={transportLocked || !connected}
-									onclick={() => void selectTrack('audio', track.id)}
-									title={trackLabel(track, i, 'Audio')}
+									disabled={!connected}
+									onclick={() => void selectTrack('sub', track.id)}
+									title={trackLabel(track, i, 'Subtitle')}
 								>
-									{trackLabel(track, i, 'Audio')}
+									{trackLabel(track, i, 'Subtitle')}
 								</button>
 							{/each}
-						{/if}
+						</div>
 					</div>
 				</div>
-				<div class="min-w-0">
-					<p class="panel-label"><Captions size={12} /> Subtitles</p>
-					<div class="track-col mt-1.5">
-						<button
-							type="button"
-							class="seg seg-block {subOffActive ? 'seg-on' : ''}"
-							disabled={transportLocked || !connected}
-							onclick={() => void selectTrack('sub', 'no')}
-						>
-							Off
-						</button>
-						{#each subTracks as track, i (track.id)}
-							<button
-								type="button"
-								class="seg seg-block {track.selected ? 'seg-on' : ''}"
-								disabled={transportLocked || !connected}
-								onclick={() => void selectTrack('sub', track.id)}
-								title={trackLabel(track, i, 'Subtitle')}
-							>
-								{trackLabel(track, i, 'Subtitle')}
-							</button>
-						{/each}
-					</div>
-				</div>
-			</div>
-		</details>
+			</details>
+		{/if}
 
 		<details class="panel" bind:open={commandsOpen}>
 			<summary class="phone-summary sm:hidden">

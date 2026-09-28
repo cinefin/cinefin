@@ -3,7 +3,7 @@
 
 	interface Props {
 		variant?: 'primary' | 'default' | 'ghost' | 'danger';
-		size?: 'sm' | 'md';
+		size?: 'sm' | 'md' | 'lg';
 		type?: 'button' | 'submit';
 		disabled?: boolean;
 		/** Renders an <a> styled as a button instead. */
@@ -32,7 +32,8 @@
 		'transition-colors active:brightness-90 disabled:opacity-45 disabled:pointer-events-none whitespace-nowrap';
 	const sizes: Record<string, string> = {
 		sm: 'h-7 px-2.5 text-xs',
-		md: 'h-8 px-3.5 text-[0.84375rem]'
+		md: 'h-8 px-3.5 text-[0.84375rem]',
+		lg: 'h-11 px-5 text-[0.9375rem]'
 	};
 	const variants: Record<string, string> = {
 		primary: 'bg-accent text-on-accent hover:bg-accent-hover',

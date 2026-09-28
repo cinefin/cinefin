@@ -70,8 +70,9 @@
 			{/if}
 			{@render children()}
 		</main>
+		<!-- The remote is the player; its own page doesn't repeat it in the bar. -->
 		<div class="sticky bottom-0 z-10" bind:clientHeight={playoutH}>
-			<PlayoutBar />
+			{#if path !== `${base}/remote`}<PlayoutBar />{/if}
 		</div>
 	</div>
 </div>
