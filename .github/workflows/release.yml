@@ -115,7 +115,7 @@ jobs:
         run: |
           $whl = (Get-ChildItem dist-wheel\*.whl | Select-Object -First 1).FullName
           packaging/windows/build.ps1 -Version "${{ steps.v.outputs.version }}" -Wheel $whl
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-installer
           path: packaging/windows/Output/*.exe
@@ -141,7 +141,7 @@ jobs:
         run: cd backend && poetry version "${GITHUB_REF_NAME#v}"
       - name: Build the pip/pipx wheel
         run: packaging/pip/build-wheel.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-wheel
           path: backend/dist/*.whl
