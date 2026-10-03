@@ -55,7 +55,8 @@ export const SETTINGS_SECTIONS = [
 		id: 'kiosk',
 		label: 'Kiosk',
 		icon: Tv,
-		blurb: 'Defaults for every kiosk screen; each display can still override them.'
+		blurb:
+			'What the lobby screen shows between screenings, as the doors open and while a film plays.'
 	},
 	{
 		id: 'appearance',

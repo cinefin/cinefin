@@ -10,7 +10,7 @@ from cinefin.api.exceptions import ConflictError, NotFoundError, UnprocessableEn
 from cinefin.api.models import Bumper, Settings
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
-from cinefin.api.services import config_check_service, standby
+from cinefin.api.services import config_check_service, player_access, standby
 from cinefin.api.utils import branding
 
 logger = logging.getLogger(__name__)
@@ -65,21 +65,20 @@ class SettingsDataSchema(Schema):
     accent_color: str | None = Field(default=None, description="UI accent colour #rrggbb (None = built-in theme)")
     display_time_format: str = Field(default="24h", description="Wall-clock rendering across the UI: 24h or 12h")
 
-    # Kiosk display defaults (URL parameters override per screen)
-    kiosk_layout: str = Field(
-        default="wall",
-        description="Base layout: wall, spotlight, split, board, tonight or auto",
+    kiosk_between: str = Field(
+        default="whats_on", description="Between screenings: whats_on, screenings, films or week"
     )
-    kiosk_rotate_minutes: int = Field(default=0, description="Cycle base layouts every N minutes (0 = off)")
-    kiosk_header: bool = Field(default=True, description="Show the cinema name/logo header")
+    kiosk_rotate_seconds: int = Field(
+        default=15, description="Seconds each screening or film shows when they take turns"
+    )
     kiosk_clock: bool = True
-    kiosk_takeover: bool = True
-    kiosk_countdown_minutes: int = Field(default=30, description="Countdown engage threshold in minutes (0 = off)")
+    kiosk_doors_minutes: int = Field(
+        default=30, description="Minutes before a screening the Doors open screen shows (0 = off)"
+    )
     kiosk_night: bool = False
     kiosk_night_start: str = Field(default="01:00", description="Night hours start (HH:MM)")
     kiosk_night_end: str = Field(default="08:00", description="Night hours end (HH:MM)")
     kiosk_content_source: str = Field(default="flagged", description="Films shown: flagged, all or scheduled")
-    kiosk_show_showtimes: bool = Field(default=True, description="Show next showtimes on poster-wall tiles")
 
     updated_at: str
     default_cinema_ident: CinemaIdentSchema | None = None
@@ -137,20 +136,16 @@ class UpdateSettingsSchema(Schema):
     )
     display_time_format: str | None = Field(default=None, description="Wall-clock rendering: 24h or 12h")
 
-    kiosk_layout: str | None = Field(
-        default=None,
-        description="Base layout: wall, spotlight, split, board, tonight, auto",
+    kiosk_between: str | None = Field(
+        default=None, description="Between screenings: whats_on, screenings, films or week"
     )
-    kiosk_rotate_minutes: int | None = Field(default=None, ge=0, le=180, description="Layout rotation (0 = off)")
-    kiosk_header: bool | None = Field(default=None, description="Show the cinema name/logo header")
+    kiosk_rotate_seconds: int | None = Field(default=None, ge=5, le=300, description="Seconds per screening or film")
     kiosk_clock: bool | None = None
-    kiosk_takeover: bool | None = Field(default=None, description="Now Showing takeover on/off")
-    kiosk_countdown_minutes: int | None = Field(default=None, ge=0, le=480)
+    kiosk_doors_minutes: int | None = Field(default=None, ge=0, le=240, description="Doors open lead (0 = off)")
     kiosk_night: bool | None = Field(default=None, description="Night hours on/off")
     kiosk_night_start: str | None = Field(default=None, description="Night hours start (HH:MM)")
     kiosk_night_end: str | None = Field(default=None, description="Night hours end (HH:MM)")
     kiosk_content_source: str | None = Field(default=None, description="Films shown: flagged, all or scheduled")
-    kiosk_show_showtimes: bool | None = Field(default=None, description="Showtimes on poster-wall tiles")
 
 
 # Configuration checks are non-destructive; a failed check is a result, not an error, so they all answer 200.
@@ -200,17 +195,14 @@ _FIELDS = {
     "subtitle_use_margins": ("playout.subtitles.use_margins", True, bool),
     "subtitle_bold": ("playout.subtitles.bold", False, bool),
     "playout_server_url": ("playout.server_url", "", None),
-    "kiosk_layout": ("kiosk.layout", "wall", None),
-    "kiosk_rotate_minutes": ("kiosk.rotate_minutes", 0, None),
-    "kiosk_header": ("kiosk.header", True, bool),
+    "kiosk_between": ("kiosk.between", "whats_on", None),
+    "kiosk_rotate_seconds": ("kiosk.rotate_seconds", 15, int),
     "kiosk_clock": ("kiosk.clock", True, bool),
-    "kiosk_takeover": ("kiosk.takeover", True, bool),
-    "kiosk_countdown_minutes": ("kiosk.countdown_minutes", 30, None),
+    "kiosk_doors_minutes": ("kiosk.doors_minutes", 30, int),
     "kiosk_night": ("kiosk.night", False, bool),
     "kiosk_night_start": ("kiosk.night_start", "01:00", None),
     "kiosk_night_end": ("kiosk.night_end", "08:00", None),
     "kiosk_content_source": ("kiosk.content_source", "flagged", None),
-    "kiosk_show_showtimes": ("kiosk.show_showtimes", True, bool),
 }
 
 # Fields written on update besides _FIELDS (read back specially).
@@ -235,7 +227,7 @@ _CHOICES = {
         ("outline-and-shadow", "opaque-box", "background-box"),
         "Subtitle border style must be outline-and-shadow, opaque-box or background-box",
     ),
-    "kiosk_layout": (("wall", "spotlight", "split", "board", "tonight", "auto"), None),
+    "kiosk_between": (("whats_on", "screenings", "films", "week"), None),
     "kiosk_content_source": (("flagged", "all", "scheduled"), None),
 }
 
@@ -345,6 +337,7 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
 
     if _standby_settings() != previous_spec:
         standby.push()
+        player_access.push()  # players that browse are sent Cinefin's new address
 
     return Status(200, MessageResponseSchema(message="Settings updated successfully"))
 

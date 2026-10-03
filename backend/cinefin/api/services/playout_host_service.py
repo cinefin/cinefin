@@ -5,6 +5,7 @@ import logging
 import requests
 from django.utils import timezone
 
+from cinefin.api.services import player_access
 from cinefin.api.services.playout_agent_service import COMPATIBLE, UPDATE_CINEFIN, compatibility, headers
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ class PlayoutHostService:
         if health is not None:
             host.protocol = _int(health.get("protocol"))
             host.min_protocol = _int(health.get("min_protocol"))
+            host.features = player_access.features(health)
             verdict = compatibility(health)
             if verdict == UPDATE_CINEFIN:
                 logger.warning("PlayoutHost %s needs a newer Cinefin", host.name)
@@ -61,8 +63,18 @@ class PlayoutHostService:
                 logger.warning("PlayoutHost %s needs updating to the latest cinefin-playout release", host.name)
         # Only what this poll measured: a full save would undo an edit made during the two requests.
         host.save(
-            update_fields=["last_seen_at", "agent_version", "os", "arch", "protocol", "min_protocol", "updated_at"]
+            update_fields=[
+                "last_seen_at",
+                "agent_version",
+                "os",
+                "arch",
+                "protocol",
+                "min_protocol",
+                "features",
+                "updated_at",
+            ]
         )
+        player_access.push_if_needed(host)  # a player updated to one that browses
         return True
 
 

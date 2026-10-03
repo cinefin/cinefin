@@ -49,17 +49,14 @@ function mainDraft(s: components['schemas']['SettingsDataSchema']) {
 		playout_server_url: s.playout_server_url ?? '',
 		accent_color: s.accent_color || DEFAULT_ACCENT,
 		display_time_format: (s.display_time_format === '12h' ? '12h' : '24h') as string,
-		kiosk_layout: s.kiosk_layout ?? 'wall',
-		kiosk_rotate_minutes: String(s.kiosk_rotate_minutes ?? 0),
-		kiosk_countdown_minutes: String(s.kiosk_countdown_minutes ?? 30),
-		kiosk_header: !!s.kiosk_header,
+		kiosk_between: s.kiosk_between ?? 'whats_on',
+		kiosk_rotate_seconds: String(s.kiosk_rotate_seconds ?? 15),
+		kiosk_doors_minutes: String(s.kiosk_doors_minutes ?? 30),
 		kiosk_clock: !!s.kiosk_clock,
-		kiosk_takeover: !!s.kiosk_takeover,
 		kiosk_night: !!s.kiosk_night,
 		kiosk_night_start: s.kiosk_night_start ?? '01:00',
 		kiosk_night_end: s.kiosk_night_end ?? '08:00',
-		kiosk_content_source: s.kiosk_content_source ?? 'flagged',
-		kiosk_show_showtimes: !!s.kiosk_show_showtimes
+		kiosk_content_source: s.kiosk_content_source ?? 'flagged'
 	};
 }
 export type MainDraft = ReturnType<typeof mainDraft>;
@@ -250,17 +247,14 @@ export class SettingsStore {
 							// Empty string = reset to the built-in theme (server stores None).
 							accent_color: this.accentCleared ? '' : m.accent_color,
 							display_time_format: m.display_time_format,
-							kiosk_layout: m.kiosk_layout,
-							kiosk_rotate_minutes: int(m.kiosk_rotate_minutes, 0),
-							kiosk_header: m.kiosk_header,
+							kiosk_between: m.kiosk_between,
+							kiosk_rotate_seconds: clamp(int(m.kiosk_rotate_seconds, 15), 5, 300),
 							kiosk_clock: m.kiosk_clock,
-							kiosk_takeover: m.kiosk_takeover,
-							kiosk_countdown_minutes: clamp(int(m.kiosk_countdown_minutes, 0), 0, 480),
+							kiosk_doors_minutes: clamp(int(m.kiosk_doors_minutes, 0), 0, 240),
 							kiosk_night: m.kiosk_night,
 							kiosk_night_start: m.kiosk_night_start || '01:00',
 							kiosk_night_end: m.kiosk_night_end || '08:00',
-							kiosk_content_source: m.kiosk_content_source,
-							kiosk_show_showtimes: m.kiosk_show_showtimes
+							kiosk_content_source: m.kiosk_content_source
 						}
 					})
 				);

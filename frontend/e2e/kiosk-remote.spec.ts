@@ -1,13 +1,10 @@
 import { expect, test } from '@playwright/test';
 
-test('kiosk renders a layout with seeded films', async ({ page }) => {
-	// The poster wall is images-only (titles are art, not text), so posters
-	// ARE the assertion; the board layout then proves text content renders.
-	await page.goto('/app/kiosk?layout=wall&takeover=0&night=0');
-	await expect(page.locator('img[alt=""]').first()).toBeVisible({ timeout: 15_000 });
-
-	await page.goto('/app/kiosk?layout=board&takeover=0&night=0');
-	await expect(page.getByText(/\[Demo\]/).first()).toBeVisible({ timeout: 15_000 });
+test('kiosk shows each between-screenings option', async ({ page }) => {
+	for (const between of ['whats_on', 'screenings', 'films', 'week']) {
+		await page.goto(`/app/kiosk?between=${between}`);
+		await expect(page.getByText(/\[Demo\]/).first()).toBeVisible({ timeout: 15_000 });
+	}
 });
 
 test('remote renders the agent-down state honestly', async ({ page }) => {

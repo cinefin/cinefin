@@ -15,7 +15,7 @@ class KioskFilmSchema(Schema):
     year: int | None = None
     cert: str = Field("", description="Certificate for the active ratings system")
     runtime: int = Field(0, description="Minutes")
-    genres: list[str] = Field(default_factory=list, description="Up to three genres")
+    genres: list[str] = Field(..., description="Up to three genres")
     synopsis: str = ""
     poster: str | None = Field(None, description="Poster thumbnail URL")
     director: str = ""
@@ -28,24 +28,18 @@ class KioskScreeningSchema(Schema):
     end: str = Field(..., description="End time (ISO)")
     runtime: int = Field(..., description="Minutes")
     status: str = Field(..., description="Schedule status (scheduled or running)")
-    feature: KioskFilmSchema | None = Field(None, description="First feature — single-poster contexts")
-    features: list[KioskFilmSchema] = Field(
-        default_factory=list, description="Every feature, in running order, de-duplicated"
-    )
+    features: list[KioskFilmSchema] = Field(..., description="Every feature, in running order, de-duplicated")
 
 
 class KioskDisplaySettingsSchema(Schema):
-    layout: str = Field("wall", description="Base layout (wall, spotlight, split, board, tonight, auto)")
-    rotate_minutes: int = Field(0, description="Cycle ambient layouts every N minutes (0 = off)")
-    header: bool = Field(True, description="Show the cinema name/logo header")
+    between: str = Field("whats_on", description="Between screenings: whats_on, screenings, films or week")
+    rotate_seconds: int = Field(15, description="Seconds each screening or film shows when they take turns")
     clock: bool = True
-    takeover: bool = Field(True, description="Now Showing takeover while a programme is live")
-    countdown_minutes: int = Field(30, description="Countdown engage threshold in minutes (0 = off)")
-    night: bool = Field(False, description="Dim to a clock during quiet hours")
+    doors_minutes: int = Field(30, description="Minutes before a screening the Doors open screen shows (0 = off)")
+    night: bool = Field(False, description="Dim between screenings during night hours")
     night_start: str = Field("01:00", description="Night hours start (HH:MM)")
     night_end: str = Field("08:00", description="Night hours end (HH:MM)")
     content_source: str = Field("flagged", description="Films shown: flagged, all or scheduled")
-    show_showtimes: bool = Field(True, description="Show next showtimes on poster-wall tiles")
 
 
 class KioskCinemaSchema(Schema):

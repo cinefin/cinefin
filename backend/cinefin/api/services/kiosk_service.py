@@ -70,7 +70,6 @@ def build_kiosk_content() -> tuple[list[dict], list[dict]]:
                 "end": end_time.isoformat(),
                 "runtime": schedule.runtime,
                 "status": schedule.status,
-                "feature": features[0] if features else None,
                 "features": features,
             }
         )
@@ -81,10 +80,10 @@ def build_kiosk_content() -> tuple[list[dict], list[dict]]:
         # Only booked films: the screenings' features, soonest first, de-duplicated.
         films, seen = [], set()
         for screening in screenings:
-            feature = screening["feature"]
-            if feature and feature["id"] not in seen:
-                seen.add(feature["id"])
-                films.append(feature)
+            for feature in screening["features"]:
+                if feature["id"] not in seen:
+                    seen.add(feature["id"])
+                    films.append(feature)
 
     return films, screenings
 

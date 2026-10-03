@@ -9,6 +9,7 @@ from . import playout_timing
 from .exceptions import UnprocessableEntityError
 from .models import Playlist, PlayoutHost, PlayoutSession, Programme
 from .mpv_controller import MPVController
+from .services import player_access
 from .services import standby as standby_spec
 from .utils.assets import system_black_stream_url
 
@@ -556,6 +557,7 @@ class MPVService:
                 standby_spec.forget(host.id)
                 logger.warning("Could not put %s on standby: %s", host.name, e.message)
                 return False
+            player_access.push_if_needed(host)  # it was off when it was paired, say
             logger.info("On standby (%s)", host.name)
             return True
 

@@ -37,6 +37,16 @@ def standby_pushes(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def access_pushes(monkeypatch):
+    # Record player access pushes, as standby_pushes does (tests call push_now directly).
+    from cinefin.api.services import player_access
+
+    calls = []
+    monkeypatch.setattr(player_access, "push", lambda host_ids=None: calls.append(host_ids))
+    return calls
+
+
+@pytest.fixture(autouse=True)
 def instant_standby_fade(monkeypatch):
     from cinefin.api import mpv_service
 

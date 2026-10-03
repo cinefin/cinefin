@@ -145,6 +145,26 @@ class PlayoutHost(models.Model):
     is_active = models.BooleanField(
         default=False, help_text="The single host used for playout (exactly one row is active)"
     )
+    features = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="What the agent offers beyond playout, from pairing and refresh (e.g. 'browse')",
+    )
+    # A player with the 'browse' feature calls Cinefin's API itself (services/player_access.py).
+    api_key = models.ForeignKey(
+        "api.APIKey",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The key the player calls Cinefin with; revoking it on the Security page keeps it revoked",
+    )
+    access_url = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="The Cinefin URL last sent to the player with its key ('' = never sent)",
+    )
 
     # Populated by PlayoutHostService.refresh() from the agent's /status + /health.
     last_seen_at = models.DateTimeField(null=True, blank=True, help_text="Last successful agent contact")

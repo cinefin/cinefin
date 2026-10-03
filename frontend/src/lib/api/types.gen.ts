@@ -4621,6 +4621,12 @@ export interface components {
         /** KioskDisplaySettingsSchema */
         KioskDisplaySettingsSchema: {
             /**
+             * Between
+             * @description Between screenings: whats_on, screenings, films or week
+             * @default whats_on
+             */
+            between: string;
+            /**
              * Clock
              * @default true
              */
@@ -4632,26 +4638,14 @@ export interface components {
              */
             content_source: string;
             /**
-             * Countdown Minutes
-             * @description Countdown engage threshold in minutes (0 = off)
+             * Doors Minutes
+             * @description Minutes before a screening the Doors open screen shows (0 = off)
              * @default 30
              */
-            countdown_minutes: number;
-            /**
-             * Header
-             * @description Show the cinema name/logo header
-             * @default true
-             */
-            header: boolean;
-            /**
-             * Layout
-             * @description Base layout (wall, spotlight, split, board, tonight, auto)
-             * @default wall
-             */
-            layout: string;
+            doors_minutes: number;
             /**
              * Night
-             * @description Dim to a clock during quiet hours
+             * @description Dim between screenings during night hours
              * @default false
              */
             night: boolean;
@@ -4668,23 +4662,11 @@ export interface components {
              */
             night_start: string;
             /**
-             * Rotate Minutes
-             * @description Cycle ambient layouts every N minutes (0 = off)
-             * @default 0
+             * Rotate Seconds
+             * @description Seconds each screening or film shows when they take turns
+             * @default 15
              */
-            rotate_minutes: number;
-            /**
-             * Show Showtimes
-             * @description Show next showtimes on poster-wall tiles
-             * @default true
-             */
-            show_showtimes: boolean;
-            /**
-             * Takeover
-             * @description Now Showing takeover while a programme is live
-             * @default true
-             */
-            takeover: boolean;
+            rotate_seconds: number;
         };
         /** KioskFilmSchema */
         KioskFilmSchema: {
@@ -4703,7 +4685,7 @@ export interface components {
              * Genres
              * @description Up to three genres
              */
-            genres?: string[];
+            genres: string[];
             /** Id */
             id: number;
             /**
@@ -4734,13 +4716,11 @@ export interface components {
              * @description End time (ISO)
              */
             end: string;
-            /** @description First feature — single-poster contexts */
-            feature?: components["schemas"]["KioskFilmSchema"] | null;
             /**
              * Features
              * @description Every feature, in running order, de-duplicated
              */
-            features?: components["schemas"]["KioskFilmSchema"][];
+            features: components["schemas"]["KioskFilmSchema"][];
             /**
              * Id
              * @description Schedule ID
@@ -6953,6 +6933,12 @@ export interface components {
              */
             display_time_format: string;
             /**
+             * Kiosk Between
+             * @description Between screenings: whats_on, screenings, films or week
+             * @default whats_on
+             */
+            kiosk_between: string;
+            /**
              * Kiosk Clock
              * @default true
              */
@@ -6964,23 +6950,11 @@ export interface components {
              */
             kiosk_content_source: string;
             /**
-             * Kiosk Countdown Minutes
-             * @description Countdown engage threshold in minutes (0 = off)
+             * Kiosk Doors Minutes
+             * @description Minutes before a screening the Doors open screen shows (0 = off)
              * @default 30
              */
-            kiosk_countdown_minutes: number;
-            /**
-             * Kiosk Header
-             * @description Show the cinema name/logo header
-             * @default true
-             */
-            kiosk_header: boolean;
-            /**
-             * Kiosk Layout
-             * @description Base layout: wall, spotlight, split, board, tonight or auto
-             * @default wall
-             */
-            kiosk_layout: string;
+            kiosk_doors_minutes: number;
             /**
              * Kiosk Night
              * @default false
@@ -6999,22 +6973,11 @@ export interface components {
              */
             kiosk_night_start: string;
             /**
-             * Kiosk Rotate Minutes
-             * @description Cycle base layouts every N minutes (0 = off)
-             * @default 0
+             * Kiosk Rotate Seconds
+             * @description Seconds each screening or film shows when they take turns
+             * @default 15
              */
-            kiosk_rotate_minutes: number;
-            /**
-             * Kiosk Show Showtimes
-             * @description Show next showtimes on poster-wall tiles
-             * @default true
-             */
-            kiosk_show_showtimes: boolean;
-            /**
-             * Kiosk Takeover
-             * @default true
-             */
-            kiosk_takeover: boolean;
+            kiosk_rotate_seconds: number;
             /**
              * Playout Server Url
              * @description Base URL the playout host uses to fetch streamed media from Cinefin
@@ -8141,6 +8104,11 @@ export interface components {
              * @description Wall-clock rendering: 24h or 12h
              */
             display_time_format?: string | null;
+            /**
+             * Kiosk Between
+             * @description Between screenings: whats_on, screenings, films or week
+             */
+            kiosk_between?: string | null;
             /** Kiosk Clock */
             kiosk_clock?: boolean | null;
             /**
@@ -8148,18 +8116,11 @@ export interface components {
              * @description Films shown: flagged, all or scheduled
              */
             kiosk_content_source?: string | null;
-            /** Kiosk Countdown Minutes */
-            kiosk_countdown_minutes?: number | null;
             /**
-             * Kiosk Header
-             * @description Show the cinema name/logo header
+             * Kiosk Doors Minutes
+             * @description Doors open lead (0 = off)
              */
-            kiosk_header?: boolean | null;
-            /**
-             * Kiosk Layout
-             * @description Base layout: wall, spotlight, split, board, tonight, auto
-             */
-            kiosk_layout?: string | null;
+            kiosk_doors_minutes?: number | null;
             /**
              * Kiosk Night
              * @description Night hours on/off
@@ -8176,20 +8137,10 @@ export interface components {
              */
             kiosk_night_start?: string | null;
             /**
-             * Kiosk Rotate Minutes
-             * @description Layout rotation (0 = off)
+             * Kiosk Rotate Seconds
+             * @description Seconds per screening or film
              */
-            kiosk_rotate_minutes?: number | null;
-            /**
-             * Kiosk Show Showtimes
-             * @description Showtimes on poster-wall tiles
-             */
-            kiosk_show_showtimes?: boolean | null;
-            /**
-             * Kiosk Takeover
-             * @description Now Showing takeover on/off
-             */
-            kiosk_takeover?: boolean | null;
+            kiosk_rotate_seconds?: number | null;
             /**
              * Playout Server Url
              * @description Base URL the playout host uses to fetch streamed media from Cinefin

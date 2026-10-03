@@ -4037,6 +4037,12 @@
       },
       "KioskDisplaySettingsSchema": {
         "properties": {
+          "between": {
+            "default": "whats_on",
+            "description": "Between screenings: whats_on, screenings, films or week",
+            "title": "Between",
+            "type": "string"
+          },
           "clock": {
             "default": true,
             "title": "Clock",
@@ -4048,27 +4054,15 @@
             "title": "Content Source",
             "type": "string"
           },
-          "countdown_minutes": {
+          "doors_minutes": {
             "default": 30,
-            "description": "Countdown engage threshold in minutes (0 = off)",
-            "title": "Countdown Minutes",
+            "description": "Minutes before a screening the Doors open screen shows (0 = off)",
+            "title": "Doors Minutes",
             "type": "integer"
-          },
-          "header": {
-            "default": true,
-            "description": "Show the cinema name/logo header",
-            "title": "Header",
-            "type": "boolean"
-          },
-          "layout": {
-            "default": "wall",
-            "description": "Base layout (wall, spotlight, split, board, tonight, auto)",
-            "title": "Layout",
-            "type": "string"
           },
           "night": {
             "default": false,
-            "description": "Dim to a clock during quiet hours",
+            "description": "Dim between screenings during night hours",
             "title": "Night",
             "type": "boolean"
           },
@@ -4084,23 +4078,11 @@
             "title": "Night Start",
             "type": "string"
           },
-          "rotate_minutes": {
-            "default": 0,
-            "description": "Cycle ambient layouts every N minutes (0 = off)",
-            "title": "Rotate Minutes",
+          "rotate_seconds": {
+            "default": 15,
+            "description": "Seconds each screening or film shows when they take turns",
+            "title": "Rotate Seconds",
             "type": "integer"
-          },
-          "show_showtimes": {
-            "default": true,
-            "description": "Show next showtimes on poster-wall tiles",
-            "title": "Show Showtimes",
-            "type": "boolean"
-          },
-          "takeover": {
-            "default": true,
-            "description": "Now Showing takeover while a programme is live",
-            "title": "Takeover",
-            "type": "boolean"
           }
         },
         "title": "KioskDisplaySettingsSchema",
@@ -4172,7 +4154,8 @@
         },
         "required": [
           "id",
-          "title"
+          "title",
+          "genres"
         ],
         "title": "KioskFilmSchema",
         "type": "object"
@@ -4183,17 +4166,6 @@
             "description": "End time (ISO)",
             "title": "End",
             "type": "string"
-          },
-          "feature": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/KioskFilmSchema"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "First feature \u2014 single-poster contexts"
           },
           "features": {
             "description": "Every feature, in running order, de-duplicated",
@@ -4235,7 +4207,8 @@
           "start",
           "end",
           "runtime",
-          "status"
+          "status",
+          "features"
         ],
         "title": "KioskScreeningSchema",
         "type": "object"
@@ -9672,6 +9645,12 @@
             "title": "Display Time Format",
             "type": "string"
           },
+          "kiosk_between": {
+            "default": "whats_on",
+            "description": "Between screenings: whats_on, screenings, films or week",
+            "title": "Kiosk Between",
+            "type": "string"
+          },
           "kiosk_clock": {
             "default": true,
             "title": "Kiosk Clock",
@@ -9683,23 +9662,11 @@
             "title": "Kiosk Content Source",
             "type": "string"
           },
-          "kiosk_countdown_minutes": {
+          "kiosk_doors_minutes": {
             "default": 30,
-            "description": "Countdown engage threshold in minutes (0 = off)",
-            "title": "Kiosk Countdown Minutes",
+            "description": "Minutes before a screening the Doors open screen shows (0 = off)",
+            "title": "Kiosk Doors Minutes",
             "type": "integer"
-          },
-          "kiosk_header": {
-            "default": true,
-            "description": "Show the cinema name/logo header",
-            "title": "Kiosk Header",
-            "type": "boolean"
-          },
-          "kiosk_layout": {
-            "default": "wall",
-            "description": "Base layout: wall, spotlight, split, board, tonight or auto",
-            "title": "Kiosk Layout",
-            "type": "string"
           },
           "kiosk_night": {
             "default": false,
@@ -9718,22 +9685,11 @@
             "title": "Kiosk Night Start",
             "type": "string"
           },
-          "kiosk_rotate_minutes": {
-            "default": 0,
-            "description": "Cycle base layouts every N minutes (0 = off)",
-            "title": "Kiosk Rotate Minutes",
+          "kiosk_rotate_seconds": {
+            "default": 15,
+            "description": "Seconds each screening or film shows when they take turns",
+            "title": "Kiosk Rotate Seconds",
             "type": "integer"
-          },
-          "kiosk_show_showtimes": {
-            "default": true,
-            "description": "Show next showtimes on poster-wall tiles",
-            "title": "Kiosk Show Showtimes",
-            "type": "boolean"
-          },
-          "kiosk_takeover": {
-            "default": true,
-            "title": "Kiosk Takeover",
-            "type": "boolean"
           },
           "playout_server_url": {
             "default": "",
@@ -12376,6 +12332,18 @@
             "description": "Wall-clock rendering: 24h or 12h",
             "title": "Display Time Format"
           },
+          "kiosk_between": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Between screenings: whats_on, screenings, films or week",
+            "title": "Kiosk Between"
+          },
           "kiosk_clock": {
             "anyOf": [
               {
@@ -12399,10 +12367,10 @@
             "description": "Films shown: flagged, all or scheduled",
             "title": "Kiosk Content Source"
           },
-          "kiosk_countdown_minutes": {
+          "kiosk_doors_minutes": {
             "anyOf": [
               {
-                "maximum": 480,
+                "maximum": 240,
                 "minimum": 0,
                 "type": "integer"
               },
@@ -12410,31 +12378,8 @@
                 "type": "null"
               }
             ],
-            "title": "Kiosk Countdown Minutes"
-          },
-          "kiosk_header": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Show the cinema name/logo header",
-            "title": "Kiosk Header"
-          },
-          "kiosk_layout": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Base layout: wall, spotlight, split, board, tonight, auto",
-            "title": "Kiosk Layout"
+            "description": "Doors open lead (0 = off)",
+            "title": "Kiosk Doors Minutes"
           },
           "kiosk_night": {
             "anyOf": [
@@ -12472,43 +12417,19 @@
             "description": "Night hours start (HH:MM)",
             "title": "Kiosk Night Start"
           },
-          "kiosk_rotate_minutes": {
+          "kiosk_rotate_seconds": {
             "anyOf": [
               {
-                "maximum": 180,
-                "minimum": 0,
+                "maximum": 300,
+                "minimum": 5,
                 "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Layout rotation (0 = off)",
-            "title": "Kiosk Rotate Minutes"
-          },
-          "kiosk_show_showtimes": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Showtimes on poster-wall tiles",
-            "title": "Kiosk Show Showtimes"
-          },
-          "kiosk_takeover": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Now Showing takeover on/off",
-            "title": "Kiosk Takeover"
+            "description": "Seconds per screening or film",
+            "title": "Kiosk Rotate Seconds"
           },
           "playout_server_url": {
             "anyOf": [

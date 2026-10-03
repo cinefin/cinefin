@@ -187,8 +187,15 @@ def cmd_serve(args) -> int:
     apply_env(cfg)
     if not args.no_migrate:
         # In a child: here, django.setup() starts the sync engine and schedule
-        # runner, which must not race the schema change.
-        subprocess.run([sys.executable, "-m", "cinefin.cli", "migrate"], check=True)
+        # runner, which must not race the schema change. Pass our streams on:
+        # on Windows a child given none has no stdout at all (see main()), and
+        # its output, errors included, would be lost instead of reaching the log.
+        rc = subprocess.run(
+            [sys.executable, "-m", "cinefin.cli", "migrate"], stdout=sys.stdout, stderr=sys.stderr
+        ).returncode
+        if rc:
+            print(f"cinefin: migrating the database failed (exit {rc}); not starting.", file=sys.stderr)
+            return rc
 
     import django
 
@@ -264,6 +271,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Under pythonw.exe (the Windows tray) a process given no handles has
+    # sys.stdout/stderr = None, and Django's commands crash on their first write.
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name) is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))  # noqa: SIM115 - lives as long as the process
     argv = sys.argv[1:] if argv is None else argv
     # `cinefin` alone, or with serve options only, means `cinefin serve`.
     if not argv or (argv[0].startswith("-") and argv[0] not in ("-h", "--help", "--version")):

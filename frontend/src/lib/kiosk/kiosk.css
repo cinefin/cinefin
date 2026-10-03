@@ -1,0 +1,63 @@
+/* The kiosk is drawn on a 1920×1080 stage scaled to the screen, so it sizes in px. */
+.kiosk {
+	--soft: color-mix(in oklab, var(--color-text) 72%, var(--color-muted));
+	position: fixed;
+	inset: 0;
+	overflow: hidden;
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-family: var(--font-sans);
+	cursor: none;
+	-webkit-font-smoothing: antialiased;
+}
+.kiosk .scene {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	background: radial-gradient(90% 70% at 30% 35%, var(--color-surface-1) 0%, var(--color-bg) 70%);
+}
+.kiosk .pad {
+	box-sizing: border-box;
+	padding: 64px 80px;
+}
+.kiosk .name {
+	font-family: var(--font-display);
+	font-weight: 400;
+	line-height: 1;
+}
+.kiosk .mono {
+	font-family: var(--font-mono);
+}
+.kiosk .time {
+	font-family: var(--font-mono);
+	font-weight: 500;
+	line-height: 0.9;
+}
+.kiosk .muted {
+	color: var(--color-muted);
+}
+.kiosk .soft {
+	color: var(--soft);
+}
+.kiosk .faint {
+	color: var(--color-faint);
+}
+.kiosk .lamp {
+	display: inline-block;
+	width: 12px;
+	height: 12px;
+	flex: none;
+	background: var(--color-success);
+}
+.kiosk .synopsis {
+	margin: 0;
+	max-width: 960px;
+	font-size: 26px;
+	line-height: 1.55;
+	color: var(--color-muted);
+	display: -webkit-box;
+	-webkit-line-clamp: 4;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}

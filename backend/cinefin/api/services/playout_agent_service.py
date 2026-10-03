@@ -238,6 +238,11 @@ class PlayoutAgentService:
         return cls._request("PUT", "/standby", json_body=spec, timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
+    def put_cinefin(cls, host, access: dict) -> dict:
+        """Send a browsing player Cinefin's address, its API key and host id (``services/player_access.py``)."""
+        return cls._request("PUT", "/cinefin", json_body=access, timeout=STATUS_TIMEOUT, host=host)
+
+    @classmethod
     def enter_standby(cls, host) -> dict:
         """Put the host's player on standby now. Returns its standby status."""
         return cls._request("POST", "/standby", timeout=STATUS_TIMEOUT, host=host)

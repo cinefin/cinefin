@@ -80,22 +80,16 @@ class Settings(models.Model):
             },
         },
         "kiosk": {
-            # Server-side defaults; URL params and the per-screen localStorage picker override.
-            # wall | nownext | spotlight | split | marquee | lightbox |
-            # board | tonight | auto
-            "layout": "wall",
-            # Cycle ambient layouts every N min (0 = stay). Ignored while "auto".
-            "rotate_minutes": 0,
-            "header": True,
+            # What the screen shows between screenings: whats_on | screenings | films | week.
+            "between": "whats_on",
+            "rotate_seconds": 15,
             "clock": True,
-            "takeover": True,
-            "countdown_minutes": 30,  # engage threshold; 0 = off
+            "doors_minutes": 30,  # 0 = no Doors open screen
             "night": False,
             "night_start": "01:00",
             "night_end": "08:00",
             # "flagged" (Movie.kiosk_display) | "all" | "scheduled" (upcoming features).
             "content_source": "flagged",
-            "show_showtimes": True,
         },
         "trailers": {
             "tmdb_api_key": "",

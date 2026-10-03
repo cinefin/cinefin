@@ -15,7 +15,7 @@ from cinefin.api.models import Bumper, Movie, Playlist, PlayoutHost, Programme, 
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 from cinefin.api.schemas.playout import PlayoutStatusDataSchema, ProgrammeInfoSchema
-from cinefin.api.services import playout_discovery, playout_link, standby
+from cinefin.api.services import player_access, playout_discovery, playout_link, standby
 from cinefin.api.services.block_types import resolve_media_path
 from cinefin.api.services.playlist_utils import PlaylistUtils
 from cinefin.api.services.playout_agent_service import PROTOCOL, playout_agent_service
@@ -712,6 +712,7 @@ def pair_playout_host(request: HttpRequest, data: PairHostInput):
     host.arch = str(answer.get("arch") or "")
     host.protocol = int(answer.get("protocol") or 0)
     host.min_protocol = int(answer.get("min_protocol") or 0)
+    host.features = player_access.features(answer)
     host.last_seen_at = timezone.now()
     # The first player (or a re-paired active one) becomes the active host.
     activate = host.is_active or PlayoutHost.get_active() is None
@@ -719,6 +720,8 @@ def pair_playout_host(request: HttpRequest, data: PairHostInput):
     host.save()
     standby.forget(host.id)
     standby.push([host.id])
+    player_access.forget(host)  # the player forgot its old key with its old pairing
+    player_access.push([host.id])
     if activate:
         playout_link.nudge()
     return Status(200, PlayoutHostResponse(message=f"Paired with {host.name}", data=_host_schema(host)))
@@ -826,6 +829,7 @@ def delete_playout_host(request: HttpRequest, host_id: int):
     # The player forgets this Cinefin and shows a pairing code again (best effort:
     # a player that is off still gets removed here).
     playout_agent_service.unpair(host)
+    player_access.forget(host)
     host.delete()
     if was_active:
         nxt = PlayoutHost.objects.first()

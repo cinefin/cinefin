@@ -113,11 +113,11 @@ html.density-80 {
 }
 
 /* Sentence case app-wide: neutralise uppercase/tracking utilities (unlayered rules beat
- * Tailwind's layers). The kiosk has its own deliberate type and is exempt. */
-:root:not(:has(.kiosk-stage)) .uppercase {
+ * Tailwind's layers). */
+.uppercase {
 	text-transform: none;
 }
-:root:not(:has(.kiosk-stage)) [class*='tracking-'] {
+[class*='tracking-'] {
 	letter-spacing: normal;
 }
 

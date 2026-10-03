@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from cinefin.api.exceptions import APIException
 from cinefin.api.models import PlayoutHost
-from cinefin.api.services import standby
+from cinefin.api.services import player_access, standby
 from cinefin.api.services.playout_agent_service import PlayoutAgentService
 
 DEFAULT_NAME = "Playout host"
@@ -50,11 +50,14 @@ class Command(BaseCommand):
         host.arch = str(answer.get("arch") or "")
         host.protocol = int(answer.get("protocol") or 0)
         host.min_protocol = int(answer.get("min_protocol") or 0)
+        host.features = player_access.features(answer)
         host.last_seen_at = timezone.now()
         host.is_active = True  # save() clears is_active on every other row
         host.save()
         standby.forget(host.id)
         standby.push_now([host.id])  # not in the background: this process is about to exit
+        player_access.forget(host)
+        player_access.push_now([host.id])
 
         verb = "Paired new" if created else "Re-paired"
         self.stdout.write(self.style.SUCCESS(f"{verb} active playout host '{host.name}' @ {host.base_url}"))
