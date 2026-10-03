@@ -68,19 +68,23 @@ class TestProgrammeRunPath:
         assert programme.last_played_at is None
 
 
-class TestPlayoutRunEndpoint:
+class TestPlayoutStartAction:
     def _prime_mpv(self, monkeypatch, programme, start_ok=True):
-        from cinefin.api.ninja_views import playout_ninja
+        from cinefin.api.mpv_service import ProgrammeState, mpv_service
 
-        monkeypatch.setattr(playout_ninja.mpv_service, "current_programme", programme, raising=False)
-        monkeypatch.setattr(playout_ninja.mpv_service, "start_programme", lambda: start_ok, raising=False)
-        monkeypatch.setattr(playout_ninja.mpv_service, "get_status", lambda: {}, raising=False)
+        monkeypatch.setattr(mpv_service, "current_programme", programme, raising=False)
+        monkeypatch.setattr(mpv_service, "programme_state", ProgrammeState.LOADED, raising=False)
+        monkeypatch.setattr(mpv_service, "manual_items", [], raising=False)
+        monkeypatch.setattr(
+            mpv_service, "snapshot", lambda: {"pause": True, "time": 0.0, "duration": 0.0, "pos": 0, "path": ""}
+        )
+        monkeypatch.setattr(mpv_service, "start_programme", lambda: start_ok, raising=False)
 
-    def test_run_marks_played(self, client, monkeypatch):
+    def test_start_marks_played(self, client, monkeypatch):
         programme = ProgrammeFactory()
         self._prime_mpv(monkeypatch, programme)
 
-        response = client.post(f"{API}/playout/run")
+        response = client.post(f"{API}/playout/control", {"action": "start"}, content_type="application/json")
 
         assert response.status_code == 200
         programme.refresh_from_db()
@@ -90,7 +94,7 @@ class TestPlayoutRunEndpoint:
         programme = ProgrammeFactory()
         self._prime_mpv(monkeypatch, programme, start_ok=False)
 
-        response = client.post(f"{API}/playout/run")
+        response = client.post(f"{API}/playout/control", {"action": "start"}, content_type="application/json")
 
         assert response.status_code == 422
         programme.refresh_from_db()

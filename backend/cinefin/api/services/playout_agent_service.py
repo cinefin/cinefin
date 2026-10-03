@@ -12,13 +12,32 @@ import logging
 import requests
 
 from cinefin.api.exceptions import ConflictError, UnprocessableEntityError, ValidationError
-from cinefin.api.models import PlayoutHost, Settings
+from cinefin.api.models import PlayoutHost
 
 logger = logging.getLogger(__name__)
 
 STATUS_TIMEOUT = 5
 # start/restart block until mpv's IPC socket is up (the agent waits internally)
 ACTION_TIMEOUT = 25
+
+# The agent protocol this Cinefin needs: 2 = the player owns standby (PUT/POST /standby).
+PROTOCOL = 2
+OUTDATED_MESSAGE = "This player needs updating to the latest cinefin-playout release"
+
+
+def is_current(answer: dict) -> bool:
+    """Whether an agent's /pair or /health answer speaks the protocol this Cinefin needs."""
+    protocol = answer.get("protocol")
+    return isinstance(protocol, int) and not isinstance(protocol, bool) and protocol >= PROTOCOL
+
+
+def _agent_error(response) -> str:
+    """The agent's own ``{"error": ...}`` message, else its body."""
+    try:
+        detail = (response.json() or {}).get("error") or response.text
+    except ValueError:
+        detail = response.text
+    return str(detail)[:300]
 
 
 class PlayoutAgentService:
@@ -62,13 +81,13 @@ class PlayoutAgentService:
                 "The player no longer accepts this Cinefin — remove it and pair it again",
                 error_code="AGENT_AUTH_FAILED",
             )
+        if response.status_code == 409:
+            # The agent refused for now (a test sound already playing, not on standby): say why.
+            detail = _agent_error(response)
+            raise ConflictError(detail[:1].upper() + detail[1:], error_code="AGENT_BUSY")
         if response.status_code == 400:
             # Surface the agent's validation error verbatim — the most useful thing to read.
-            try:
-                detail = (response.json() or {}).get("error") or response.text
-            except ValueError:
-                detail = response.text
-            raise UnprocessableEntityError(str(detail)[:300], error_code="AGENT_REJECTED")
+            raise UnprocessableEntityError(_agent_error(response), error_code="AGENT_REJECTED")
         if not response.ok:
             raise UnprocessableEntityError(
                 f"Playout agent error ({response.status_code}): {response.text[:200]}", error_code="AGENT_ERROR"
@@ -110,9 +129,7 @@ class PlayoutAgentService:
                 error_code="PAIR_ALREADY_PAIRED",
             )
         if response.status_code == 404:
-            raise UnprocessableEntityError(
-                "That player's agent is too old to pair. Update cinefin-playout.", error_code="AGENT_OUTDATED"
-            )
+            raise UnprocessableEntityError(OUTDATED_MESSAGE, error_code="AGENT_OUTDATED")
         if not response.ok:
             raise UnprocessableEntityError(
                 f"Pairing failed ({response.status_code}): {response.text[:200]}", error_code="AGENT_ERROR"
@@ -123,6 +140,8 @@ class PlayoutAgentService:
             answer = {}
         if not answer.get("token"):
             raise UnprocessableEntityError("The player did not return a token", error_code="AGENT_ERROR")
+        if not is_current(answer):
+            raise UnprocessableEntityError(OUTDATED_MESSAGE, error_code="AGENT_OUTDATED")
         return answer
 
     @classmethod
@@ -177,37 +196,44 @@ class PlayoutAgentService:
         return cls._request("GET", "/hostconfig", timeout=STATUS_TIMEOUT)
 
     @classmethod
-    def put_idle_media(cls, url: str) -> dict:
-        """Set only ``graphics.idle_media`` on the agent, leaving every other setting untouched."""
-        return cls._request("PUT", "/hostconfig/idle-media", json_body={"idle_media": url}, timeout=STATUS_TIMEOUT)
-
-    @staticmethod
-    def ident_idle_media_url() -> str:
-        """Streaming URL of the ident the agent idles on (user media item, else System Ident)."""
-        from cinefin.api.models import Bumper
-        from cinefin.api.utils.assets import system_ident_stream_url
-
-        ident_id = Settings.get("cinema.default_ident_id")
-        if ident_id:
-            try:
-                bumper = Bumper.objects.get(id=ident_id)
-            except Bumper.DoesNotExist:
-                pass
-            else:
-                url = (bumper.get_stream_url() or {}).get("stream_url", "")
-                if url:
-                    return url
-        return system_ident_stream_url()
+    def put_standby(cls, host, spec: dict) -> dict:
+        """Send the host its standby spec (``services/standby.py``). Returns its standby status."""
+        base, token = cls.host_target(host)
+        return cls._request(
+            "PUT", "/standby", json_body=spec, timeout=STATUS_TIMEOUT, base_override=base, token_override=token
+        )
 
     @classmethod
-    def resync_idle_media(cls) -> None:
-        """Best-effort push of the current ident. A disconnected/absent host is not an error."""
-        if not cls.is_configured():
-            return
-        try:
-            cls.put_idle_media(cls.ident_idle_media_url())
-        except UnprocessableEntityError as e:
-            logger.info("Idle-media resync skipped (agent unavailable): %s", e.message)
+    def enter_standby(cls, host) -> dict:
+        """Put the host's player on standby now. Returns its standby status."""
+        base, token = cls.host_target(host)
+        return cls._request("POST", "/standby", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+
+    @classmethod
+    def test_card(cls, host, on: bool) -> dict:
+        """Show or hide the host's test card (its name, output and speaker boxes). Returns ``on``, ``off_in_s``."""
+        base, token = cls.host_target(host)
+        return cls._request(
+            "POST", "/testcard", json_body={"on": on}, timeout=STATUS_TIMEOUT, base_override=base, token_override=token
+        )
+
+    @classmethod
+    def test_sound(cls, host) -> dict:
+        """Play the host's left-then-right test tone. Returns its sequence; ConflictError while one plays or
+        when the player is not on standby."""
+        base, token = cls.host_target(host)
+        return cls._request("POST", "/testsound", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+
+    @classmethod
+    def restart_host(cls, host) -> dict:
+        """Restart the named host's mpv, so a changed launch config applies."""
+        base, token = cls.host_target(host)
+        return cls._request("POST", "/mpv/restart", base_override=base, token_override=token)
+
+    @classmethod
+    def host_status(cls, host) -> dict:
+        base, token = cls.host_target(host)
+        return cls._request("GET", "/status", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
 
     @classmethod
     def start_mpv(cls) -> dict:

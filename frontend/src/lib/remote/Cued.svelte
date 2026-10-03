@@ -1,49 +1,56 @@
 <script lang="ts">
-	// Cued, not yet started: what's about to play, and the one Start.
-	import { Play } from '@lucide/svelte';
-	import { formatClock } from '$lib/format';
-	import { formatLongRuntime } from '$lib/programmes/helpers';
-	import FeatureStack from '$lib/components/FeatureStack.svelte';
-	import StatusLamp from '$lib/components/StatusLamp.svelte';
+	// Cued, not started: when it starts, what is on screen until then, and the one Start.
+	// The running order (title card marked pre-show) is the rundown beside it.
+	import { Play, Square } from '@lucide/svelte';
+	import { formatClock, formatTime } from '$lib/format';
+	import { untilLabel } from '$lib/dashboard/data.svelte';
+	import OnScreen from '$lib/playout/OnScreen.svelte';
+	import { can, cuedBy, type PlayoutStatus } from '$lib/playout/phase';
 	import Button from '$lib/components/ui/Button.svelte';
 
 	interface Props {
-		name: string;
-		films: { id: number; title: string; thumbnail_url?: string | null }[];
-		/** Programme length in seconds. */
-		total: number;
-		count: number;
-		firstUp: string | null;
-		holding: string;
+		status: PlayoutStatus;
 		starting: boolean;
 		onstart: () => void;
+		onend: () => void;
 	}
-	let { name, films, total, count, firstUp, holding, starting, onstart }: Props = $props();
+	let { status, starting, onstart, onend }: Props = $props();
 
-	const endsAt = $derived(total ? formatClock(new Date(Date.now() + total * 1000)) : null);
+	const total = $derived(status.playlist?.programme_total_duration ?? 0);
+	const count = $derived(status.playlist?.total_items ?? 0);
+	// When the screening whose lead-in cued it plays, else when it would end if started now.
+	const when = $derived.by(() => {
+		const s = cuedBy(status);
+		if (s) {
+			const plays = new Date(s.start_time);
+			return `Starts ${formatClock(plays)}, ${untilLabel(plays)}`;
+		}
+		return total ? `Ends ~${formatClock(new Date(Date.now() + total * 1000))} if started now` : '';
+	});
 </script>
 
-<section class="border border-border bg-surface-2 p-5">
-	<div class="flex items-center gap-5">
-		<FeatureStack {films} size="md" />
-		<div class="min-w-0 flex-1">
-			<h2 class="text-2xl leading-tight font-semibold">{name}</h2>
-			<p class="mt-1.5 font-mono text-xs text-muted">
-				{formatLongRuntime(Math.round(total / 60))} · {count} item{count === 1 ? '' : 's'}
-				{#if endsAt}· ends ~{endsAt} if started now{/if}
-			</p>
-			{#if firstUp}
-				<p class="mt-1 truncate text-sm text-muted">
-					First up: <span class="text-text">{firstUp}</span>
-				</p>
-			{/if}
-		</div>
+<section class="max-w-xl space-y-3.5">
+	<div>
+		<h2 class="text-xl leading-tight font-semibold">{status.programme?.name}</h2>
+		<p class="mt-1 text-sm text-muted">
+			{[when, `${count} item${count === 1 ? '' : 's'}`, total ? formatTime(total) : '']
+				.filter(Boolean)
+				.join(' · ')}
+		</p>
 	</div>
-	<div class="mt-5 flex flex-wrap items-center gap-4">
-		<Button variant="primary" size="lg" disabled={starting} onclick={onstart}>
-			<Play size={16} />
-			{starting ? 'Starting…' : 'Start programme'}
-		</Button>
-		<StatusLamp colour="neutral" quiet>Holding on the {holding}</StatusLamp>
-	</div>
+	<OnScreen {status} />
+	<p class="text-sm text-muted">On screen · {status.screen}, held until Start</p>
+	<Button
+		variant="primary"
+		size="lg"
+		class="w-full"
+		disabled={starting || !can(status, 'start')}
+		onclick={onstart}
+	>
+		<Play size={16} />
+		{starting ? 'Starting…' : 'Start'}
+	</Button>
+	<Button variant="danger" class="w-full" disabled={!can(status, 'end')} onclick={onend}>
+		<Square size={12} /> End programme
+	</Button>
 </section>

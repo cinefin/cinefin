@@ -60,7 +60,6 @@ export interface HostConfig {
 		hdr_passthrough: boolean;
 		osc: boolean;
 		display: string;
-		idle_media: string;
 		[extra: string]: unknown;
 	};
 	audio: {

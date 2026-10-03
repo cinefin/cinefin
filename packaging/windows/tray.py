@@ -26,17 +26,17 @@ CREATE_NO_WINDOW = 0x08000000
 
 
 def _data_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-    d = Path(base) / APP_NAME
+    # The same folder the server child resolves (%LOCALAPPDATA%\Cinefin by default).
+    from cinefin.cli import resolve_data_dir
+
+    d = resolve_data_dir()[0]
     (d / "logs").mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _child_env() -> dict:
     env = dict(os.environ)
-    env["CINEFIN_USERDATA_DIR"] = str(_data_dir())
-    env.setdefault("CINEFIN_HOST", "0.0.0.0")  # reachable by the kiosk / playout host
-    env["CINEFIN_PORT"] = str(PORT)
+    env["CINEFIN_PORT"] = str(PORT)  # listens on all interfaces, so the playout host can reach it
     if FFMPEG.is_dir():
         env["PATH"] = str(FFMPEG) + os.pathsep + env.get("PATH", "")
     return env
@@ -150,7 +150,9 @@ def main() -> None:
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Open logs", lambda i, item: os.startfile(_data_dir() / "logs")),
         pystray.MenuItem("Open data folder", lambda i, item: os.startfile(_data_dir())),
-        pystray.MenuItem("Run at login", lambda i, item: _set_login(not _login_enabled()), checked=lambda i: _login_enabled()),
+        pystray.MenuItem(
+            "Run at login", lambda i, item: _set_login(not _login_enabled()), checked=lambda i: _login_enabled()
+        ),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", lambda i, item: (server.stop(), i.stop())),
     )

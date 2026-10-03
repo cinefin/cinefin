@@ -184,6 +184,17 @@ class ApiConfig(AppConfig):
 
             logging.getLogger(__name__).exception("Failed to start schedule runner")
 
+        # Keep the control link to the active playout agent open, so the player
+        # knows Cinefin is there (it shows a notice when it is not).
+        try:
+            from .services import playout_link
+
+            playout_link.start()
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).exception("Failed to start the playout link keeper")
+
         # Trailer jobs run on ad-hoc threads (no resumable worker), so any left
         # "running" by a crash/restart must be marked failed on boot. Run it off
         # the init path — querying the DB inside ready() is discouraged.

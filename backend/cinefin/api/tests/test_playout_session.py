@@ -2,7 +2,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cinefin.api.models import Bumper, PlayoutSession, Settings
+from cinefin.api.models import PlayoutSession
 from cinefin.api.mpv_service import MPVService, ProgrammeState
 from cinefin.api.services.playlist_service import PlaylistService
 
@@ -16,91 +16,6 @@ def make_service():
     service.controller = MagicMock()
     service._lazy_initialized = True
     return service
-
-
-class TestPreShowState:
-    """Regression: a RUNNING programme on its opening item must report pre_show (the old local-path check never matched a stream URL)."""
-
-    def _running_service(self, offset=1):
-        programme = ProgrammeFactory()
-        playlist = PlaylistFactory(programme=programme)
-        for order, ct in enumerate(["movie", "system"]):
-            PlaylistItemFactory(playlist=playlist, order=order, content_type=ct)
-        service = make_service()
-        service.current_programme = programme
-        service.current_playlist = playlist
-        service.playlist_offset = offset
-        service.programme_state = ProgrammeState.RUNNING
-        service._ensure_connected = lambda: True
-        service.controller.get_playlist.return_value = []
-        return service
-
-    def _status(self, service, playlist_pos, file_path=""):
-        service.get_status = lambda: {
-            "playback_status": "playing",
-            "playlist_pos": playlist_pos,
-            "file_path": file_path,
-            "time": 2.0,
-            "length": 10.0,
-        }
-        return service.get_enhanced_status()
-
-    def test_opening_item_reports_pre_show(self):
-        service = self._running_service()
-        status = self._status(service, 0, "http://h/stream/system/ident/?t=abc")
-        assert status["programme"]["state"] == "pre_show"
-
-    def test_title_card_also_reports_pre_show(self):
-        service = self._running_service()
-        status = self._status(service, 0, "http://h/stream/title/7/?t=abc")
-        assert status["programme"]["state"] == "pre_show"
-
-    def test_first_programme_item_is_not_pre_show(self):
-        service = self._running_service()
-        status = self._status(service, 1, "http://h/stream/movie/3/?t=abc")
-        assert status["programme"]["state"] == ProgrammeState.RUNNING
-
-    def test_no_offset_means_no_pre_show(self):
-        service = self._running_service(offset=0)
-        status = self._status(service, 0, "http://h/stream/movie/3/?t=abc")
-        assert status["programme"]["state"] == ProgrammeState.RUNNING
-
-    def test_disconnected_mpv_is_not_pre_show(self):
-        service = self._running_service()
-        service.get_status = lambda: None
-        assert service.get_enhanced_status()["programme"]["state"] == ProgrammeState.RUNNING
-
-    def test_transport_controls_stay_available_during_pre_show(self):
-        service = self._running_service()
-        programme = self._status(service, 0)["programme"]
-        assert programme["state"] == "pre_show"
-        assert programme["can_pause"] is True
-        assert programme["can_stop"] is True
-
-
-class TestEnhancedStatusWhenDisconnected:
-    """Regression: get_enhanced_status must degrade cleanly (not raise UnboundLocalError) when MPV drops mid-poll."""
-
-    def test_no_crash_and_disconnected_state(self):
-        programme = ProgrammeFactory()
-        playlist = PlaylistFactory(programme=programme)
-        for order, ct in enumerate(["movie", "system"]):
-            PlaylistItemFactory(playlist=playlist, order=order, content_type=ct)
-
-        service = make_service()
-        service.current_programme = programme
-        service.current_playlist = playlist
-        service.playlist_offset = 1
-        service.programme_state = ProgrammeState.RUNNING
-        service.controller.get_playlist.return_value = []
-        service._ensure_connected = lambda: True
-        service.get_status = lambda: None
-
-        status = service.get_enhanced_status()
-
-        assert status["playback"]["state"] == "disconnected"
-        assert status["playlist"]["programme_position"] is None
-        assert status["playlist"]["current_item"] is None
 
 
 class TestSessionPersistence:
@@ -267,26 +182,18 @@ class TestBlackSentinelDisambiguation:
         assert service.programme_state == ProgrammeState.RUNNING
         assert service.current_programme is not None
 
-    def test_programme_end_resets_to_streamed_ident_not_local_path(self):
-        """Regression: at programme end the ident must be loaded by its stream URL, not its local file_path."""
-        ident = Bumper.objects.create(title="Ident", file_path="/media/ident.mp4")
-        Settings.set("cinema.default_ident_id", ident.id)
-
+    def test_programme_end_goes_to_standby(self):
         service = self._service_with_playlist(["movie", "system"])
         service.controller.get_property.return_value = 2
+        service.standby = MagicMock(return_value=True)
 
         service._handle_file_start("http://host/stream/system/black/")
 
-        service.controller.load_file.assert_called_once()
-        loaded_url = service.controller.load_file.call_args.args[0]
-        assert f"/stream/bumper/{ident.id}/" in loaded_url
-        assert loaded_url != "/media/ident.mp4"
-        assert service.controller.pause.called
-        assert service.programme_state == ProgrammeState.COMPLETED
+        service.standby.assert_called_once_with()
 
-    def test_end_black_completes_programme(self):
+    def test_end_black_goes_straight_to_standby(self):
         service = self._service_with_playlist(["movie", "system"])
         service.controller.get_property.return_value = 2
         service._handle_file_start("/media/system/black.mp4")
-        assert service.programme_state == ProgrammeState.COMPLETED
+        assert service.programme_state == ProgrammeState.NOT_LOADED
         assert service.current_programme is None

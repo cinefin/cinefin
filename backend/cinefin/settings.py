@@ -16,6 +16,8 @@ from pathlib import Path
 
 from django.urls import reverse_lazy
 
+from cinefin.cli import resolve_data_dir
+
 # BASE_DIR is the backend/ directory (the Python project root — holds the
 # `cinefin` package, manage.py and pyproject.toml). REPO_ROOT is one level up,
 # the repository root that also holds the sibling frontend/ and the runtime
@@ -25,10 +27,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
 
 # One directory holds ALL runtime data: the SQLite db, user media (MEDIA_ROOT →
-# userdata/media), the persisted SECRET_KEY and, when enabled, the logfile. Point
-# CINEFIN_USERDATA_DIR at a mounted volume to relocate the lot; the per-item paths
-# below (SQLITE_PATH, CINEFIN_USERMEDIA_DIR, …) still override individually.
-CINEFIN_USERDATA_DIR = os.environ.get("CINEFIN_USERDATA_DIR") or str(REPO_ROOT / "userdata")
+# userdata/media), the persisted SECRET_KEY and, when enabled, the logfile. The
+# `cinefin` command decides where (CINEFIN_USERDATA_DIR, else <repo>/userdata in
+# a source checkout, else the per-user platform folder), so manage.py and
+# `cinefin` always agree. The per-item paths below (SQLITE_PATH,
+# CINEFIN_USERMEDIA_DIR, …) still override individually.
+CINEFIN_USERDATA_DIR = str(resolve_data_dir()[0])
 
 LOGIN_URL = reverse_lazy("login")
 LOGIN_REDIRECT_URL = "/app/"

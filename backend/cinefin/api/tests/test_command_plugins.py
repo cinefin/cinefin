@@ -391,7 +391,7 @@ class TestSystemProvider:
         field = plugins.get_provider("system").fields[0]
         assert field.type == "select"
         assert "Restart the player" in field.choices
-        assert "Reset to the idle ident" in field.choices
+        assert "Standby" in field.choices
 
     def test_restart_player_calls_the_agent(self, monkeypatch):
         from cinefin.api.services.playout_agent_service import playout_agent_service
@@ -401,19 +401,19 @@ class TestSystemProvider:
         ok, message, _ = plugins.get_provider("system").run({"action": "Restart the player"}, {})
         assert ok is True and calls == [True] and message == "player restarted"
 
-    def test_reset_ident_reports_reachability(self, monkeypatch):
+    def test_standby_reports_reachability(self, monkeypatch):
         from cinefin.api import mpv_service as mpv_mod
 
-        monkeypatch.setattr(mpv_mod.mpv_service, "reset", lambda: True)
-        ok, _, _ = plugins.get_provider("system").run({"action": "Reset to the idle ident"}, {})
-        assert ok is True
+        monkeypatch.setattr(mpv_mod.mpv_service, "standby", lambda: True)
+        ok, message, _ = plugins.get_provider("system").run({"action": "Standby"}, {})
+        assert ok is True and message == "on standby"
 
-        monkeypatch.setattr(mpv_mod.mpv_service, "reset", lambda: False)
-        ok, message, _ = plugins.get_provider("system").run({"action": "Reset to the idle ident"}, {})
+        monkeypatch.setattr(mpv_mod.mpv_service, "standby", lambda: False)
+        ok, message, _ = plugins.get_provider("system").run({"action": "Standby"}, {})
         assert ok is False and message == "could not reach the player"
 
     @pytest.mark.parametrize(
-        ("action", "method"), [("Stop the programme", "stop_programme"), ("Pause", "pause"), ("Resume", "play")]
+        ("action", "method"), [("Stop the programme", "pause"), ("Pause", "pause"), ("Resume", "play")]
     )
     def test_playout_actions_call_the_player(self, monkeypatch, action, method):
         from cinefin.api import mpv_service as mpv_mod
@@ -441,7 +441,7 @@ class TestSystemProvider:
 class TestBuiltinCommands:
     """The system provider's actions are built-in commands: present after migrate, and locked."""
 
-    ACTIONS = {"Restart the player", "Reset to the idle ident", "Stop the programme", "Pause", "Resume"}
+    ACTIONS = {"Restart the player", "Standby", "Stop the programme", "Pause", "Resume"}
 
     def _system(self):
         return Command.objects.filter(provider="system")
@@ -450,6 +450,22 @@ class TestBuiltinCommands:
         assert set(self._system().values_list("name", flat=True)) == self.ACTIONS
         plugins.ensure_builtin_commands()
         assert self._system().count() == len(self.ACTIONS)
+
+    def test_the_old_reset_command_becomes_standby_in_place(self):
+        from importlib import import_module
+
+        from django.apps import apps
+
+        self._system().filter(name="Standby").delete()
+        old = Command.objects.create(
+            name="Reset to the idle ident", provider="system", config={"action": "Reset to the idle ident"}, duration=3
+        )
+        import_module("cinefin.api.migrations.0049_standby").rename_reset_command(apps, None)
+        plugins.ensure_builtin_commands()
+
+        standby = self._system().get(name="Standby")
+        assert standby.id == old.id and standby.config == {"action": "Standby"} and standby.duration == 3
+        assert set(self._system().values_list("name", flat=True)) == self.ACTIONS
 
     def test_listed_as_locked(self, client):
         by_name = {c["name"]: c for c in client.get("/api/v2/commands/list").json()["data"]["commands"]}

@@ -3,6 +3,7 @@
 	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
 	import { query } from '$lib/api/query.svelte';
+	import { lamp } from '$lib/playout/phase';
 	import { playout } from '$lib/stores/playout.svelte';
 	import { syncActivity } from '$lib/stores/syncActivity.svelte';
 	import { trailerActivity } from '$lib/stores/trailerActivity.svelte';
@@ -39,32 +40,9 @@
 	$effect(() => syncActivity.subscribe());
 	$effect(() => trailerActivity.subscribe());
 
-	// The booth lamp (spec §06): statuses are lamps beside words — steady when
-	// settled, pulsing only in transition. On air is not a lamp at all: it is
-	// the tally, a solid red block that never blinks.
-	type LampState = {
-		tally?: boolean;
-		label: string;
-		colour: 'blue' | 'red' | 'green' | 'amber' | 'neutral';
-		pending?: boolean;
-		quiet?: boolean;
-	};
-	const lamp = $derived.by((): LampState => {
-		if (!playout.loaded)
-			return { label: 'Connecting…', colour: 'neutral', pending: true, quiet: true };
-		const state = playout.status?.programme?.state;
-		if (state === 'running' || state === 'pre_show')
-			return { tally: true, label: 'On air', colour: 'red' };
-		if (playout.status?.manual)
-			return playout.status.playback?.state === 'paused'
-				? { label: 'Paused', colour: 'amber' }
-				: { tally: true, label: 'On air · manual', colour: 'red' };
-		if (state === 'paused') return { label: 'Paused', colour: 'amber' };
-		if (state === 'loaded') return { label: 'Cued', colour: 'green' };
-		if (playout.error && !playout.status)
-			return { label: 'Status unavailable', colour: 'red', quiet: true };
-		return { label: 'Idle', colour: 'neutral', quiet: true };
-	});
+	// The booth lamp (spec §06): the server's phase, drawn by the one helper. On air
+	// is not a lamp at all: it is the tally, a solid red block that never blinks.
+	const booth = $derived(lamp(playout.status, playout.loaded));
 </script>
 
 <!-- The header's inner row shares the page gutter, so the cinema name sits
@@ -138,11 +116,11 @@
 					>
 				</a>
 			{/if}
-			{#if lamp.tally}
-				<Tally label={lamp.label} />
+			{#if booth.tally}
+				<Tally label={booth.label} />
 			{:else}
-				<StatusLamp colour={lamp.colour} pending={lamp.pending} quiet={lamp.quiet}>
-					{lamp.label}
+				<StatusLamp colour={booth.colour} pending={booth.pending} quiet={booth.quiet}>
+					{booth.label}
 				</StatusLamp>
 			{/if}
 		</div>

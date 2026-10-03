@@ -16,13 +16,15 @@ export interface Bumper {
 	id: number;
 	title: string;
 	duration: number;
+	/** As the ident: where standby freezes, in seconds; null = its last frame. */
+	hold_point?: number | null;
 }
 
 /** Keys match the backend payload field names so field-level save errors map 1:1. */
 export interface MainDraft {
 	cinema_name: string;
 	ratings_system: string;
-	default_cinema_ident: string; // bumper id or '' = none
+	default_cinema_ident: string; // media item id, or '' = the System Ident
 	ticket_total_rows: string;
 	ticket_seats_per_row: string;
 	ticket_printer_type: string;
@@ -300,6 +302,7 @@ export class SettingsStore {
 					body: {
 						cinema_name: m.cinema_name.trim(),
 						ratings_system: m.ratings_system,
+						// null (sent, not omitted) = the System Ident; the server clears its saved id.
 						default_cinema_ident: m.default_cinema_ident
 							? parseInt(m.default_cinema_ident, 10)
 							: null,

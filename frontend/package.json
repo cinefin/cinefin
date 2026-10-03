@@ -8,12 +8,14 @@
 		"build": "svelte-kit sync && vite build",
 		"preview": "vite preview",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+		"test:unit": "node --test 'src/**/*.test.ts'",
 		"format": "prettier --write .",
 		"lint": "prettier --check .",
 		"generate:schema": "cd ../backend && poetry run python manage.py export_openapi",
 		"generate:types": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/types.gen.ts",
 		"generate:api": "npm run generate:schema && npm run generate:types",
-		"e2e": "playwright test"
+		"e2e": "playwright test",
+		"render:ident": "node tools/system-ident/render.mjs"
 	},
 	"dependencies": {
 		"@lucide/svelte": "1.48.0",

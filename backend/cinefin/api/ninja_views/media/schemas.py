@@ -25,6 +25,9 @@ class MediaItemSchema(Schema):
     tags: list[TagSchema] = Field(description="Associated tags")
     upload_date: str | None = Field(None, description="Upload timestamp in ISO format")
     audio_format: str | None = Field(None, description="Audio format this intro announces, if any")
+    hold_point: float | None = Field(
+        None, description="As the ident: where standby freezes, in seconds (null = last frame)"
+    )
 
 
 class MediaPaginationSchema(Schema):
@@ -66,6 +69,9 @@ class UpdateMediaSchema(Schema):
     title: str | None = Field(None, description="Updated media title")
     tag_names: list[str] | None = Field(None, description="Updated list of tag names")
     audio_format: str | None = Field(None, description="Audio format this intro announces ('' to clear)")
+    hold_point: float | None = Field(
+        None, ge=0, description="As the ident: where standby freezes, in seconds; send null for its last frame"
+    )
 
 
 class MediaCreateDataSchema(Schema):
@@ -97,6 +103,9 @@ class MediaDetailDataSchema(Schema):
     tags: list[TagSchema] = Field(description="Associated tags")
     upload_date: str | None = Field(None, description="Upload timestamp in ISO format")
     audio_format: str | None = Field(None, description="Audio format this intro announces, if any")
+    hold_point: float | None = Field(
+        None, description="As the ident: where standby freezes, in seconds (null = last frame)"
+    )
 
 
 class MediaDetailSchema(Schema):

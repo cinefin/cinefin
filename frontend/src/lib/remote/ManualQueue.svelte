@@ -52,7 +52,7 @@
 		<EmptyState
 			icon={ListOrdered}
 			title="Nothing queued"
-			message="Play or queue something to start. When the queue ends the ident returns."
+			message="Play or queue something to start. When the queue ends the player goes to standby."
 			compact
 		/>
 	{:else}

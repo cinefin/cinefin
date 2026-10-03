@@ -1,0 +1,248 @@
+<script lang="ts">
+	/**
+	 * A player's screen and sound fields, over a loaded launch config (see
+	 * host-config.ts). Used by Settings › Playout (HostConfigPanel, with its save
+	 * bar) and the Add a player wizard (with the test card and test sound beside
+	 * the screen and sound choices, via `screenAction` / `soundAction`).
+	 */
+	import type { Snippet } from 'svelte';
+	import { AlertTriangle, ChevronRight } from '@lucide/svelte';
+	import Input from '$lib/components/ui/Input.svelte';
+	import Select from '$lib/components/ui/Select.svelte';
+	import Toggle from '$lib/components/ui/Toggle.svelte';
+	import Field from '$lib/settings/Field.svelte';
+	import { audioDevices, type Hardware, type LaunchConfig } from './host-config';
+
+	interface Props {
+		config: LaunchConfig;
+		hardware: Hardware | null;
+		/** Unique per form on the page, for the field ids. */
+		idPrefix: string;
+		screenAction?: Snippet;
+		soundAction?: Snippet;
+	}
+
+	let { config = $bindable(), hardware, idPrefix, screenAction, soundAction }: Props = $props();
+
+	const SPDIF_CODECS = ['ac3', 'eac3', 'dts', 'dts-hd', 'truehd'];
+	const HWDEC = [
+		'auto',
+		'auto-safe',
+		'auto-copy',
+		'no',
+		'nvdec',
+		'vaapi',
+		'videotoolbox',
+		'd3d11va'
+	];
+	const CHANNELS = ['auto', 'stereo', '5.1', '7.1'];
+	// gpu_context has no enumeration from the host; "" lets mpv choose.
+	const GPU_CONTEXTS = ['', 'displayvk', 'drm', 'wayland', 'x11egl', 'win'];
+
+	let showAdvanced = $state(false);
+	const isDrm = $derived(config.graphics.mode === 'drm');
+	const devices = $derived(audioDevices(hardware));
+
+	function toggleSpdif(codec: string, on: boolean) {
+		const current = config.audio.spdif_passthrough ?? [];
+		config.audio.spdif_passthrough = on ? [...current, codec] : current.filter((c) => c !== codec);
+	}
+</script>
+
+{#if hardware?.note}
+	<p class="flex items-start gap-2 text-xs text-warning">
+		<AlertTriangle size={13} class="mt-px shrink-0" />
+		{hardware.note}
+	</p>
+{/if}
+
+<div class="grid grid-cols-1 gap-3 {screenAction || soundAction ? '' : 'sm:grid-cols-2'}">
+	{#if isDrm}
+		<Field label="Connector" forId="{idPrefix}-conn">
+			<div class="flex flex-wrap gap-2">
+				<Select
+					id="{idPrefix}-conn"
+					bind:value={config.graphics.drm_connector}
+					class="min-w-0 flex-1 basis-48"
+				>
+					<option value="">- choose an output -</option>
+					{#each hardware?.drm_connectors ?? [] as c (c)}
+						<option value={c}>{c}</option>
+					{/each}
+					{#if config.graphics.drm_connector && !(hardware?.drm_connectors ?? []).includes(config.graphics.drm_connector)}
+						<option value={config.graphics.drm_connector}>
+							{config.graphics.drm_connector} (not detected)
+						</option>
+					{/if}
+				</Select>
+				{@render screenAction?.()}
+			</div>
+		</Field>
+	{:else}
+		<Field label="Screen" forId="{idPrefix}-screen">
+			<div class="flex flex-wrap gap-2">
+				<Select
+					id="{idPrefix}-screen"
+					value={String(config.graphics.screen)}
+					onchange={(e) => (config.graphics.screen = Number((e.target as HTMLSelectElement).value))}
+					class="min-w-0 flex-1 basis-48"
+				>
+					{#each hardware?.screens ?? [] as s (s.index)}
+						<option value={String(s.index)}>
+							#{s.index}
+							{s.name ? `· ${s.name}` : ''}
+							{s.w ? `· ${s.w}×${s.h}` : ''}
+						</option>
+					{/each}
+					{#if !(hardware?.screens ?? []).length}
+						<option value={String(config.graphics.screen)}>#{config.graphics.screen}</option>
+					{/if}
+				</Select>
+				{@render screenAction?.()}
+			</div>
+		</Field>
+	{/if}
+
+	<Field label="Sound" forId="{idPrefix}-dev">
+		<div class="flex flex-wrap gap-2">
+			<Select id="{idPrefix}-dev" bind:value={config.audio.device} class="min-w-0 flex-1 basis-48">
+				<option value="">Auto (mpv default)</option>
+				{#each devices as d (d.name)}
+					<option value={d.name}>{d.description || d.name}</option>
+				{/each}
+				{#if config.audio.device && !devices.some((d) => d.name === config.audio.device)}
+					<option value={config.audio.device}>{config.audio.device} (not detected)</option>
+				{/if}
+			</Select>
+			{@render soundAction?.()}
+		</div>
+	</Field>
+</div>
+
+<Toggle label="Start the player when the box boots" bind:checked={config.autostart} />
+
+<div class="border-t border-border pt-3">
+	<button
+		type="button"
+		class="flex items-center gap-1.5 text-xs font-medium text-muted hover:text-text"
+		aria-expanded={showAdvanced}
+		onclick={() => (showAdvanced = !showAdvanced)}
+	>
+		<ChevronRight size={13} class="transition-transform {showAdvanced ? 'rotate-90' : ''}" />
+		Advanced
+	</button>
+
+	{#if showAdvanced}
+		<div class="mt-4 space-y-5">
+			<div>
+				<p class="mb-2 text-xs font-medium text-muted">Picture</p>
+				<div class="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+					<Field label="Picture output" forId="{idPrefix}-mode">
+						<Select id="{idPrefix}-mode" bind:value={config.graphics.mode} class="w-full">
+							<option value="desktop">Desktop session</option>
+							<option value="drm">Direct to screen (DRM)</option>
+						</Select>
+					</Field>
+					{#if isDrm}
+						<Field label="Pinned mode" forId="{idPrefix}-drmmode">
+							<Input
+								id="{idPrefix}-drmmode"
+								bind:value={config.graphics.drm_mode}
+								placeholder="e.g. 3840x2160@60 - blank to let the screen decide"
+							/>
+						</Field>
+					{:else}
+						<Field label="X display" forId="{idPrefix}-display">
+							<Input
+								id="{idPrefix}-display"
+								bind:value={config.graphics.display}
+								placeholder=":0"
+							/>
+						</Field>
+					{/if}
+					<Field label="Video output" forId="{idPrefix}-vo">
+						<Select id="{idPrefix}-vo" bind:value={config.graphics.vo} class="w-full">
+							{#each hardware?.mpv?.vo ?? [config.graphics.vo] as v (v)}
+								<option value={v}>{v}</option>
+							{/each}
+						</Select>
+					</Field>
+					<Field label="GPU API" forId="{idPrefix}-api">
+						<Select id="{idPrefix}-api" bind:value={config.graphics.gpu_api} class="w-full">
+							<option value="">Auto (mpv decides)</option>
+							{#each hardware?.mpv?.gpu_apis ?? [] as a (a)}
+								<option value={a}>{a}</option>
+							{/each}
+						</Select>
+					</Field>
+					<Field label="GPU context" forId="{idPrefix}-ctx">
+						<Select id="{idPrefix}-ctx" bind:value={config.graphics.gpu_context} class="w-full">
+							{#each GPU_CONTEXTS as c (c)}
+								<option value={c}>{c === '' ? 'Auto' : c}</option>
+							{/each}
+						</Select>
+						{#snippet hintSnippet()}
+							Vulkan on a direct-to-screen host wants <code>displayvk</code>.
+						{/snippet}
+					</Field>
+					<Field label="Hardware decoding" forId="{idPrefix}-hwdec">
+						<Select id="{idPrefix}-hwdec" bind:value={config.graphics.hwdec} class="w-full">
+							{#each HWDEC as h (h)}
+								<option value={h}>{h}</option>
+							{/each}
+						</Select>
+					</Field>
+				</div>
+				<div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+					<Toggle label="Fullscreen" bind:checked={config.graphics.fullscreen} />
+					<Toggle
+						label="HDR passthrough"
+						bind:checked={config.graphics.hdr_passthrough}
+						hint="Send HDR to the display instead of tone-mapping to SDR."
+					/>
+					<Toggle
+						label="On-screen controller"
+						bind:checked={config.graphics.osc}
+						hint="mpv's own seek bar on mouse-over. Off gives a clean theater screen."
+					/>
+				</div>
+			</div>
+
+			<div class="border-t border-border pt-4">
+				<p class="mb-2 text-xs font-medium text-muted">Sound</p>
+				<div class="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+					<Field label="Channels" forId="{idPrefix}-ch">
+						<Select id="{idPrefix}-ch" bind:value={config.audio.channels} class="w-full">
+							{#each CHANNELS as c (c)}
+								<option value={c}>{c}</option>
+							{/each}
+						</Select>
+					</Field>
+					<Field label="Maximum volume" forId="{idPrefix}-vol" hint="Percent. mpv's volume-max.">
+						<Input
+							id="{idPrefix}-vol"
+							type="number"
+							value={String(config.audio.max_volume)}
+							oninput={(e) =>
+								(config.audio.max_volume = Number((e.target as HTMLInputElement).value) || 0)}
+						/>
+					</Field>
+				</div>
+				<div class="mt-3">
+					<p class="mb-1.5 text-xs text-muted">
+						Bitstream to the receiver - sent untouched instead of being decoded here.
+					</p>
+					<div class="flex flex-wrap gap-x-5 gap-y-2">
+						{#each SPDIF_CODECS as codec (codec)}
+							<Toggle
+								label={codec}
+								checked={(config.audio.spdif_passthrough ?? []).includes(codec)}
+								onchange={(e) => toggleSpdif(codec, (e.target as HTMLInputElement).checked)}
+							/>
+						{/each}
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
+</div>

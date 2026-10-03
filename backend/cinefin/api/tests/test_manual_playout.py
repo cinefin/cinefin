@@ -21,11 +21,11 @@ class TestManualApi:
         calls = []
         monkeypatch.setattr(playout_ninja, "resolve_media_path", lambda obj: "http://d/film")
         monkeypatch.setattr(playout_ninja.mpv_service, "current_programme", ProgrammeFactory())
-        monkeypatch.setattr(playout_ninja.mpv_service, "reset", lambda: calls.append("reset") or True)
+        monkeypatch.setattr(playout_ninja.mpv_service, "standby", lambda: calls.append("standby") or True)
         monkeypatch.setattr(playout_ninja.mpv_service, "manual_add", lambda *a, **k: calls.append(a) or True)
 
         body = {"kind": "movie", "id": movie.id}
         assert client.post("/api/v2/playout/manual", body, content_type="application/json").status_code == 409
         body["end_programme"] = True
         assert client.post("/api/v2/playout/manual", body, content_type="application/json").status_code == 200
-        assert calls[0] == "reset" and calls[1][1:] == ("movie", "http://d/film")
+        assert calls[0] == "standby" and calls[1][1:] == ("movie", "http://d/film")

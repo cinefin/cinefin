@@ -25,7 +25,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
-	import PlayerPairing from '$lib/components/PlayerPairing.svelte';
+	import AddPlayerWizard from '$lib/playout/AddPlayerWizard.svelte';
 	import { onMount } from 'svelte';
 
 	const STEP_META: Record<number, { title: string; subtitle: string }> = {
@@ -37,7 +37,7 @@
 		2: {
 			title: 'Connect the player',
 			subtitle:
-				'Cinefin plays your programmes through a playout agent on the machine at your screen. Pair it now or skip and do it later.'
+				'Cinefin plays your programmes through a player: the machine at your screen. Add it now, or skip and do it later in Settings › Playout.'
 		},
 		3: {
 			title: 'Your movies',
@@ -677,38 +677,33 @@
 			{:else if step === 2}
 				<div class="space-y-4">
 					<section class="border border-border bg-surface-1 p-4">
-						<div class="mb-4">
-							<h2 class="text-sm font-semibold text-text">Playout host</h2>
-							<p class="mt-0.5 text-xs text-muted">
-								Run cinefin-playout on the machine at your screen. Its screen shows a pairing code:
-								pick the player here and enter it.
-							</p>
-						</div>
 						<div class="space-y-4">
 							{#if pairedWith}
 								<p class="flex items-center gap-2 text-sm">
-									<CircleCheck class="h-4 w-4 text-success" /> Paired with
-									<strong>{pairedWith}</strong>.
+									<CircleCheck class="h-4 w-4 text-success" />
+									<span><strong>{pairedWith}</strong> is ready.</span>
 								</p>
 							{:else}
-								<PlayerPairing onpaired={(host) => (pairedWith = host.name)} />
+								<AddPlayerWizard onfinish={(host) => (pairedWith = host.name)} />
 							{/if}
-							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="set-server-url"
-									>Streaming base URL</label
-								>
-								<Input
-									id="set-server-url"
-									bind:value={serverUrl}
-									placeholder="http://cinema.local:8000"
-								/>
-								<p class="mt-1 text-xs text-faint">
-									The player streams idents, movies, trailers and custom media from Cinefin at this
-									URL, so the playout machine must be able to reach it. Prefilled with this
-									browser's address. Change it if the machine sees Cinefin differently. Blank uses
-									the server default.
-								</p>
-							</div>
+						</div>
+					</section>
+					<section class="border border-border bg-surface-1 p-4">
+						<div>
+							<label class="mb-1 block text-xs font-medium text-muted" for="set-server-url"
+								>Streaming base URL</label
+							>
+							<Input
+								id="set-server-url"
+								bind:value={serverUrl}
+								placeholder="http://cinema.local:8000"
+							/>
+							<p class="mt-1 text-xs text-faint">
+								The player streams idents, movies, trailers and custom media from Cinefin at this
+								URL, so the playout machine must be able to reach it. Prefilled with this browser's
+								address. Change it if the machine sees Cinefin differently. Blank uses the server
+								default.
+							</p>
 						</div>
 					</section>
 

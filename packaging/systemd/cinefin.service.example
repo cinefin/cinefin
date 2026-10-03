@@ -1,0 +1,32 @@
+# Cinefin server as a system service (pip/pipx install, no Docker).
+#
+#   sudo pipx install --global ./cinefin3-<version>-py3-none-any.whl   # -> /usr/local/bin/cinefin
+#   sudo useradd --system --home-dir /var/lib/cinefin cinefin
+#   sudo cp cinefin.service.example /etc/systemd/system/cinefin.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cinefin
+#
+# Check the resolved settings with
+#   sudo -u cinefin cinefin info --data-dir /var/lib/cinefin
+# and run management commands the same way, e.g.
+#   sudo -u cinefin cinefin manage --data-dir /var/lib/cinefin createsuperuser
+
+[Unit]
+Description=Cinefin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=cinefin
+# Creates /var/lib/cinefin owned by the service user.
+StateDirectory=cinefin
+# Migrates, then serves on 0.0.0.0:8000. One process only: the schedule runner
+# and playout state live in it. Add --public-url http://<host>:8000 if the
+# detected LAN address is not the one your players should use.
+ExecStart=/usr/local/bin/cinefin serve --data-dir /var/lib/cinefin
+# Scheduled screenings follow this timezone:
+# Environment=TZ=Europe/London
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

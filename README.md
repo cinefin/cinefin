@@ -41,7 +41,7 @@ It even prints tickets!
 ## Download & run
 
 Pick one of the options below, then open
-<http://localhost:8000> and follow the setup wizard. All your data lives under `./userdata`.
+<http://localhost:8000> and follow the setup wizard. With Docker, all your data lives under `./userdata`.
 
 ### Docker (recommended)
 
@@ -59,8 +59,30 @@ Grab the latest `cinefin3-*.whl` from the
 
 ```bash
 pipx install ./cinefin3-<version>-py3-none-any.whl   # paste the release URL
-cinefin                                              # migrate, then serve on :8000
+cinefin serve                                        # migrate, then serve on :8000
 ```
+
+On start it prints the data folder, the listen address and the address that
+browsers and players should use. `cinefin info` prints the same values without
+starting, along with where each one came from. The options, each of which can
+also be set with the environment variable in brackets:
+
+| Option | Default |
+| --- | --- |
+| `--data-dir DIR` (`CINEFIN_USERDATA_DIR`) | `~/.local/share/cinefin` (`%LOCALAPPDATA%\Cinefin` on Windows) |
+| `--listen HOST:PORT` (`CINEFIN_HOST`, `CINEFIN_PORT`) | `0.0.0.0:8000`; use `[::]:8000` for IPv6 |
+| `--public-url URL` (`CINEFIN_SERVER_URL`) | this machine's LAN address and the port |
+| `--log-level LEVEL` (`CINEFIN_LOG_LEVEL`) | `INFO` |
+| `--log-file PATH` (`CINEFIN_LOG_FILE`) | none |
+| `--no-migrate` | migrations are applied on start |
+
+A flag wins over its environment variable. The public URL is the address
+players fetch trailers and idents from; a server URL saved under
+**Settings > Playout** takes precedence over it. `cinefin migrate` applies
+migrations and exits, and `cinefin manage <command>` runs any management
+command against the same data folder, for example
+`cinefin manage createsuperuser`. To start Cinefin at boot, see
+[`packaging/systemd/cinefin.service.example`](packaging/systemd/cinefin.service.example).
 
 > [!NOTE]
 > Playback needs a player: run the

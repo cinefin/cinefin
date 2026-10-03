@@ -6,13 +6,12 @@ from django.conf import settings as django_settings
 from django.http import HttpRequest
 from ninja import Field, File, Router, Schema, Status, UploadedFile
 
-from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
+from cinefin.api.exceptions import ConflictError, NotFoundError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import Bumper, Settings
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
-from cinefin.api.services import config_check_service
+from cinefin.api.services import config_check_service, standby
 from cinefin.api.utils import branding
-from cinefin.api.utils.assets import system_ident_stream_url
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,7 @@ class BumperSchema(Schema):
     id: int = Field(description="Bumper unique identifier")
     title: str = Field(description="Bumper title")
     duration: float = Field(description="Bumper duration in seconds")
+    hold_point: float | None = Field(None, description="As the ident: where standby freezes (null = last frame)")
 
 
 class CinemaIdentSchema(Schema):
@@ -30,7 +30,9 @@ class CinemaIdentSchema(Schema):
 
 class SettingsDataSchema(Schema):
     cinema_name: str = Field(description="Name of the cinema")
-    default_cinema_ident_id: int | None = Field(default=None, description="Default cinema ident bumper ID")
+    default_cinema_ident_id: int | None = Field(
+        default=None, description="Default cinema ident media item ID (null = the System Ident)"
+    )
     ratings_system: str = Field(default="BBFC", description="Ratings classification system: BBFC or MPAA")
 
     ticket_total_rows: int = Field(description="Number of seat rows")
@@ -98,7 +100,9 @@ class GetSettingsResponseSchema(SuccessResponseSchema):
 
 class UpdateSettingsSchema(Schema):
     cinema_name: str | None = Field(default=None, description="Cinema name")
-    default_cinema_ident: int | None = Field(default=None, description="Default cinema ident bumper ID")
+    default_cinema_ident: int | None = Field(
+        default=None, description="Default cinema ident media item ID; an explicit null selects the System Ident"
+    )
 
     ticket_total_rows: int | None = Field(default=None, ge=1, le=26, description="Total seat rows")
     ticket_seats_per_row: int | None = Field(default=None, ge=1, le=100, description="Seats per row")
@@ -157,13 +161,6 @@ class UpdateSettingsSchema(Schema):
     kiosk_show_showtimes: bool | None = Field(default=None, description="Showtimes on poster-wall tiles")
 
 
-class TestIdentSchema(Schema):
-    bumper_id: int | None = Field(
-        default=None,
-        description="User media item to test as the ident; omit to test the bundled System Ident",
-    )
-
-
 # Configuration checks are non-destructive; a failed check is a result, not an error, so they all answer 200.
 
 
@@ -193,14 +190,17 @@ settings_api = Router()
 
 def _build_settings_response(all_settings: dict, updated_at: str) -> SettingsDataSchema:
     subtitles = all_settings.get("playout", {}).get("subtitles", {})
-    default_ident_id = all_settings.get("cinema", {}).get("default_ident_id")
+    # A saved id whose media item was deleted reads as the System Ident, which is
+    # what standby plays for it; echoing the dead id would leave the form holding
+    # a choice it cannot show and the save rejecting it as not found.
+    default_ident_id = None
     default_ident = None
-    if default_ident_id:
-        try:
-            bumper = Bumper.objects.get(id=default_ident_id)
+    saved_ident_id = all_settings.get("cinema", {}).get("default_ident_id")
+    if saved_ident_id:
+        bumper = Bumper.objects.filter(id=saved_ident_id).first()
+        if bumper is not None:
+            default_ident_id = bumper.id
             default_ident = CinemaIdentSchema(id=bumper.id, title=bumper.title)
-        except Bumper.DoesNotExist:
-            pass
 
     return SettingsDataSchema(
         cinema_name=all_settings.get("cinema", {}).get("name", "Cinefin"),
@@ -254,7 +254,7 @@ def get_settings(request: HttpRequest):
     all_settings = Settings.get_all()
     instance = Settings._get_instance()
 
-    bumpers = Bumper.objects.all().values("id", "title", "duration")
+    bumpers = Bumper.objects.all().values("id", "title", "duration", "hold_point")
 
     settings_data = _build_settings_response(all_settings, instance.updated_at.isoformat())
     bumper_list = [BumperSchema(**bumper) for bumper in bumpers]
@@ -330,7 +330,7 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
     if data.ticket_paper_width is not None and data.ticket_paper_width not in (384, 576):
         raise ValidationError("Paper width must be 384 or 576 dots", details={"field": "ticket_paper_width"})
 
-    # Empty string means "reset" — None can't travel (None fields are skipped as not-provided).
+    # Empty string means "reset" here (a None accent is skipped as not-provided).
     if data.accent_color is not None and data.accent_color != "":
         if branding.valid_accent_color(data.accent_color) is None:
             raise ValidationError("Accent colour must be a #rrggbb hex value", details={"field": "accent_color"})
@@ -374,21 +374,26 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         if value is not None and not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", value):
             raise ValidationError("Must be a time like 01:00", details={"field": field_name})
 
-    if data.default_cinema_ident is not None and data.default_cinema_ident:
+    if data.default_cinema_ident is not None:
         try:
             Bumper.objects.get(id=data.default_cinema_ident)
         except Bumper.DoesNotExist:
             raise NotFoundError("Selected cinema ident not found", details={"field": "default_cinema_ident"}) from None
 
-    # A ratings-system change re-points denormalised scalar certificates; note the
-    # ident + streaming URL (which drive the host's idle screen) to detect changes.
+    # A ratings-system change re-points denormalised scalar certificates; note
+    # what goes into the players' standby spec to detect changes to it.
     previous_ratings_system = Settings.get_ratings_system()
-    previous_ident_id = Settings.get("cinema.default_ident_id")
-    previous_server_url = Settings.get("playout.server_url")
+    previous_spec = _standby_settings()
+
+    # Fields that can be cleared: an explicit null clears them, an omitted one is left
+    # alone (model_fields_set tells the two apart). Every other None is "not provided".
+    clearable = {"default_cinema_ident"}
 
     for field_name, settings_key in field_mapping.items():
         value = getattr(data, field_name, None)
         if value is None:
+            if field_name in clearable and field_name in data.model_fields_set:
+                Settings.set(settings_key, None)
             continue
         if field_name == "accent_color":
             value = branding.valid_accent_color(value)  # "" -> None (reset)
@@ -408,54 +413,35 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         except Exception:  # noqa: BLE001 — a live-apply failure is not a save failure
             logger.debug("Could not apply subtitle style live", exc_info=True)
 
-    # If the ident or streaming URL changed, re-push the host's streamed idle
-    # screen (best-effort; applies on the next player restart).
-    ident_changed = (
-        data.default_cinema_ident is not None and Settings.get("cinema.default_ident_id") != previous_ident_id
-    )
-    server_url_changed = (
-        data.playout_server_url is not None and Settings.get("playout.server_url") != previous_server_url
-    )
-    if ident_changed or server_url_changed:
-        try:
-            from cinefin.api.services.playout_agent_service import playout_agent_service
-
-            playout_agent_service.resync_idle_media()
-        except Exception:  # noqa: BLE001 — agent sync must not fail the settings save
-            logger.debug("Could not resync playout idle media", exc_info=True)
+    if _standby_settings() != previous_spec:
+        standby.push()
 
     return Status(200, MessageResponseSchema(message="Settings updated successfully"))
 
 
+def _standby_settings() -> tuple:
+    """The settings that go into the players' standby spec (the streaming URL is in the ident's URL)."""
+    return (
+        Settings.get_cinema_name(),
+        Settings.get("cinema.default_ident_id"),
+        Settings.get("playout.server_url"),
+    )
+
+
 @settings_api.post(
-    "/test-ident/",
-    response={200: MessageResponseSchema, 404: ErrorResponseSchema, 422: ErrorResponseSchema, 500: ErrorResponseSchema},
+    "/preview-standby/",
+    response={200: MessageResponseSchema, 409: ErrorResponseSchema, 422: ErrorResponseSchema},
 )
-def test_ident(request: HttpRequest, data: TestIdentSchema):
-    """Play the ident — the chosen user media item, or the bundled System Ident when no bumper_id is given."""
-    if data.bumper_id is None:
-        stream_url, label = system_ident_stream_url(), "System Ident"
-    else:
-        try:
-            bumper = Bumper.objects.get(id=data.bumper_id)
-        except Bumper.DoesNotExist:
-            raise NotFoundError("User media item not found") from None
-        # Streaming-only: play the stream URL; the local file_path means nothing on a remote host.
-        stream_url = (bumper.get_stream_url() or {}).get("stream_url")
-        if not stream_url:
-            raise UnprocessableEntityError("That user media item has no stream URL")
-        label = bumper.title
-
-    if mpv_service is None:
-        raise UnprocessableEntityError("No MPV service available")
-
-    success = mpv_service.load_file(stream_url, replace=True)
-    if not success:
-        raise UnprocessableEntityError("Failed to load the ident")
-
-    mpv_service.play()
-
-    return Status(200, MessageResponseSchema(message=f"Playing ident: {label}"))
+def preview_standby(request: HttpRequest):
+    """Put the player on standby with the saved ident, to see it. Refused while
+    a programme or a manual queue is loaded, since standby would end it."""
+    if not mpv_service.idle():
+        raise ConflictError(
+            "A programme or manual queue is loaded; end it before previewing standby", error_code="PLAYER_BUSY"
+        )
+    if not mpv_service.standby():
+        raise UnprocessableEntityError("Could not reach the player", error_code="PLAYER_UNREACHABLE")
+    return Status(200, MessageResponseSchema(message="The player is on standby"))
 
 
 @settings_api.post("/test-tmdb/", response=CheckResultResponse)

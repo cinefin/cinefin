@@ -268,7 +268,7 @@ class TestMPVControllerWSMode:
             assert isinstance(controller.player, WSMPV)
             stub.wait_for_client()
             observed = {c[2] for c in stub.received_commands if c[:1] == ["observe_property"]}
-            assert {"chapter", "pause", "path", "idle-active", "playlist-pos", "time-pos"} <= observed
+            assert {"chapter", "pause", "path", "playlist-pos", "time-pos"} <= observed
             stub.push_event({"event": "end-file", "reason": "eof"})
             time.sleep(0.1)
         finally:
@@ -290,6 +290,20 @@ class TestMPVControllerWSMode:
             assert ["set_property", "sid", 1] in cmds
             assert ["set_property", "speed", 1.5] in cmds
             assert ["set_property", "playlist-pos", 4] in cmds
+        finally:
+            controller.terminate()
+
+    def test_load_file_names_the_file_for_the_window_title(self, ws_settings):
+        stub = ws_settings
+        controller = MPVController()
+        try:
+            controller.load_file("/tmp/a.mp4", options="end=5", title="Trailer: Crazy, Stupid, Love")
+            controller.enqueue_file("/tmp/b.mp4", title="Command: Lights")
+            time.sleep(0.1)
+            cmds = stub.received_commands
+            title = "force-media-title=%28%Trailer: Crazy, Stupid, Love"
+            assert ["loadfile", "/tmp/a.mp4", "replace", -1, "end=5," + title] in cmds
+            assert ["loadfile", "/tmp/b.mp4", "append", -1, "force-media-title=%15%Command: Lights"] in cmds
         finally:
             controller.terminate()
 

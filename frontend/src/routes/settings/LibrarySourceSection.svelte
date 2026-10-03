@@ -42,7 +42,7 @@
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 	import Disclosure from './Disclosure.svelte';
 
 	interface Props {

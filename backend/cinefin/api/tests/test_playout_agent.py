@@ -43,38 +43,16 @@ class TestProxyMethods:
         assert method == "GET" and url == "http://booth:8089/hostconfig"
         assert rq.call_args.kwargs["headers"]["Authorization"] == "Bearer t"
 
-    def test_put_idle_media_returns_restart_flag(self):
-        self._active()
+    def test_standby_calls_address_the_host(self):
+        host = self._active()
         with patch("cinefin.api.services.playout_agent_service.requests.request") as rq:
-            rq.return_value = _Resp(200, {"restart_required": True})
-            out = PlayoutAgentService.put_idle_media("http://cinefin/ident.mp4")
-        assert out["restart_required"] is True
-        method, url = rq.call_args[0][0], rq.call_args[0][1]
-        assert method == "PUT" and url == "http://booth:8089/hostconfig/idle-media"
-        assert rq.call_args.kwargs["json"] == {"idle_media": "http://cinefin/ident.mp4"}
-
-
-class TestIdentIdleMedia:
-    def _active(self):
-        return PlayoutHost.objects.create(name="Booth", base_url="http://booth:8089", token="t", is_active=True)
-
-    def _ident_bumper(self):
-        from cinefin.api.models import Bumper
-
-        bumper = Bumper.objects.create(title="Ident", file_path="/media/ident.mp4")
-        Settings.set("cinema.default_ident_id", bumper.id)
-        return bumper
-
-    def test_resync_pushes_the_system_ident_when_none_is_chosen(self):
-        self._active()
-        Settings.set("cinema.default_ident_id", None)
-        with patch("cinefin.api.services.playout_agent_service.requests.request") as rq:
-            rq.return_value = _Resp(200, {})
-            PlayoutAgentService.resync_idle_media()
-        method, url = rq.call_args[0][0], rq.call_args[0][1]
-        assert method == "PUT" and url.endswith("/hostconfig/idle-media")
-        assert "/stream/system/ident/?t=" in rq.call_args.kwargs["json"]["idle_media"]
-        assert set(rq.call_args.kwargs["json"].keys()) == {"idle_media"}
+            rq.return_value = _Resp(200, {"on_standby": True})
+            assert PlayoutAgentService.put_standby(host, {"ident": {}})["on_standby"] is True
+            assert rq.call_args.args[:2] == ("PUT", "http://booth:8089/standby")
+            assert rq.call_args.kwargs["json"] == {"ident": {}}
+            PlayoutAgentService.enter_standby(host)
+            assert rq.call_args.args[:2] == ("POST", "http://booth:8089/standby")
+        assert rq.call_args.kwargs["headers"]["Authorization"] == "Bearer t"
 
     def test_unconfigured_raises(self):
         from cinefin.api.exceptions import UnprocessableEntityError
@@ -89,15 +67,12 @@ class TestHostEndpoints:
 
     def _pair(self, client, answer, **body):
         body = {"base_url": "booth", "code": "482 913", **body}
-        with (
-            patch("cinefin.api.services.playout_agent_service.requests.post", return_value=_Resp(200, answer)) as post,
-            patch("cinefin.api.ninja_views.playout_ninja.playout_agent_service.resync_idle_media"),
-            patch("cinefin.api.ninja_views.playout_ninja.mpv_service.show_idle"),
-        ):
+        answer = {"protocol": 2, **answer}
+        with patch("cinefin.api.services.playout_agent_service.requests.post", return_value=_Resp(200, answer)) as post:
             r = client.post(self.PAIR, data=body, content_type="application/json")
         return r, post
 
-    def test_pair_adds_and_activates_the_first_player(self, client):
+    def test_pair_adds_and_activates_the_first_player(self, client, standby_pushes):
         PlayoutHost.objects.all().delete()
         r, post = self._pair(client, {"token": "sekret", "id": "abc", "name": "Booth", "agent_version": "1.0"})
         assert r.status_code == 200
@@ -108,7 +83,46 @@ class TestHostEndpoints:
         host = r.json()["data"]
         assert host["is_active"] is True and host["has_token"] is True and host["agent_id"] == "abc"
         assert host["name"] == "Booth" and "token" not in host
-        assert PlayoutHost.objects.get(pk=host["id"]).token == "sekret"
+        assert host["needs_update"] is False and host["needs_pairing_again"] is False
+        saved = PlayoutHost.objects.get(pk=host["id"])
+        assert saved.token == "sekret" and saved.protocol == 2
+        assert standby_pushes == [[host["id"]]]  # the new player gets its standby spec
+
+    @pytest.mark.parametrize("answer", [{}, {"protocol": 1}, {"protocol": "2"}])
+    def test_pair_refuses_a_player_without_standby(self, client, answer):
+        PlayoutHost.objects.all().delete()
+        reply = _Resp(200, {"token": "t", "id": "old", **answer})
+        with patch("cinefin.api.services.playout_agent_service.requests.post", return_value=reply):
+            r = client.post(self.PAIR, data={"base_url": "booth", "code": "111111"}, content_type="application/json")
+        assert r.status_code == 422
+        assert r.json()["error_code"] == "AGENT_OUTDATED"
+        assert "needs updating to the latest cinefin-playout release" in r.json()["error"]
+        assert not PlayoutHost.objects.exists()
+
+    def test_hosts_list_flags_players_to_pair_again_or_update(self, client):
+        PlayoutHost.objects.all().delete()
+        PlayoutHost.objects.create(name="Legacy", token="t", protocol=2)
+        PlayoutHost.objects.create(name="Old", token="t", agent_id="a", protocol=1)
+        PlayoutHost.objects.create(name="Current", token="t", agent_id="b", protocol=2)
+        PlayoutHost.objects.create(name="Local", kind=PlayoutHost.KIND_LOCAL_SOCKET, socket_path="/s", token="")
+        hosts = {h["name"]: h for h in client.get("/api/v2/playout/hosts").json()["data"]}
+        flags = {n: (h["needs_pairing_again"], h["needs_update"]) for n, h in hosts.items()}
+        assert flags == {
+            "Legacy": (True, False),
+            "Old": (False, True),
+            "Current": (False, False),
+            "Local": (False, False),
+        }
+
+    def test_refresh_records_the_protocol(self, client):
+        host = PlayoutHost.objects.create(name="Booth", base_url="http://booth:8089", token="t", protocol=2)
+        with patch(
+            "cinefin.api.services.playout_host_service.requests.get", return_value=_Resp(200, {"version": "0.9"})
+        ):
+            r = client.post(f"/api/v2/playout/hosts/{host.id}/refresh")
+        assert r.json()["data"]["needs_update"] is True
+        host.refresh_from_db()
+        assert host.protocol == 0
 
     def test_repairing_a_known_player_updates_it(self, client):
         PlayoutHost.objects.all().delete()
@@ -171,6 +185,16 @@ class TestHostEndpoints:
         client.patch(f"/api/v2/playout/hosts/{host.id}", data={"name": "Renamed"}, content_type="application/json")
         host.refresh_from_db()
         assert host.name == "Renamed" and host.token == "keep"
+
+    def test_rename_and_show_status_push_the_spec(self, client, standby_pushes):
+        host = PlayoutHost.objects.create(name="Booth", base_url="http://booth:8089", token="t")
+        url = f"/api/v2/playout/hosts/{host.id}"
+        client.patch(url, data={"enabled": True}, content_type="application/json")
+        assert standby_pushes == []  # nothing in the spec changed
+        client.patch(url, data={"name": "Screen 1"}, content_type="application/json")
+        r = client.patch(url, data={"show_status": False}, content_type="application/json")
+        assert r.json()["data"]["show_status"] is False
+        assert standby_pushes == [[host.id], [host.id]]
 
 
 class TestSubtitleSettings:

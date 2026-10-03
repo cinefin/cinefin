@@ -5,10 +5,11 @@
  */
 import { api, unwrap } from '$lib/api/client';
 import type { components } from '$lib/api/types.gen';
-import type { PlayoutPlaylistData } from '$lib/api/refinements';
 import { playout } from './playout.svelte';
 
 export type MpvStatusData = components['schemas']['MPVStatusDataSchema'];
+export type PlayoutPlaylistData = components['schemas']['PlaylistDataSchema'];
+export type PlayoutPlaylistItem = PlayoutPlaylistData['playlist'][number];
 
 // Signature re-check cadence (local state only — no network unless it changed).
 const SIGNATURE_CHECK_MS = 1000;
@@ -56,13 +57,12 @@ class MpvStore {
 		await this.#check();
 	}
 
-	// Item-identity signature; a change means the current item changed.
+	// What is on screen; a change means the tracks may have changed.
 	#computeSignature(): string | null {
 		const p = playout.status;
-		if (p?.programme?.id != null) {
-			return `${p.programme.id}:${p.playlist?.current_position ?? ''}:${p.playlist?.total_items ?? ''}:${p.programme.state}`;
-		}
-		return null;
+		return p
+			? `${p.phase}:${p.screen}:${p.playlist?.mpv_position ?? p.manual?.position ?? ''}`
+			: null;
 	}
 
 	async #check(): Promise<void> {
@@ -131,11 +131,7 @@ class PlaylistStore {
 	#computeSignature(): string | null {
 		const p = playout.status;
 		if (p?.programme?.id != null) {
-			return `${p.programme.id}:${p.playlist?.current_position ?? ''}:${p.playlist?.total_items ?? ''}`;
-		}
-		const m = mpv.status;
-		if (m?.programme) {
-			return `mpv:${m.playlist_pos ?? ''}:${m.playlist?.length ?? ''}`;
+			return `${p.programme.id}:${p.playlist?.mpv_position ?? ''}:${p.playlist?.total_items ?? ''}`;
 		}
 		return null;
 	}
@@ -153,11 +149,7 @@ class PlaylistStore {
 
 		this.#inFlight = true;
 		try {
-			// Generated PlaylistDataSchema has the wrong shape (OpenAPI name
-			// collision); PlayoutPlaylistData pins the runtime one.
-			this.data = (await unwrap(
-				api.GET('/api/v2/playout/playlist')
-			)) as unknown as PlayoutPlaylistData;
+			this.data = (await unwrap(api.GET('/api/v2/playout/playlist'))) ?? null;
 		} catch {
 			this.data = null;
 		} finally {

@@ -20,6 +20,12 @@ def system_black_stream_url() -> str:
     return f"{cinefin_base_url()}/stream/system/black/?t={make_stream_token('system', 0)}"
 
 
+# The System Ident is an intro (0 to 4 s) followed by a seamless 30 s loop: a
+# player holds it by looping this range (mpv ab-loop-a / ab-loop-b), in seconds.
+# Rendered by frontend/tools/system-ident/, whose page uses the same numbers.
+SYSTEM_IDENT_LOOP = (4.0, 34.0)
+
+
 def system_ident_path() -> str:
     return asset_path("system", "ident.mp4")
 

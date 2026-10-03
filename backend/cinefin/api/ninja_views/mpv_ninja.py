@@ -1,6 +1,7 @@
-"""MPV Control API — the player remote (transport/tracks/volume/seek).
+"""MPV Control API: raw player settings (volume, speed, tracks, properties).
 
-Programme-level operations belong in playout_ninja.py; both drive mpv_service directly.
+What plays, and every transport action, is playout_ninja.py (GET /playout/status,
+POST /playout/control); both drive mpv_service directly.
 """
 
 import logging
@@ -24,29 +25,14 @@ class TrackSchema(Schema):
     selected: bool = Field(..., description="Whether this track is currently selected")
 
 
-class MPVPlaylistItemSchema(Schema):
-    index: int = Field(..., description="Playlist item index")
-    filename: str = Field(..., description="Filename/path of the media")
-    title: str | None = Field(None, description="Display title of the media")
-    current: bool = Field(..., description="Whether this is the currently playing item")
-
-
-class ProgrammeInfoSchema(Schema):
-    id: int = Field(..., description="Programme ID")
-    name: str = Field(..., description="Programme name")
-    running: bool = Field(..., description="Whether the programme is currently running")
-
-
 class MPVStatusSchema(Schema):
-    playing: bool = Field(..., description="Whether MPV is currently playing")
-    paused: bool = Field(..., description="Whether MPV is paused")
-    time: float | None = Field(None, description="Current playback time in seconds")
-    duration: float | None = Field(None, description="Total duration in seconds")
     volume: int | None = Field(None, description="Current volume level (0-100)")
     muted: bool | None = Field(None, description="Whether audio is muted")
     speed: float | None = Field(None, description="Playback speed multiplier")
     fullscreen: bool | None = Field(None, description="Whether MPV is in fullscreen mode")
-    filename: str | None = Field(None, description="Currently playing filename")
+    panscan: float | None = Field(
+        None, description="mpv panscan: 0 fits the whole picture, 1 zooms to fill the screen (crops wide films)"
+    )
 
 
 class TracksInfoSchema(Schema):
@@ -75,15 +61,14 @@ class AudioTechInfoSchema(Schema):
 
 
 class MPVStatusDataSchema(Schema):
-    status: MPVStatusSchema | None = Field(None, description="MPV playback status")
-    playlist: list[MPVPlaylistItemSchema] = Field(..., description="Current playlist items")
-    playlist_pos: int | None = Field(None, description="Current playlist position")
+    """Raw player settings the programme status doesn't carry (what plays, and whether it is
+    paused, is GET /playout/status)."""
+
+    status: MPVStatusSchema | None = Field(None, description="Volume, mute, speed and fullscreen")
     tracks: TracksInfoSchema = Field(..., description="Available media tracks")
-    programme: ProgrammeInfoSchema | None = Field(None, description="Currently running programme info")
     connected: bool = Field(..., description="Whether MPV is connected")
     video: VideoTechInfoSchema | None = Field(None, description="Video technical information")
     audio: AudioTechInfoSchema | None = Field(None, description="Audio technical information")
-    executing_command: bool = Field(False, description="True while a hold-black command item is holding the screen")
 
 
 class MPVStatusResponseSchema(SuccessResponseSchema):
@@ -148,48 +133,9 @@ def get_mpv_status(request: HttpRequest):
     if mpv_service is None:
         raise NotFoundError("No MPV handler available")
 
-    mpv_status = mpv_service.get_status()
-    if not mpv_status:
-        mpv_status = {"connected": False, "playback_state": "stopped", "position": 0, "duration": 0, "volume": 50}
-
-    if hasattr(mpv_service, "controller") and mpv_service.controller:
-        try:
-            volume = mpv_service.controller.get_property("volume")
-            if volume is not None:
-                mpv_status["volume"] = volume
-        except Exception:
-            pass
-
-    playlist = mpv_service.get_playlist() if mpv_status.get("connected", True) else []
-    playlist_pos = mpv_service.playlist_index if hasattr(mpv_service, "playlist_index") else None
-
-    tracks = mpv_service.get_track_list() if mpv_status.get("connected", True) else {"audio": [], "subtitle": []}
-
-    programme_info = None
-    if hasattr(mpv_service, "programme") and mpv_service.programme:
-        programme_info = ProgrammeInfoSchema(
-            id=mpv_service.programme.id,
-            name=mpv_service.programme.name,
-            running=mpv_service.running if hasattr(mpv_service, "running") else False,
-        )
-    elif hasattr(mpv_service, "current_programme") and mpv_service.current_programme:
-        programme_info = ProgrammeInfoSchema(
-            id=mpv_service.current_programme.id,
-            name=mpv_service.current_programme.name,
-            running=mpv_service.running if hasattr(mpv_service, "running") else False,
-        )
-
-    playlist_items = []
-    if playlist:
-        for item in playlist:
-            playlist_items.append(
-                MPVPlaylistItemSchema(
-                    index=item.get("index", 0),
-                    filename=item.get("filename", ""),
-                    title=item.get("title"),
-                    current=item.get("current", False),
-                )
-            )
+    mpv_status = mpv_service.get_status() or {"connected": False}
+    tracks = mpv_service.get_track_list() if mpv_status.get("connected", True) else None
+    tracks = tracks or {}
 
     tracks_info = TracksInfoSchema(
         audio_tracks=[
@@ -217,15 +163,11 @@ def get_mpv_status(request: HttpRequest):
     )
 
     status_info = MPVStatusSchema(
-        playing=mpv_status.get("playback_status") == "playing",
-        paused=mpv_status.get("pause", False),
-        time=mpv_status.get("time"),
-        duration=mpv_status.get("length"),  # Controller returns 'length' not 'duration'
         volume=mpv_status.get("volume"),
         muted=mpv_status.get("muted"),
         speed=mpv_status.get("speed"),
         fullscreen=mpv_status.get("fullscreen"),
-        filename=mpv_status.get("file_path"),  # Controller returns 'file_path'
+        panscan=mpv_status.get("panscan"),
     )
 
     video_data = mpv_status.get("video", {})
@@ -257,14 +199,10 @@ def get_mpv_status(request: HttpRequest):
             message="MPV status retrieved successfully",
             data=MPVStatusDataSchema(
                 status=status_info,
-                playlist=playlist_items,
-                playlist_pos=playlist_pos,
                 tracks=tracks_info,
-                programme=programme_info,
                 connected=mpv_status.get("connected", True),
                 video=video_info,
                 audio=audio_info,
-                executing_command=mpv_service.executing_command,
             ),
         ),
     )

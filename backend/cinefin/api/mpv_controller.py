@@ -28,12 +28,22 @@ def _transport_config():
         return None
 
 
+def title_option(title):
+    """The ``force-media-title`` per-file option for ``title``, in mpv's
+    length-prefixed quoting (``%<bytes>%``) so a comma or ``=`` in a name cannot
+    split the option list."""
+    return f"force-media-title=%{len(title.encode())}%{title}"
+
+
 class MPVController:
     """mpv over one of two JSON-IPC transports (chosen by the active host's kind):
     the agent WebSocket (WSMPV) or a local mpv Unix socket (SocketMPV). With no
     active host the controller stays cleanly disconnected."""
 
     def __init__(self):
+        self.current_path = None
+        self.restart_path = None
+        self.restart_serial = 0
         self.event_handlers = {
             "pause": [],
             "chapter_change": [],
@@ -41,12 +51,15 @@ class MPVController:
             "file_start": [],
             "track_change": [],
             "seek": [],
-            "idle": [],
             "playlist_change": [],
             "time_pos": [],
+            "quit": [],
         }
 
         self.player = None
+        # The _transport_config() this controller connected with (None until it
+        # has), so the link keeper can tell when the active host has changed.
+        self.transport = None
         self._connected = False
         self._connection_lock = threading.Lock()
 
@@ -70,7 +83,10 @@ class MPVController:
                 if kind == "socket"
                 else (lambda: WSMPV(target, token=token, quit_callback=self._on_quit))
             )
-            return self._connect_player(factory, kind, target)
+            ok = self._connect_player(factory, kind, target)
+            if ok:
+                self.transport = config
+            return ok
 
     def _connect_player(self, factory, kind, target):
         """Open the chosen transport. Caller holds _connection_lock. player is
@@ -97,7 +113,6 @@ class MPVController:
             self.player.bind_property_observer("chapter", self._on_chapter_change)
             self.player.bind_property_observer("pause", self._on_pause_change)
             self.player.bind_property_observer("path", self._on_path_change)
-            self.player.bind_property_observer("idle-active", self._on_idle_change)
             self.player.bind_property_observer("playlist-pos", self._on_playlist_pos_change)
             self.player.bind_property_observer("time-pos", self._on_time_pos_change)
 
@@ -105,6 +120,7 @@ class MPVController:
             self.player.bind_event("file-loaded", self._on_file_loaded)
             self.player.bind_event("start-file", self._on_start_file)
             self.player.bind_event("playlist-change", self._on_playlist_change)
+            self.player.bind_event("playback-restart", self._on_playback_restart)
 
             logger.info("Registered all MPV event observers")
         except Exception as e:
@@ -119,15 +135,18 @@ class MPVController:
         logger.debug(f"Pause state changed to {value}")
         self._dispatch_event("pause", value)
 
+    def _on_playback_restart(self, event_data=None):
+        # mpv has a frame of the current file on screen (after a load or a seek).
+        # Counted with the path it happened on, so a caller can wait for the
+        # first frame of a new file (see MPVService._reveal).
+        self.restart_path = self.current_path
+        self.restart_serial += 1
+
     def _on_path_change(self, name, value):
+        self.current_path = value
         if value is not None:
             logger.debug(f"File changed to {value}")
             self._dispatch_event("file_start", value)
-
-    def _on_idle_change(self, name, value):
-        if value:
-            logger.debug("MPV entered idle state")
-            self._dispatch_event("idle", None)
 
     def _on_playlist_pos_change(self, name, value):
         if value is not None:
@@ -218,16 +237,23 @@ class MPVController:
             logger.error(f"Error stopping playback: {e}")
             return False
 
-    def load_file(self, filepath, replace=True):
+    def load_file(self, filepath, replace=True, options="", title=None):
+        """``options`` are mpv per-file options ("key=value,..."), passed with the
+        playlist index argument that mpv 0.38 put before them. ``title`` names the
+        file in the player's window title ("Trailer: …")."""
         if not self._ensure_connected():
             return False
+        if title:
+            options = ",".join(o for o in (options, title_option(title)) if o)
 
         mode = "replace" if replace else "append"
         logger.info(f"Loading file: {filepath} (mode: {mode})")
+        if options:
+            return self._mpv_command("loadfile", filepath, mode, -1, options)
         return self._mpv_command("loadfile", filepath, mode)
 
-    def enqueue_file(self, filepath):
-        return self.load_file(filepath, replace=False)
+    def enqueue_file(self, filepath, title=None):
+        return self.load_file(filepath, replace=False, title=title)
 
     def next(self):
         if not self._ensure_connected():
@@ -423,6 +449,7 @@ class MPVController:
                 "muted": getattr(self.player, "mute", None),
                 "speed": self._num(getattr(self.player, "speed", None)) or 1.0,
                 "fullscreen": getattr(self.player, "fullscreen", None),
+                "panscan": self._num(getattr(self.player, "panscan", None)),
                 "video": video_info,
                 "audio": audio_info,
             }

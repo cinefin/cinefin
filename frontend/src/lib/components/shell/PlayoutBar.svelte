@@ -1,295 +1,234 @@
 <script lang="ts">
 	/**
-	 * Global playout bar — the SPA port of the legacy footer
-	 * (footer-controller.ts + components/footer.html), rendered by the layout
-	 * under every page. Compact now-playing + transport + programme progress +
-	 * a link to the operator console. Hidden entirely while nothing is loaded.
-	 *
-	 * State comes from the shared playout poller plus the playlist feed (for
-	 * the block segments); this component only renders and issues actions.
-	 * Action failures degrade quietly (console.error) — a background surface
-	 * shouldn't stack toasts over whatever page is open.
+	 * The global playout bar, under every page but the remote, whenever a player is
+	 * active. Left to right: the phase lamp, what is loaded and what is on screen, the
+	 * transport, the running order, and what the phase allows. Everything it shows and
+	 * enables comes from the server's status through `$lib/playout/phase`; it only draws
+	 * and sends actions. Action failures degrade quietly (console.error): a background
+	 * surface shouldn't stack toasts over whatever page is open.
 	 */
 	import { base } from '$app/paths';
-	import { Pause, Play, SkipBack, SkipForward, SlidersVertical, Square } from '@lucide/svelte';
+	import {
+		Pause,
+		Play,
+		Settings,
+		SkipBack,
+		SkipForward,
+		SlidersVertical,
+		Square
+	} from '@lucide/svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import { api, unwrap } from '$lib/api/client';
+	import StatusLamp from '$lib/components/StatusLamp.svelte';
+	import Tally from '$lib/components/Tally.svelte';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import { formatTime } from '$lib/format';
-	import { playout } from '$lib/stores/playout.svelte';
-	import { playlist } from '$lib/stores/player.svelte';
 	import { itemTypeClasses, itemTypeLabel } from '$lib/item-types';
+	import CueDialog from '$lib/playout/CueDialog.svelte';
+	import { barLines, can, lamp, primaryAction, screeningLine } from '$lib/playout/phase';
+	import RunningOrder from '$lib/playout/RunningOrder.svelte';
+	import { playlist } from '$lib/stores/player.svelte';
+	import { playout, type ControlBody } from '$lib/stores/playout.svelte';
+	import { playoutReach } from '$lib/stores/playoutReach.svelte';
 
 	$effect(() => playout.subscribe());
 	$effect(() => playlist.subscribe());
+	// The player's address for the offline line: the host list, never the (public) status.
+	$effect(() => playoutReach.subscribe());
 
 	const status = $derived(playout.status);
-	const prog = $derived(status?.programme ?? null);
-	const progState = $derived(prog?.state);
-	const pbState = $derived(status?.playback?.state);
+	const phase = $derived(status?.phase);
+	const light = $derived(lamp(status));
+	const lines = $derived(status ? barLines(status, playoutReach.hostUrl) : null);
+	const primary = $derived(primaryAction(status));
+	const loaded = $derived(!!status?.programme);
 
-	// Cued = loaded but not started. NB: MPV holds the System Ident/title paused while
-	// cued, so playback.state reads 'paused' here — programme.state is the
-	// reliable signal (same guard as the legacy footer).
-	const isCued = $derived(progState === 'loaded');
-	// Pre-show is a PROGRAMME state; playback.state only ever says what the
-	// player is doing. Reading pre-show off playback made a paused pre-show
-	// look like a playing one, so the primary button offered Pause again and
-	// the programme could not be resumed.
-	const preShow = $derived(progState === 'pre_show');
-	const isPlaying = $derived(pbState === 'playing');
-	const isPaused = $derived(!isCued && pbState === 'paused');
-	// On air covers paused too — pausing must not disable stepping between items.
-	const canCtrl = $derived(
-		progState === 'running' || progState === 'pre_show' || progState === 'paused'
-	);
-
-	// During the pre-show the programme clock hasn't started; show the pre-show
-	// item's own position so the display isn't frozen at 0:00.
-	const elapsed = $derived(
-		preShow
-			? (status?.playback?.position ?? 0)
-			: (status?.playlist?.programme_elapsed_time ?? playlist.data?.elapsed_time ?? 0)
-	);
-	const total = $derived(
-		status?.playlist?.programme_total_duration ?? playlist.data?.total_duration ?? 0
-	);
-
-	const itemLine = $derived.by(() => {
-		if (isCued) return { type: 'Cued', title: 'Cued - press Start playout' };
-		if (preShow) {
-			// The opening item is the programme's title card when it has one, else
-			// the System Ident; the backend names whichever is on screen.
-			const opening = status?.current_item;
-			return {
-				type: itemTypeLabel(opening?.type ?? 'ident', { short: true }),
-				title: opening?.title ?? 'System Ident'
-			};
-		}
-		const item = status?.current_item;
-		if (item) {
-			if (item.type === 'command' && status?.executing_command) {
-				// Hold-black command in progress; Next releases the hold early.
-				return { type: 'Running', title: `Command: ${item.title ?? ''}` };
-			}
-			return { type: itemTypeLabel(item.type, { short: true }), title: item.title ?? '' };
-		}
-		return { type: itemTypeLabel('system'), title: 'System ready' };
-	});
-
-	// ── Block segments (the footer's programme timeline) ─────────────────────
-	// Width proportions: duration when available, type ratios as fallback.
-	// Segment colours are the shared item-type families ($lib/item-types), so
-	// the bar reads the same as the rundown, the editor and every type badge.
-	const TYPE_RATIO: Record<string, number> = {
-		command: 0.25,
-		bumper: 0.5,
-		trailer: 1,
-		trailer_rule: 1,
-		movie: 3,
-		certification: 0.25
-	};
-	const segItems = $derived(
-		(playlist.data?.playlist ?? []).filter(
-			(it) => it.programme_position != null && it.programme_position >= 0 && it.type !== 'system'
-		)
-	);
-
-	const segments = $derived.by(() => {
-		if (!segItems.length) return [];
-		const ratio = (t: string | undefined) => TYPE_RATIO[t ?? 'command'] ?? 1;
-		const totalRatio = segItems.reduce((s, it) => s + ratio(it.type), 0);
-		// Per-tick numbers come from the playout status; the playlist feed only
-		// refreshes when the programme/position changes.
-		const curPos = status?.current_item?.position ?? status?.playlist?.current_position ?? -1;
-
-		let timeAccum = 0;
-		return segItems.map((it) => {
-			const isCurrent = it.programme_position === curPos;
-			let progress = 0;
-			if (isCurrent && (it.duration ?? 0) > 0) {
-				progress = Math.min(Math.max(((elapsed - timeAccum) / it.duration!) * 100, 0), 100);
-			}
-			timeAccum += it.duration || 0;
-			return {
-				position: it.programme_position!,
-				width: (ratio(it.type) / totalRatio) * 100,
-				color: itemTypeClasses(it.type).bar,
-				isCurrent,
-				progress,
-				label: `${itemTypeLabel(it.type)} · ${it.title || 'Unknown'} · ${formatTime(it.duration || 0)}`
-			};
-		});
-	});
-
-	// ── Actions ───────────────────────────────────────────────────────────────
-	async function act(fn: () => Promise<unknown>) {
+	async function act(body: ControlBody) {
 		try {
-			await fn();
+			await playout.control(body);
 		} catch (err) {
 			console.error('Playout bar: action failed:', err);
 		}
-		void playout.refresh();
-	}
-
-	// One state-driven primary: Start playout (cued) / Pause / Resume.
-	function primary() {
-		void act(async () => {
-			if (isCued) await unwrap(api.POST('/api/v2/playout/run'));
-			else if (isPaused)
-				await unwrap(api.POST('/api/v2/playout/control', { body: { action: 'play' } }));
-			else if (isPlaying)
-				await unwrap(api.POST('/api/v2/playout/control', { body: { action: 'pause' } }));
-		});
-	}
-
-	function nav(action: 'previous' | 'next') {
-		void act(async () => {
-			await unwrap(api.POST('/api/v2/playout/control', { body: { action } }));
-			playlist.refresh();
-		});
+		playlist.refresh();
 	}
 
 	// Ending the programme is destructive and this bar follows you onto every
-	// page, so it asks first — the same wording the remote uses.
+	// page, so it asks first, with the remote's wording.
 	let confirmDlg = $state<ConfirmDialog | undefined>();
-
 	async function endProgramme() {
 		const ok = await confirmDlg?.confirm(
-			'End the programme? The running order is cleared and the System Ident returns.',
+			'End the programme? The running order is cleared and the player goes to standby.',
 			{ confirmLabel: 'End programme' }
 		);
-		if (!ok) return;
-		void act(async () => {
-			await unwrap(api.POST('/api/v2/playout/stop', { body: { reset: true } }));
-			playlist.refresh();
-		});
+		if (ok) void act({ action: 'end' });
 	}
 
-	function jumpTo(position: number) {
-		void act(async () => {
-			await unwrap(
-				api.POST('/api/v2/playout/playlist', { body: { programme_position: position } })
-			);
-			playlist.refresh();
-		});
+	let cueOpen = $state(false);
+	async function statusLine(show: boolean) {
+		try {
+			await playout.setStatusLine(show);
+		} catch (err) {
+			console.error('Playout bar: status line failed:', err);
+		}
 	}
 
-	const primaryLabel = $derived(isPaused ? 'Resume' : isPlaying ? 'Pause' : 'Start playout');
+	const iconBtn =
+		'rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-40';
 </script>
 
-{#if prog}
+{#if status?.player && lines}
 	<ConfirmDialog bind:this={confirmDlg} title="End programme?" />
+	<CueDialog bind:open={cueOpen} oncued={() => playlist.refresh()} />
 	<div class="border-t border-border bg-surface-1">
 		<div class="flex h-14 items-center gap-3 px-3 md:gap-4 md:px-4">
-			<!-- Identity: programme + current item -->
-			<div class="w-40 min-w-0 shrink-0 md:w-56">
-				<a
-					href="{base}/programmes/{prog.id}"
-					class="block truncate text-sm font-medium hover:text-accent"
-					title="Open programme"
-				>
-					{prog.name}
-				</a>
-				<p class="flex items-center gap-1.5 truncate text-xs text-muted">
-					<span
-						class="shrink-0 text-[0.65rem] {status?.executing_command
-							? 'text-danger'
-							: 'text-faint'}"
+			<div class="hidden w-28 shrink-0 sm:block">
+				{#if light.tally}
+					<Tally label={light.label} />
+				{:else}
+					<StatusLamp colour={light.colour} quiet={light.quiet}>{light.label}</StatusLamp>
+				{/if}
+			</div>
+
+			<div class="min-w-0 flex-1 sm:w-40 sm:flex-none md:w-64">
+				{#if loaded}
+					<a
+						href="{base}/programmes/{status.programme?.id}"
+						class="block truncate text-sm font-medium hover:text-accent"
+						title="Open programme">{lines.title}</a
 					>
-						{itemLine.type}
-					</span>
-					<span class="truncate">{itemLine.title}</span>
+				{:else}
+					<p class="truncate text-sm font-medium">{lines.title}</p>
+				{/if}
+				<p class="truncate text-xs text-muted" title={lines.detail}>
+					{#if lines.type}<span class={itemTypeClasses(lines.type).icon}
+							>{itemTypeLabel(lines.type, { short: true })}</span
+						>{' · '}{/if}{lines.detail}
 				</p>
 			</div>
 
-			<!-- Transport -->
-			<div class="flex items-center gap-1">
-				<button
-					type="button"
-					class="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-40"
-					title="Previous item"
-					aria-label="Previous item"
-					disabled={!canCtrl}
-					onclick={() => nav('previous')}
+			{#if phase === 'offline'}
+				<p class="hidden min-w-0 flex-1 truncate text-sm text-muted lg:block">
+					Retrying every few seconds.{status.player.kind === 'agent'
+						? ' The player shows its own standby meanwhile.'
+						: ''}
+				</p>
+				<Button href="{base}/settings?tab=playout" size="sm" class="ml-auto lg:ml-0">
+					<Settings size={13} /> Player settings
+				</Button>
+			{:else if phase === 'standby'}
+				<p class="hidden min-w-0 flex-1 truncate text-sm text-muted lg:block">
+					{status.next_screening
+						? `Next screening · ${screeningLine(status.next_screening)}`
+						: 'No screenings scheduled'}
+				</p>
+				<span class="ml-auto hidden md:block lg:ml-0">
+					<Switch
+						class="text-xs text-muted"
+						label="Status line"
+						checked={status.player.show_status}
+						onchange={(show) => void statusLine(show)}
+					/>
+				</span>
+				<Button
+					variant="primary"
+					size="sm"
+					class="ml-auto md:ml-0"
+					disabled={!can(status, 'cue')}
+					onclick={() => (cueOpen = true)}
 				>
-					<SkipBack size={15} />
-				</button>
-				<button
-					type="button"
-					class="rounded-md bg-accent p-2 text-on-accent hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-40"
-					title={primaryLabel}
-					aria-label={primaryLabel}
-					disabled={!isCued && !isPaused && !isPlaying}
-					onclick={primary}
-				>
-					{#if isPlaying}
-						<Pause size={15} />
-					{:else}
-						<Play size={15} />
-					{/if}
-				</button>
-				<button
-					type="button"
-					class="rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-40"
-					title="Next item"
-					aria-label="Next item"
-					disabled={!canCtrl}
-					onclick={() => nav('next')}
-				>
-					<SkipForward size={15} />
-				</button>
-			</div>
-
-			<!-- Programme timeline: elapsed + block segments + total -->
-			<div class="hidden min-w-0 flex-1 items-center gap-2.5 sm:flex">
-				<span class="shrink-0 font-mono text-xs text-muted">{formatTime(elapsed)}</span>
-				<!-- A cued programme shows its shape too: the running order is known
-				     the moment it loads, and seeing what is about to play is most of
-				     the point of cueing. Jumping stays locked until Start, matching
-				     the remote's transport lock. -->
-				<div class="flex h-1.5 min-w-0 flex-1 gap-px overflow-hidden rounded-xs bg-surface-3">
-					{#each segments as seg (seg.position)}
+					Cue a programme
+				</Button>
+			{:else}
+				{#if phase === 'cued'}
+					<Button variant="primary" size="sm" onclick={() => void act({ action: 'start' })}>
+						<Play size={13} /> Start
+					</Button>
+				{:else}
+					<div class="flex items-center gap-1">
 						<button
 							type="button"
-							class="group relative h-full {seg.color} {seg.isCurrent
-								? ''
-								: 'opacity-55'} transition-opacity enabled:hover:opacity-100 disabled:cursor-default"
-							style="width: {seg.width.toFixed(3)}%"
-							title={isCued ? seg.label : `Jump to ${seg.label}`}
-							aria-label={isCued ? seg.label : `Jump to ${seg.label}`}
-							disabled={isCued}
-							onclick={() => jumpTo(seg.position)}
+							class="{iconBtn} hidden sm:block"
+							title="Previous item"
+							aria-label="Previous item"
+							disabled={!can(status, 'previous')}
+							onclick={() => void act({ action: 'previous' })}
 						>
-							{#if seg.isCurrent}
-								<span
-									class="absolute inset-y-0 left-0 bg-text/40"
-									style="width: {seg.progress.toFixed(1)}%"
-								></span>
-							{/if}
+							<SkipBack size={15} />
 						</button>
-					{/each}
-				</div>
-				<span class="shrink-0 font-mono text-xs text-muted">{formatTime(total)}</span>
-			</div>
+						<button
+							type="button"
+							class="rounded-md bg-accent p-2 text-on-accent hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-40"
+							title={primary.label}
+							aria-label={primary.label}
+							disabled={!primary.enabled}
+							onclick={() => void act({ action: primary.action })}
+						>
+							{#if primary.action === 'pause'}<Pause size={15} />{:else}<Play size={15} />{/if}
+						</button>
+						{#if phase === 'hold'}
+							<Button
+								size="sm"
+								title="End the command's hold and move on"
+								disabled={!can(status, 'end_hold')}
+								onclick={() => void act({ action: 'end_hold' })}>End hold</Button
+							>
+						{:else}
+							<button
+								type="button"
+								class={iconBtn}
+								title="Next item"
+								aria-label="Next item"
+								disabled={!can(status, 'next')}
+								onclick={() => void act({ action: 'next' })}
+							>
+								<SkipForward size={15} />
+							</button>
+						{/if}
+					</div>
+				{/if}
 
-			<!-- End programme: destructive, so it sits apart from the transport and
-			     confirms. Only ever on screen while a programme is loaded, because
-			     the whole bar is. -->
-			<button
-				type="button"
-				class="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-danger/40 px-2.5 py-1.5 text-xs text-danger hover:bg-danger/10 sm:ml-0"
-				title="End the programme - the running order is cleared and the System Ident returns"
-				onclick={() => void endProgramme()}
-			>
-				<Square size={13} />
-				<span class="hidden md:inline">End programme</span>
-			</button>
+				{#if status.manual}
+					<p class="hidden min-w-0 flex-1 truncate text-sm text-muted sm:block">
+						{status.manual.items.length} in the manual queue
+					</p>
+				{:else}
+					<div class="hidden min-w-0 flex-1 items-center gap-2.5 sm:flex">
+						<span class="shrink-0 font-mono text-xs text-muted">
+							{formatTime(
+								phase === 'preshow'
+									? (status.playback?.position ?? 0)
+									: (status.playlist?.programme_elapsed_time ?? 0)
+							)}
+						</span>
+						<RunningOrder
+							{status}
+							items={playlist.data?.playlist ?? []}
+							onjump={(index) => void act({ action: 'jump', index })}
+							class="flex-1"
+						/>
+						<span class="shrink-0 font-mono text-xs text-muted">
+							{formatTime(status.playlist?.programme_total_duration ?? 0)}
+						</span>
+					</div>
+				{/if}
 
-			<!-- The console link -->
+				<!-- Destructive, so it stands apart from the transport and confirms. -->
+				<button
+					type="button"
+					class="ml-auto flex shrink-0 items-center gap-1.5 rounded-md border border-danger/40 px-2.5 py-1.5 text-xs text-danger hover:bg-danger/10 disabled:opacity-40 sm:ml-0"
+					title="End - the running order is cleared and the player goes to standby"
+					disabled={!can(status, 'end')}
+					onclick={() => void endProgramme()}
+				>
+					<Square size={13} />
+					<span class="hidden md:inline">{status.manual ? 'End' : 'End programme'}</span>
+				</button>
+			{/if}
+
 			<a
 				href="{base}/remote"
 				class="flex shrink-0 items-center gap-1.5 rounded-md border border-border-strong px-2.5 py-1.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
-				title="Open the operator console"
+				title="Open the remote"
 			>
 				<SlidersVertical size={13} />
 				<span class="hidden md:inline">Remote</span>

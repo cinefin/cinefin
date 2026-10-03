@@ -14,7 +14,7 @@ pytestmark = pytest.mark.django_db
 def _fresh_service(monkeypatch):
     service = MPVService()
     monkeypatch.setattr(service, "_restore_session", lambda: None)
-    monkeypatch.setattr(service, "_load_ident_paused", lambda: None)
+    monkeypatch.setattr(service, "_check_mpv_version", lambda: None)
     monkeypatch.setattr(service, "apply_subtitle_style", lambda: None)
     return service
 

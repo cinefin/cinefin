@@ -139,6 +139,12 @@ class PlayoutHost(models.Model):
         help_text="The agent's stable id (from pairing / mDNS), to recognise it when its address changes",
     )
     enabled = models.BooleanField(default=True, help_text="Whether this host may be used for playout")
+    show_status = models.BooleanField(
+        default=True, help_text="Whether the player shows its status (names, link state) over standby"
+    )
+    protocol = models.PositiveSmallIntegerField(
+        default=0, help_text="The agent's protocol version, from pairing and refresh (0 = unknown)"
+    )
     is_active = models.BooleanField(
         default=False, help_text="The single host used for playout (exactly one row is active)"
     )

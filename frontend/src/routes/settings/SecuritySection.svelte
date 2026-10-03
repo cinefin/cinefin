@@ -15,7 +15,7 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 

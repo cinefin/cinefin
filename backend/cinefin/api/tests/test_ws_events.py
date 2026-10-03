@@ -16,125 +16,6 @@ class TestEventBus:
         bus.unsubscribe(q)
 
 
-class TestStatusDataShape:
-    """Regression: the pushed payload must be the /playout/status wire shape (a null current_item was rendered as an empty item)."""
-
-    def test_no_programme_has_null_current_item(self):
-        from cinefin.api.mpv_service import mpv_service
-        from cinefin.api.ninja_views.playout_ninja import _playout_status_data
-
-        mpv_service.current_programme = None
-        mpv_service.current_playlist = None
-
-        data = _playout_status_data()
-        for field in ("programme", "playlist", "current_item", "playback", "executing_command"):
-            assert hasattr(data, field), f"missing wire field {field}"
-        assert data.programme is None
-        assert data.current_item is None
-
-
-class TestPreShowCurrentItem:
-    def _running(self, monkeypatch, playlist_pos, file_path):
-        from unittest.mock import MagicMock
-
-        from cinefin.api.mpv_service import ProgrammeState, mpv_service
-
-        from .factories import PlaylistFactory, PlaylistItemFactory, ProgrammeFactory
-
-        programme = ProgrammeFactory()
-        playlist = PlaylistFactory(programme=programme)
-        PlaylistItemFactory(playlist=playlist, order=0, content_type="movie")
-
-        monkeypatch.setattr(mpv_service, "controller", MagicMock(), raising=False)
-        monkeypatch.setattr(mpv_service, "current_programme", programme, raising=False)
-        monkeypatch.setattr(mpv_service, "current_playlist", playlist, raising=False)
-        monkeypatch.setattr(mpv_service, "playlist_offset", 1, raising=False)
-        monkeypatch.setattr(mpv_service, "programme_state", ProgrammeState.RUNNING, raising=False)
-        monkeypatch.setattr(mpv_service, "_ensure_connected", lambda: True, raising=False)
-        monkeypatch.setattr(
-            mpv_service,
-            "get_status",
-            lambda: {
-                "playback_status": "playing",
-                "playlist_pos": playlist_pos,
-                "file_path": file_path,
-                "time": 1.0,
-                "length": 8.0,
-            },
-            raising=False,
-        )
-        return mpv_service
-
-    def test_system_ident_is_named(self, monkeypatch):
-        from cinefin.api.ninja_views.playout_ninja import _playout_status_data
-
-        self._running(monkeypatch, 0, "http://h/stream/system/ident/?t=abc")
-        data = _playout_status_data()
-        assert data.programme.state == "pre_show"
-        assert data.current_item.type == "ident"
-        assert data.current_item.title == "System Ident"
-        assert data.current_item.position == -1
-
-    def test_title_card_is_named(self, monkeypatch):
-        from cinefin.api.ninja_views.playout_ninja import _playout_status_data
-
-        self._running(monkeypatch, 0, "http://h/stream/title/7/?t=abc")
-        data = _playout_status_data()
-        assert data.programme.state == "pre_show"
-        assert data.current_item.type == "title"
-        assert data.current_item.title == "Title card"
-
-
-class TestPlaybackStateIsThePlayers:
-    """Regression: playback.state must report the player's state, so a paused pre-show is distinguishable from a playing one."""
-
-    def _preshow(self, monkeypatch, *, paused: bool):
-        from unittest.mock import MagicMock
-
-        from cinefin.api.mpv_service import ProgrammeState, mpv_service
-
-        from .factories import PlaylistFactory, PlaylistItemFactory, ProgrammeFactory
-
-        programme = ProgrammeFactory()
-        playlist = PlaylistFactory(programme=programme)
-        PlaylistItemFactory(playlist=playlist, order=0, content_type="movie")
-
-        monkeypatch.setattr(mpv_service, "controller", MagicMock(), raising=False)
-        monkeypatch.setattr(mpv_service, "current_programme", programme, raising=False)
-        monkeypatch.setattr(mpv_service, "current_playlist", playlist, raising=False)
-        monkeypatch.setattr(mpv_service, "playlist_offset", 1, raising=False)
-        monkeypatch.setattr(mpv_service, "programme_state", ProgrammeState.RUNNING, raising=False)
-        monkeypatch.setattr(mpv_service, "_ensure_connected", lambda: True, raising=False)
-        monkeypatch.setattr(
-            mpv_service,
-            "get_status",
-            lambda: {
-                "playback_status": "paused" if paused else "playing",
-                "playlist_pos": 0,
-                "file_path": "http://h/stream/system/ident/?t=abc",
-                "time": 1.0,
-                "length": 8.0,
-            },
-            raising=False,
-        )
-
-    def test_paused_pre_show_reports_paused(self, monkeypatch):
-        from cinefin.api.ninja_views.playout_ninja import _playout_status_data
-
-        self._preshow(monkeypatch, paused=True)
-        data = _playout_status_data()
-        assert data.programme.state == "pre_show"
-        assert data.playback.state == "paused"
-
-    def test_playing_pre_show_reports_playing(self, monkeypatch):
-        from cinefin.api.ninja_views.playout_ninja import _playout_status_data
-
-        self._preshow(monkeypatch, paused=False)
-        data = _playout_status_data()
-        assert data.programme.state == "pre_show"
-        assert data.playback.state == "playing"
-
-
 class TestPositionPatch:
     def test_patches_position_from_live_cache(self):
         from cinefin.api.views.ws_events import _patch_position
@@ -143,11 +24,22 @@ class TestPositionPatch:
             _hold_progress = None
             _live = {"time": 30.0, "duration": 120.0}
 
-        payload = {"playback": {"position": 0.0, "duration": 0.0, "remaining": 0.0, "percentage": 0.0}}
+        payload = {
+            "playback": {"position": 20.0, "duration": 0.0, "remaining": 0.0, "percentage": 0.0},
+            "playlist": {
+                "current_position": 2,
+                "programme_elapsed_time": 500.0,
+                "programme_total_duration": 1000.0,
+                "programme_remaining_time": 500.0,
+            },
+        }
         _patch_position(payload, FakeSvc())
         assert payload["playback"]["position"] == 30.0
         assert payload["playback"]["remaining"] == 90.0
         assert payload["playback"]["percentage"] == 25.0
+        # The programme clock moves by the same ten seconds.
+        assert payload["playlist"]["programme_elapsed_time"] == 510.0
+        assert payload["playlist"]["programme_remaining_time"] == 490.0
 
     def test_skips_during_hold(self):
         from cinefin.api.views.ws_events import _patch_position
@@ -241,7 +133,7 @@ class TestResourceInvalidation:
         from cinefin.api.views.ws_events import _poll_invalidations
 
         sent: list = []
-        last_sig, cadence = _poll_invalidations(sent.append, None, {}, 0.0)
+        last_sig, cadence, _keys = _poll_invalidations(sent.append, None, {}, 0.0)
         assert sent == []
         assert last_sig is not None
 
@@ -251,11 +143,12 @@ class TestResourceInvalidation:
         from .factories import ProgrammeScheduleFactory
 
         sent: list = []
-        last_sig, cadence = _poll_invalidations(sent.append, None, {}, 0.0)
+        last_sig, cadence, _keys = _poll_invalidations(sent.append, None, {}, 0.0)
 
         ProgrammeScheduleFactory()
-        _poll_invalidations(sent.append, last_sig, cadence, 1.0)
+        _sig, _cadence, keys = _poll_invalidations(sent.append, last_sig, cadence, 1.0)
 
+        assert "schedules" in keys  # the producer rebuilds the status (its next screening) on it
         assert sent, "a new schedule should emit an invalidation"
         msg = sent[-1]
         assert msg["channel"] == "invalidate"
@@ -265,7 +158,7 @@ class TestResourceInvalidation:
         from cinefin.api.views.ws_events import CADENCE_INVALIDATIONS, _poll_invalidations
 
         sent: list = []
-        last_sig, cadence = _poll_invalidations(sent.append, None, {}, 0.0)
+        last_sig, cadence, _keys = _poll_invalidations(sent.append, None, {}, 0.0)
         _poll_invalidations(sent.append, last_sig, cadence, CADENCE_INVALIDATIONS["health"] + 1)
 
         assert sent, "the health cadence should emit on its interval"

@@ -94,49 +94,36 @@ class TestSwitchUnloadsProgramme:
 
     ACTIVATE = "/api/v2/playout/hosts/{}/activate"
 
-    def _patches(self):
-        return (
-            patch("cinefin.api.ninja_views.playout_ninja.mpv_service.unload_for_host_switch"),
-            patch("cinefin.api.ninja_views.playout_ninja.playout_agent_service.resync_idle_media"),
-            patch("cinefin.api.ninja_views.playout_ninja.mpv_service.show_idle"),
-        )
-
     def test_switching_hosts_unloads(self, client):
         PlayoutHost.objects.all().delete()
         PlayoutHost.objects.create(name="A", base_url="http://a:8089", is_active=True)
         b = PlayoutHost.objects.create(name="B", base_url="http://b:8089", is_active=False)
-        unload_p, resync_p, idle_p = self._patches()
-        with unload_p as unload, resync_p, idle_p:
+        with patch("cinefin.api.ninja_views.playout_ninja.mpv_service.unload_for_host_switch") as unload:
             r = client.post(self.ACTIVATE.format(b.id))
         assert r.status_code == 200
         unload.assert_called_once()
         assert PlayoutHost.objects.get(pk=b.id).is_active is True
 
-    def test_activate_shows_idle_immediately(self, client):
-        """Connecting a player loads the idle ident straight away."""
+    def test_activate_pushes_the_standby_spec(self, client, standby_pushes):
         PlayoutHost.objects.all().delete()
-        PlayoutHost.objects.create(name="A", base_url="http://a:8089", is_active=True)
         b = PlayoutHost.objects.create(name="B", base_url="http://b:8089", is_active=False)
-        unload_p, resync_p, idle_p = self._patches()
-        with unload_p, resync_p, idle_p as show_idle:
-            r = client.post(self.ACTIVATE.format(b.id))
-        assert r.status_code == 200
-        show_idle.assert_called_once()
+        assert client.post(self.ACTIVATE.format(b.id)).status_code == 200
+        assert standby_pushes == [[b.id]]
 
 
 class TestResetEndpoint:
-    """POST /playout/reset returns the player to the idle ident."""
+    """POST /playout/reset puts the player on standby."""
 
     RESET = "/api/v2/playout/reset"
 
-    def test_reset_calls_mpv_reset(self, client):
-        with patch("cinefin.api.ninja_views.playout_ninja.mpv_service.reset", return_value=True) as reset:
+    def test_reset_goes_to_standby(self, client):
+        with patch("cinefin.api.ninja_views.playout_ninja.mpv_service.standby", return_value=True) as standby:
             r = client.post(self.RESET)
         assert r.status_code == 200
-        reset.assert_called_once()
+        standby.assert_called_once()
 
     def test_reset_reports_an_unreachable_player(self, client):
-        with patch("cinefin.api.ninja_views.playout_ninja.mpv_service.reset", return_value=False):
+        with patch("cinefin.api.ninja_views.playout_ninja.mpv_service.standby", return_value=False):
             r = client.post(self.RESET)
         assert r.status_code == 422
 

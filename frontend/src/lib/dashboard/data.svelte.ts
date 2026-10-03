@@ -134,25 +134,6 @@ export class DashboardData {
 	}
 }
 
-export interface PlayoutBadge {
-	label: string;
-	/** The one loud state: a solid tally block rather than a lamp. */
-	tally?: boolean;
-	colour: 'green' | 'amber' | 'neutral' | 'red';
-}
-
-const STATE_BADGES: Record<string, PlayoutBadge> = {
-	running: { label: 'On air', tally: true, colour: 'red' },
-	pre_show: { label: 'Pre-show', tally: true, colour: 'red' },
-	paused: { label: 'Paused', colour: 'amber' },
-	loaded: { label: 'Cued', colour: 'green' }
-};
-
-export function playoutBadge(state: string | undefined | null): PlayoutBadge {
-	if (!state) return { label: 'Idle', colour: 'neutral' };
-	return STATE_BADGES[state] ?? { label: state, colour: 'neutral' };
-}
-
 export function itemProgress(
 	playback: { position?: number; duration?: number; percentage?: number } | null | undefined
 ): number {

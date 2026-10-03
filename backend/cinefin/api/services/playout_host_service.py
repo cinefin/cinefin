@@ -5,6 +5,8 @@ import logging
 import requests
 from django.utils import timezone
 
+from cinefin.api.services.playout_agent_service import is_current
+
 logger = logging.getLogger(__name__)
 
 STATUS_TIMEOUT = 5
@@ -54,6 +56,11 @@ class PlayoutHostService:
             host.os = os_name
         if arch:
             host.arch = arch
+        if health is not None:
+            protocol = health.get("protocol")
+            host.protocol = protocol if isinstance(protocol, int) and not isinstance(protocol, bool) else 0
+            if not is_current(health):
+                logger.warning("PlayoutHost %s needs updating to the latest cinefin-playout release", host.name)
         host.save()
         return True
 

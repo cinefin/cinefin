@@ -89,9 +89,10 @@ class TestMPVServiceLoadProgramme:
 
         service = MPVService()
         controller = MagicMock()
-        controller.get_playlist.return_value = []
+        controller.get_playlist.return_value = [{"filename": "standby"}]
         service.controller = controller
         service._lazy_initialized = True
+        service._on_standby = lambda: True
         return service, controller
 
     def _programme_with_playlist(self):
@@ -104,10 +105,10 @@ class TestMPVServiceLoadProgramme:
                 {"type": "movie", "movie_id": movie.id, "audio_track_index": 1},
             ],
         )
-        return programme, movie
+        return programme, movie, bumper
 
     def test_load_programme_enqueues_items_and_tracks_playbacks(self):
-        programme, movie = self._programme_with_playlist()
+        programme, movie, bumper = self._programme_with_playlist()
         service, controller = self._service_with_mock_controller()
 
         assert service.load_programme(programme) is True
@@ -117,6 +118,9 @@ class TestMPVServiceLoadProgramme:
         enqueued = [call.args[0] for call in controller.enqueue_file.call_args_list]
         expected = [item.file for item in programme.playlist.items.order_by("order")]
         assert enqueued == expected
+        titles = [call.kwargs["title"] for call in controller.enqueue_file.call_args_list]
+        assert f"User Media: {bumper.title}" in titles
+        assert f"Feature: {movie.title}" in titles
 
         movie_item = programme.playlist.items.get(content_type="movie")
         playback = movie_item.content_object

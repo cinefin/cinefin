@@ -53,12 +53,14 @@ CADENCE_INVALIDATIONS = {"health": 60.0, "agent": 15.0, "setup": 4.0}
 # Initial log backlog sent the first time a job is seen, so a reconnecting
 # console shows recent context without replaying the whole history.
 LOG_TAIL_ON_FIRST_SEE = {"sync": 50, "trailer": 200}
+# Invalidations that change the playout status (its next screening, the player's reachability).
+PLAYOUT_KEYS = {"schedules", "agent"}
 
 
 def _patch_position(payload: dict, mpv_service) -> None:
-    """Refresh only playback.position/remaining/percentage from mpv_service's
-    live observer cache — no rebuild, no round-trips. Skipped during a hold-black
-    command, whose clock the full rebuild already reports."""
+    """Move the clocks on from mpv_service's live observer cache (no rebuild, no
+    round-trips): the item's playback and, by the same step, the programme's
+    elapsed time. Skipped during a hold, whose clock only the full rebuild reports."""
     pb = payload.get("playback")
     if not pb or mpv_service._hold_progress:
         return
@@ -66,11 +68,17 @@ def _patch_position(payload: dict, mpv_service) -> None:
     d = mpv_service._live.get("duration")
     if t is None:
         return
-    pb["position"] = float(t)
+    t = float(t)
+    step = t - pb["position"]
+    pb["position"] = t
     if d:
         pb["duration"] = float(d)
-        pb["remaining"] = max(0.0, float(d) - float(t))
-        pb["percentage"] = round((float(t) / float(d)) * 100, 1) if d > 0 else 0.0
+    pb["remaining"] = max(0.0, pb["duration"] - t)
+    pb["percentage"] = round(t / pb["duration"] * 100, 1) if pb["duration"] > 0 else 0.0
+    pl = payload.get("playlist")
+    if pl and pl.get("current_position") is not None:
+        pl["programme_elapsed_time"] = max(0.0, pl["programme_elapsed_time"] + step)
+        pl["programme_remaining_time"] = max(0.0, pl["programme_total_duration"] - pl["programme_elapsed_time"])
 
 
 def _job_payload(job) -> dict:
@@ -133,8 +141,8 @@ def _produce(put, stop: threading.Event, authorized: bool) -> None:
     from django.db import close_old_connections
 
     from cinefin.api.mpv_service import mpv_service
-    from cinefin.api.ninja_views.playout_ninja import _playout_status_data
     from cinefin.api.services.playout_events import playout_event_bus
+    from cinefin.api.services.playout_service import playout_status
 
     bus = playout_event_bus.subscribe()
     payload = None
@@ -152,7 +160,7 @@ def _produce(put, stop: threading.Event, authorized: bool) -> None:
             # Playout: rebuild on a discrete change, else patch just the position.
             try:
                 if rebuild:
-                    payload = _playout_status_data().dict()
+                    payload = playout_status().dict()
                     rebuild = False
                 elif payload is not None:
                     _patch_position(payload, mpv_service)
@@ -177,7 +185,9 @@ def _produce(put, stop: threading.Event, authorized: bool) -> None:
             if now - last_invalidate_poll >= INVALIDATE_TICK_SECONDS:
                 last_invalidate_poll = now
                 try:
-                    last_sig, cadence_emitted = _poll_invalidations(put, last_sig, cadence_emitted, now)
+                    last_sig, cadence_emitted, keys = _poll_invalidations(put, last_sig, cadence_emitted, now)
+                    # The status carries the next screening and the player's reachability.
+                    rebuild = rebuild or bool(keys & PLAYOUT_KEYS)
                 except Exception:  # noqa: BLE001
                     logger.debug("WS invalidate poll failed", exc_info=True)
                 finally:
@@ -195,7 +205,7 @@ def _produce(put, stop: threading.Event, authorized: bool) -> None:
 
 def _poll_invalidations(
     put, last_sig: dict[str, str] | None, cadence_emitted: dict[str, float], now: float
-) -> tuple[dict[str, str], dict[str, float]]:
+) -> tuple[dict[str, str], dict[str, float], set[str]]:
     """Emit an ``invalidate`` frame naming the resources that changed since the last
     tick, plus the probe-style keys whose cadence has elapsed. The first call only
     seeds the baseline (clients already load on mount, so don't double-fetch)."""
@@ -218,7 +228,7 @@ def _poll_invalidations(
 
     if keys:
         put({"channel": "invalidate", "keys": sorted(keys)})
-    return sig, cadence_emitted
+    return sig, cadence_emitted, keys
 
 
 def _poll_jobs(put, log_cursor: dict[int, int], last_state: dict[int, str]) -> None:

@@ -7,7 +7,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 
 	interface Props {

@@ -1,50 +1,95 @@
 import logging
-import os
+import re
 import threading
 import time
 
 from . import playout_timing
-from .models import (
-    Bumper,
-    MoviePlayback,
-    Playlist,
-    PlaylistItem,
-    PlayoutSession,
-    Settings,
-)
+from .exceptions import UnprocessableEntityError
+from .models import MoviePlayback, Playlist, PlaylistItem, PlayoutHost, PlayoutSession
 from .mpv_controller import MPVController
-from .utils.assets import system_black_stream_url, system_ident_path, system_ident_stream_url
+from .services import standby as standby_spec
+from .utils.assets import system_black_stream_url
 
 logger = logging.getLogger(__name__)
 
+# What the player's window title says is playing ("Trailer: …"); the player
+# appends its own name. Standby matches the playout agent's own "System Ident".
+STANDBY_TITLE = "System Ident"
+BLACK_TITLE = "Black"
+_KIND_LABELS = {
+    "movie": "Feature",
+    "trailer": "Trailer",
+    "bumper": "User Media",
+    "media": "User Media",
+    "command": "Command",
+    "certification": "Certification",
+    "url": "URL",
+}
+
+
+def _labelled(kind, name):
+    label = _KIND_LABELS.get(kind)
+    if not label:
+        return name or None
+    return f"{label}: {name}" if name else label
+
+
+def item_title(item):
+    """The window title for a playlist item: its kind and name, from the linked
+    content, else what the playlist recorded when it was built."""
+    kind, meta = item.content_type, item.metadata or {}
+    if kind == "system":
+        return BLACK_TITLE
+    name = None
+    if kind == "movie":
+        movie = item.movie_playback.movie if item.movie_playback else None
+        name = movie.title if movie else meta.get("movie_title")
+    elif kind == "trailer":
+        name = item.trailer.title if item.trailer else meta.get("trailer_title")
+    elif kind == "bumper":
+        name = item.bumper.title if item.bumper else meta.get("bumper_title")
+    elif kind == "command":
+        name = item.command.name if item.command else meta.get("command_name")
+    elif kind == "certification":
+        name = item.certification.certification if item.certification else None
+    if not name and item.programme_block:
+        name = item.programme_block.cached_title
+    return _labelled(kind, name)
+
+
+def manual_title(kind, title):
+    """The window title for a manual-mode item."""
+    return _labelled(kind, title)
+
+
+# Standby loads its ident with per-file options after a playlist index argument,
+# which mpv added in 0.38.
+MIN_MPV_VERSION = (0, 38)
+# How long load_programme waits for the player to report standby on screen.
+STANDBY_WAIT_SECONDS = 5.0
+
+# Leaving standby for a programme fades the picture to black, moves on, then
+# reveals the next entry (see _leave_standby). The cover is a full-screen black
+# ASS rectangle drawn with osd-overlay: id 2, since a playout agent relays our
+# commands on its own mpv connection and draws its card as overlay 1, and a
+# high z so the cover sits above that card.
+COVER_OVERLAY_ID = 2
+COVER_Z = 100
+COVER_FADE_SECONDS = 0.8
+COVER_REVEAL_SECONDS = 0.4
+COVER_STEPS_PER_SECOND = 25
+# How long the reveal waits for the next entry's first frame before lifting the cover anyway.
+COVER_FIRST_FRAME_WAIT = 3.0
+
 
 class ProgrammeState:
-    """Programme lifecycle states"""
+    """The programme lifecycle. Pause is mpv's own, and a finished programme goes
+    straight to standby, so these three are all there is; the phase every surface
+    shows is worked out from them in services/playout_service.py."""
 
     NOT_LOADED = "not_loaded"
-    LOADED = "loaded"  # Programme loaded but not started
-    RUNNING = "running"  # Programme actively running
-    PAUSED = "paused"  # Programme paused by user
-    COMPLETED = "completed"  # Programme finished
-    ERROR = "error"  # Programme encountered error
-
-
-# Expected lifecycle transitions. Anything outside this map is logged as a
-# warning (not rejected): MPV events can arrive in surprising orders and a
-# hard failure here would wedge playout.
-VALID_TRANSITIONS = {
-    ProgrammeState.NOT_LOADED: {ProgrammeState.LOADED, ProgrammeState.ERROR},
-    ProgrammeState.LOADED: {ProgrammeState.RUNNING, ProgrammeState.NOT_LOADED, ProgrammeState.ERROR},
-    ProgrammeState.RUNNING: {
-        ProgrammeState.PAUSED,
-        ProgrammeState.COMPLETED,
-        ProgrammeState.NOT_LOADED,
-        ProgrammeState.ERROR,
-    },
-    ProgrammeState.PAUSED: {ProgrammeState.RUNNING, ProgrammeState.NOT_LOADED, ProgrammeState.ERROR},
-    ProgrammeState.COMPLETED: {ProgrammeState.LOADED, ProgrammeState.NOT_LOADED, ProgrammeState.ERROR},
-    ProgrammeState.ERROR: {ProgrammeState.NOT_LOADED, ProgrammeState.LOADED},
-}
+    LOADED = "loaded"  # cued, not started
+    RUNNING = "running"  # started
 
 
 class MPVService:
@@ -53,6 +98,10 @@ class MPVService:
     def __init__(self):
         """Initialize MPV service with lazy loading"""
         self.controller = None
+        # The PlayoutHost the controller was connected to, and a problem with
+        # its player worth showing in Settings (an mpv too old for standby).
+        self._host = None
+        self.player_warning = ""
         self.current_programme = None
         self.current_playlist = None
         self.playlist_offset = 0
@@ -90,10 +139,12 @@ class MPVService:
         self._executing_command = False
         self._hold_progress = None  # {'duration','elapsed'} while a hold-black command runs
         # Cued title card: its mpv index, when to pause into it (0 = first frame, else after the
-        # fade-in) and whether it has started (armed by its file-start, so the ident's clock can't trip it).
+        # fade-in) and whether it has started (armed by its file-start, so standby's clock can't trip it).
         self._title_index = None
         self._title_pause_at = None
         self._title_armed = False
+        # Bumped by each fade off standby, so an older reveal never lifts a newer cover.
+        self._cover_gen = 0
 
         # Live playback cache, updated from the mpv property observers so the SSE
         # status stream (and its poll fallback) can build a snapshot with no
@@ -101,8 +152,8 @@ class MPVService:
         self._live = {"time": None, "duration": None, "pause": None, "playlist_pos": None, "file": None}
 
         # Manual mode: one-off items played outside any programme, 1:1 with MPV's
-        # playlist ahead of a trailing black sentinel (whose start returns the
-        # player to the ident, as at a programme's end). Empty = not in manual mode.
+        # playlist ahead of a trailing black sentinel (whose start puts the
+        # player on standby, as at a programme's end). Empty = not in manual mode.
         self.manual_items = []
 
         # Don't auto-connect - use lazy initialization instead
@@ -113,10 +164,7 @@ class MPVService:
         return self._executing_command
 
     def _set_state(self, new_state):
-        """Move the programme lifecycle to ``new_state``, warning on unexpected jumps."""
-        current = self.programme_state
-        if new_state != current and new_state not in VALID_TRANSITIONS.get(current, set()):
-            logger.warning(f"Unexpected programme state transition: {current} -> {new_state}")
+        """Move the programme lifecycle to ``new_state``, persist it and push the status."""
         self.programme_state = new_state
         self._persist_session()
         self._notify_live()  # push the programme-state change to the SSE stream
@@ -150,7 +198,7 @@ class MPVService:
         self._session_restored = True
         try:
             session = PlayoutSession.load()
-            if session.state == ProgrammeState.NOT_LOADED or not session.programme_id:
+            if session.state not in (ProgrammeState.LOADED, ProgrammeState.RUNNING) or not session.programme_id:
                 return
 
             mpv_playlist = self.controller.get_playlist() if self.controller else []
@@ -197,22 +245,22 @@ class MPVService:
         """The active playout host changed: stop/clear any loaded programme and
         drop the control link so the next connect targets the new host's agent.
 
-        reset() runs against the *old* controller (still connected to the old
-        host), so it leaves that host idle on its ident and persists the session
-        as NOT_LOADED. We then tear the controller down; ``_ensure_connected``
+        standby() runs against the *old* controller and host, so it leaves that
+        host on standby and persists the session as NOT_LOADED. We then tear the controller down; ``_ensure_connected``
         rebuilds it against the newly-active host. Best-effort throughout — a
         wedged or unreachable old host must not block the switch."""
         try:
             if self.controller is not None and getattr(self.controller, "_connected", False):
-                self.reset()
+                self.standby()
         except Exception:  # noqa: BLE001 — never let the old host block a switch
-            logger.debug("reset during host switch failed", exc_info=True)
+            logger.debug("standby during host switch failed", exc_info=True)
         if self.controller is not None:
             try:
                 self.controller.terminate()
             except Exception:  # noqa: BLE001
                 logger.debug("controller terminate during host switch failed", exc_info=True)
         self.controller = None
+        self._host = None
         self._lazy_initialized = False
         self._session_restored = False
         self.current_programme = None
@@ -239,6 +287,7 @@ class MPVService:
                 self.controller = None
 
             self.controller = MPVController()
+            self._host = PlayoutHost.get_active()
 
             # The controller doesn't raise when MPV isn't running (it degrades to
             # a disconnected state, logged once by the controller) — so treat a
@@ -252,10 +301,12 @@ class MPVService:
             self.controller.add_event_handler("file_end", self._handle_file_end)
             self.controller.add_event_handler("file_start", self._handle_file_start)
             self.controller.add_event_handler("playlist_change", self._handle_playlist_change)
-            self.controller.add_event_handler("idle", self._handle_idle)
             self.controller.add_event_handler("time_pos", self._handle_time_pos)
             self.controller.add_event_handler("pause", self._handle_pause)
+            # A dropped link: push the status so every surface shows the player offline.
+            self.controller.add_event_handler("quit", lambda _value: self._notify_live())
 
+            self._check_mpv_version()
             # Apply the room's subtitle style now that we're connected. Purely
             # cosmetic — never let it break the connection.
             self.apply_subtitle_style()
@@ -300,9 +351,20 @@ class MPVService:
         for name, value in props.items():
             self.controller.set_property(name, value, quiet=True)
 
+    def _check_mpv_version(self):
+        """A local mpv must be 0.38 or newer for standby's per-file options (an
+        agent's mpv is the player's business). Warns once per connect."""
+        self.player_warning = ""
+        if (self.controller.transport or ("",))[0] != "socket":
+            return
+        version = str(self.controller.get_property("mpv-version") or "")
+        match = re.search(r"(\d+)\.(\d+)", version)
+        if match and (int(match[1]), int(match[2])) < MIN_MPV_VERSION:
+            self.player_warning = f"{version} is too old for standby: update mpv to 0.38 or newer"
+            logger.warning("Local player: %s", self.player_warning)
+
     def _ensure_connected(self):
         """Ensure MPV connection is active with lazy initialization"""
-        just_connected = False
         # Double-checked under _connect_lock so only one thread ever builds the
         # controller — concurrent callers that lose the race reuse it rather than
         # spawning duplicate, self-healing controllers (see _connect_lock).
@@ -314,103 +376,107 @@ class MPVService:
                     self._lazy_initialized = True
                     if not self._connect():
                         return False
-                    just_connected = True
         self._restore_session()
-        # On a fresh connect with nothing loaded, put the System Ident on screen
-        # so the idle splash isn't blank — this is what makes a local mpv the
-        # operator started with `--idle` show the ident the moment we connect,
-        # matching the agent. Guarded to idle only, and run AFTER restore so a
-        # re-attached running programme is never clobbered.
-        if just_connected and self.programme_state == ProgrammeState.NOT_LOADED:
-            try:
-                self._load_ident_paused()
-            except Exception:
-                logger.debug("Idle-ident load on connect failed", exc_info=True)
         return True
 
-    def _resolve_ident_stream(self):
-        """The stream URL of the ident to idle on, and a label for the log.
+    def ensure_link(self):
+        """Keep the control link to the active agent open (called by the playout
+        link keeper, ``services/playout_link.py``). Returns False when the agent
+        could not be reached, so the keeper backs off.
 
-        A user media item chosen in Settings -> Playout wins; otherwise the
-        bundled System Ident does, so a fresh install idles on something rather
-        than on black. Returns ``(url, label)``, never ``(None, ...)`` unless the
-        bundled asset itself is missing."""
-        ident_id = Settings.get("cinema.default_ident_id")
-        if ident_id:
-            try:
-                ident = Bumper.objects.get(id=ident_id)
-            except Bumper.DoesNotExist:
-                logger.warning("Default ident id %s not found; falling back to the System Ident", ident_id)
-            else:
-                stream_url = (ident.get_stream_url() or {}).get("stream_url")
-                if stream_url:
-                    return stream_url, ident.title
-                logger.warning(
-                    "Ident '%s' has no stream URL; falling back to the System Ident",
-                    ident.title,
-                )
+        A controller connected to a host that is no longer the active one (or
+        with a stale token after re-pairing) is torn down first, the same way a
+        host switch does it. Local-socket hosts are left to connect on demand."""
+        from .mpv_controller import _transport_config
 
-        if not os.path.exists(system_ident_path()):
-            logger.warning("Bundled System Ident is missing from the assets dir")
-            return None, ""
-        return system_ident_stream_url(), "System Ident"
+        want = _transport_config()
+        if want is None or want[0] != "ws":
+            return True
+        controller = self.controller
+        if controller is not None and getattr(controller, "transport", want) != want:
+            logger.info("The active playout host changed; reconnecting")
+            self.unload_for_host_switch()
+        return self._ensure_connected()
 
-    def _load_ident_paused(self):
-        """Load the ident and pause on it — the shared "back to the idle screen"
-        step used by reset() and the end-of-programme handler.
+    def idle(self) -> bool:
+        """True when no programme is loaded and no manual queue plays."""
+        return self.current_programme is None and not self.manual_items
 
-        The ident is *streamed* from Django: the playout host is remote and
-        streaming-only, so the bumper's local ``file_path`` is meaningless there —
-        always load the stream URL, never the path. Returns True when an ident was
-        loaded, False when none is usable (the caller then pauses on black)."""
-        stream_url, label = self._resolve_ident_stream()
-        if not stream_url:
-            return False
-        # loadfile replace makes the ident the whole playlist; pause holds it as
-        # the idle splash.
-        self.controller.load_file(stream_url, replace=True)
-        self.controller.pause()
-        logger.info("Reset to ident (streamed): %s", label)
-        return True
-
-    def show_idle(self):
-        """Best-effort: put the paused idle ident on screen if nothing is loaded.
-
-        Called when a player (re)connects — a host is activated or mpv starts —
-        so the screen shows the ident immediately instead of waiting for the
-        next status poll. Never clobbers a loaded/running programme, and never
-        raises: a wedged or absent player just leaves the screen as it was."""
-        try:
-            if self.programme_state != ProgrammeState.NOT_LOADED or self.manual_items:
-                return False
-            if not self._ensure_connected():
-                return False
-            return self._load_ident_paused()
-        except Exception:  # noqa: BLE001 — a background nudge must never surface
-            logger.debug("show_idle failed", exc_info=True)
-            return False
-
-    def reset(self):
-        """Clear programme state and return to the paused System Ident."""
-        logger.info("Resetting MPV state")
-
-        if not self._ensure_connected():
-            return False
-
+    def _clear(self):
+        """Forget the programme and the manual queue."""
         self._programme_cursor = -1
         self.manual_items = []
-        self._set_state(ProgrammeState.NOT_LOADED)
         self.current_programme = None
         self.current_playlist = None
         self.credits_executed.clear()
         self._title_index = self._title_pause_at = None
         self._title_armed = False
+        self._set_state(ProgrammeState.NOT_LOADED)
 
-        if not self._load_ident_paused():
-            # Nothing usable (the bundled asset is missing too) — clear the
-            # playlist and pause on black.
-            self.controller.playlist_clear()
-            self.controller.pause()
+    def standby(self):
+        """Go to standby, the one way to do it: clear any programme or manual
+        queue and put the cinema's ident on screen, played once and then held.
+
+        An agent's player owns standby: it is sent the spec when that may have
+        changed, then asked to show it. A local mpv is loaded with the same
+        ident and hold options. False when the player could not be reached."""
+        if not self._ensure_connected():
+            return False
+        with self._playout_lock:
+            self._clear()
+            host = self._host
+            if host is None or host.kind != PlayoutHost.KIND_AGENT:
+                url, _path, options, label = standby_spec.resolve_ident()
+                ok = bool(
+                    self.controller.load_file(url, replace=True, options=options, title=STANDBY_TITLE)
+                    and self.controller.pause(False)
+                )
+                if ok:
+                    if host is not None:
+                        standby_spec.shown_local(host.id, url, options)
+                    logger.info("On standby: %s", label)
+                return ok
+
+            from .services.playout_agent_service import playout_agent_service
+
+            try:
+                standby_spec.sync_spec(host)
+                if not standby_spec.in_sync(host, playout_agent_service.enter_standby(host)):
+                    # The player lost the spec (reset or re-installed): send it again.
+                    standby_spec.sync_spec(host, force=True)
+                    playout_agent_service.enter_standby(host)
+            except UnprocessableEntityError as e:
+                standby_spec.forget(host.id)
+                logger.warning("Could not put %s on standby: %s", host.name, e.message)
+                return False
+            logger.info("On standby (%s)", host.name)
+            return True
+
+    def _on_standby(self) -> bool:
+        """Whether the player shows standby now (and so holds it as entry 0)."""
+        host = self._host
+        if host is not None and host.kind == PlayoutHost.KIND_AGENT:
+            from .services.playout_agent_service import playout_agent_service
+
+            try:
+                status = playout_agent_service.host_status(host)
+            except UnprocessableEntityError:
+                return False
+            return bool((status.get("standby") or {}).get("on_standby"))
+        return self.controller.get_property("path") == standby_spec.resolve_ident()[0]
+
+    def _ensure_standby(self) -> bool:
+        """Standby on screen with nothing loaded, putting it there when needed
+        (a player reports it a moment after being asked)."""
+        if self.idle() and self._on_standby():
+            return True
+        if not self.standby():
+            return False
+        deadline = time.monotonic() + STANDBY_WAIT_SECONDS
+        while not self._on_standby():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.2)
         return True
 
     def _build_track_maps(self):
@@ -429,7 +495,13 @@ class MPVService:
                 self.subtitle_set[movie_playback.id] = False
 
     def load_programme(self, programme):
-        """Load a programme for playback, first resetting to ensure clean state"""
+        """Cue a programme behind standby.
+
+        Standby stays on screen as MPV playlist entry 0 (the ident is never
+        replayed): the title card, if any, and every item are appended after it,
+        so ``mpv_index = playlist_offset + order`` with an offset of 1, or 2 with
+        a title card. A title card starts at once and holds paused (see
+        _title_started); without one, standby holds until start_programme."""
         logger.info(f"Loading programme: {programme.name}")
 
         if not self._ensure_connected():
@@ -437,89 +509,55 @@ class MPVService:
 
         with self._playout_lock:
             try:
-                # An empty programme (no resolvable items) would leave MPV looping
-                # the ident forever with no way to complete — refuse it up front,
-                # before touching any state, so the caller gets a clean failure.
+                # An empty programme (no resolvable items) could never complete:
+                # refuse it before touching any state.
                 playlist = Playlist.objects.get(programme=programme)
-                item_count = playlist.items.count()
-                if item_count == 0:
+                items = list(
+                    playlist.items.select_related(
+                        "movie_playback__movie", "trailer", "bumper", "command", "certification", "programme_block"
+                    ).order_by("order")
+                )
+                if not items:
                     logger.error(f"Programme '{programme.name}' has an empty playlist; refusing to load")
                     return False
 
-                # Before the programme: the ident then its generated title card (the
-                # ident plays through on cue, the title pauses), else just the paused
-                # ident. All streamed from Django — the player is remote.
-                title_stream_url = (
-                    programme.get_title_stream_url() if hasattr(programme, "get_title_stream_url") else None
-                )
+                # Clears any loaded programme or manual queue (a programme, or a
+                # screening's lead-in, replaces manual play).
+                if not self._ensure_standby():
+                    logger.error("The player did not go to standby; not loading the programme")
+                    return False
 
-                self._title_index = self._title_pause_at = None
-                self._title_armed = False
-                self.manual_items = []  # a programme (or a screening's lead-in) replaces manual play
-                if title_stream_url:
-                    logger.info(f"Loading programme title (streamed): {programme.name}")
-                    fade_in = programme.title_fade_in or 0
-                    pause_at = fade_in if programme.title_hold and fade_in > 0 else 0.0
-                    # The ident plays through, then the title card, which pauses (see _title_started).
-                    ident_url, _ = self._resolve_ident_stream()
-                    if ident_url:
-                        self.controller.load_file(ident_url, replace=True)
-                    if ident_url and self.controller.enqueue_file(title_stream_url):
-                        self._title_index, self._title_pause_at = 1, pause_at
-                        self.controller.play()
-                    else:
-                        self.controller.load_file(title_stream_url, replace=True)
-                        if pause_at:
-                            self._title_index, self._title_pause_at = 0, pause_at
-                            self.controller.play()
-                        else:
-                            self.controller.pause()
-                else:
-                    # No title configured, reset to load the System Ident
-                    logger.info("No programme title configured, loading the System Ident")
-                    self.reset()
+                title_url = programme.get_title_stream_url() if hasattr(programme, "get_title_stream_url") else None
+                c = self.controller
+                c.playlist_clear()  # keeps the current entry: standby
+                if title_url and not c.enqueue_file(title_url, title=f"Programme: {programme.name}"):
+                    return self._abort_load("the title card")
+                self.playlist_offset = len(c.get_playlist() or [])
+                if self.playlist_offset != (2 if title_url else 1):
+                    return self._abort_load(f"standby (the player's playlist has {self.playlist_offset} entries)")
 
-                # Set programme and get playlist
+                # Every item MUST land in MPV's playlist: the DB playlist is 1:1
+                # with MPV's, so a dropped append would misalign every later
+                # item's cues, audio and credits markers. Abort instead.
+                for item in items:
+                    if not c.enqueue_file(item.file, title=item_title(item)):
+                        return self._abort_load(f"item {item.order} ({item.file})")
+
                 self.current_programme = programme
                 self.current_playlist = playlist
                 self._programme_cursor = -1
-                self._set_state(ProgrammeState.LOADED)
-
-                # Initialize track settings for movie blocks
                 self.credits_executed.clear()
                 self._build_track_maps()
+                self._set_state(ProgrammeState.LOADED)  # persists the offset too
+                logger.info(f"Programme loaded: {len(items)} items after standby (offset {self.playlist_offset})")
 
-                # Store the current MPV playlist length to calculate offsets
-                # The title/ident is at position 0, so programme items start at position 1
-                current_mpv_length = len(self.controller.get_playlist() or [])
-                self.playlist_offset = current_mpv_length
-                logger.debug(
-                    f"Current MPV playlist length: {current_mpv_length}, playlist offset: {self.playlist_offset}"
-                )
-                logger.debug(f"Programme will start at MPV playlist index: {self.playlist_offset}")
-
-                # Append all programme files to the existing MPV playlist. Every
-                # item MUST land in MPV's playlist: the DB playlist is 1:1 with
-                # MPV's (mpv_index = playlist_offset + order), so a dropped
-                # append would silently misalign every later item's cues, audio
-                # and credits markers. If an append fails (socket dropped), abort
-                # the whole load rather than run a misaligned show.
-                for idx, item in enumerate(playlist.items.order_by("order")):
-                    if not self.controller.enqueue_file(item.file):
-                        logger.error(
-                            f"Failed to enqueue item at order {idx} ({item.file}); "
-                            f"aborting load to preserve playlist alignment"
-                        )
-                        self.reset()
-                        self._set_state(ProgrammeState.NOT_LOADED)
-                        self.current_programme = None
-                        self.current_playlist = None
-                        return False
-                    mpv_index = self.playlist_offset + idx
-                    logger.debug(f"Enqueued at MPV index {mpv_index}: {item.file} ({item.content_type})")
-
-                logger.info(f"Programme loaded: {item_count} items appended to playlist")
-                self._persist_session()  # capture the final playlist_offset
+                if title_url:
+                    fade_in = programme.title_fade_in or 0
+                    self._title_index = 1
+                    self._title_pause_at = fade_in if programme.title_hold and fade_in > 0 else 0.0
+                    # A title card that fades in from black needs no reveal.
+                    self._leave_standby(1, reveal=0.0 if fade_in > 0 else COVER_REVEAL_SECONDS)
+                    c.pause(False)
                 return True
 
             except Playlist.DoesNotExist:
@@ -529,58 +567,119 @@ class MPVService:
                 logger.error(f"Error loading programme: {e}")
                 return False
 
+    def _abort_load(self, what):
+        logger.error(f"Failed to queue {what}; aborting the load to keep the playlist aligned")
+        self.standby()
+        return False
+
     def start_programme(self):
-        """Start programme playback"""
+        """Start the loaded programme: move off standby (or play on from the
+        paused title card) and unpause."""
         with self._playout_lock:
             if not self.current_programme or not self.current_playlist:
                 logger.error("No programme loaded")
                 return False
 
             logger.info(f"Starting programme playback: {self.current_programme.name}")
-
-            # Log current playlist state for debugging
-            current_pos = self.controller.get_property("playlist_pos") if self.controller else None
-            mpv_playlist = self.controller.get_playlist() if self.controller else []
-            logger.debug(f"Current MPV position: {current_pos}, playlist length: {len(mpv_playlist)}")
-            logger.debug(
-                f"Programme offset: {self.playlist_offset}, first programme item at MPV index: {self.playlist_offset}"
-            )
-
             self._set_state(ProgrammeState.RUNNING)
-
-            # Start playback from current position
-            # If we're at position 0 (the System Ident), let it play in full
-            if current_pos == 0 and self.playlist_offset == 1:
-                logger.info("Starting programme with the System Ident")
-
+            if self.controller.get_property("playlist_pos") in (None, 0):
+                self._leave_standby(1, reveal=COVER_REVEAL_SECONDS)
             return self.controller.play()
 
-    def stop_programme(self):
-        """Stop programme playback"""
-        logger.info("Stopping programme playback")
-        self._set_state(ProgrammeState.PAUSED)
+    def _leave_standby(self, index, reveal):
+        """Move from standby (entry 0) to entry ``index`` through black: fade a
+        black cover in over COVER_FADE_SECONDS, move, then lift the cover over
+        ``reveal`` seconds once the entry shows its first frame (0 lifts it at
+        once). Only the fade runs here, under the playout lock; the reveal runs
+        on its own thread. The move always happens, and the cover is always
+        lifted, whatever fails. With standby not on screen there is nothing to
+        fade, so this just moves."""
+        c = self.controller
+        if c.get_property("playlist_pos") != 0:
+            return c.playlist_jump(index)
+        standby_path = c.get_property("path")
+        self._cover_gen += 1
+        gen = self._cover_gen
+        try:
+            steps = max(1, round(COVER_FADE_SECONDS * COVER_STEPS_PER_SECOND))
+            for step in range(1, steps + 1):
+                if not self._cover(c, step / steps):
+                    break  # the player refused it: move on without a fade
+                time.sleep(COVER_FADE_SECONDS / steps)
+        except Exception:
+            logger.warning("Fading standby out failed; moving on without it", exc_info=True)
+        restarts = getattr(c, "restart_serial", 0)
+        moved = c.playlist_jump(index)
+        try:
+            threading.Thread(
+                target=self._reveal,
+                args=(c, gen, index, standby_path, reveal, restarts),
+                daemon=True,
+                name="standby-reveal",
+            ).start()
+        except Exception:  # noqa: BLE001 - no thread: lift the cover here
+            self._cover(c, 0)
+        return moved
 
-        return self.controller.pause()
+    def _reveal(self, c, gen, index, standby_path, seconds, restarts=0):
+        """Lift the cover once entry ``index`` shows a frame (or playback moved
+        elsewhere, or COVER_FIRST_FRAME_WAIT passed), fading it out over ``seconds``.
+        A newer fade owns the cover, so a superseded reveal leaves it alone.
+
+        "Shows a frame" is mpv's playback-restart for a file other than standby,
+        counted after the move. time-pos is set as soon as the file loads, before
+        its first frame is decoded, so lifting on it showed the ident's last frame
+        for a moment."""
+        try:
+            deadline = time.monotonic() + COVER_FIRST_FRAME_WAIT
+            while time.monotonic() < deadline and c.get_property("playlist_pos") == index:
+                if getattr(c, "restart_serial", 0) > restarts and getattr(c, "restart_path", None) not in (
+                    None,
+                    standby_path,
+                ):
+                    break
+                time.sleep(0.02)
+            steps = round(seconds * COVER_STEPS_PER_SECOND)
+            for step in range(steps - 1, 0, -1):
+                if gen != self._cover_gen:
+                    return
+                self._cover(c, step / steps)
+                time.sleep(seconds / steps)
+        except Exception:  # noqa: BLE001 - the finally still lifts the cover
+            logger.debug("Standby reveal failed", exc_info=True)
+        finally:
+            if gen == self._cover_gen:
+                self._cover(c, 0)
+
+    @staticmethod
+    def _cover(c, opacity):
+        """Draw the black cover at ``opacity`` (0 to 1); 0 removes it. False when mpv refused."""
+        if opacity <= 0:
+            return c._mpv_command({"name": "osd-overlay", "id": COVER_OVERLAY_ID, "format": "none", "data": ""})
+        alpha = round((1 - min(opacity, 1)) * 255)  # ASS alpha: 00 opaque, FF clear
+        # Oversized so it covers any screen shape; PlayRes is 1280x720.
+        data = (
+            rf"{{\an7\pos(0,0)\bord0\shad0\1c&H000000&\1a&H{alpha:02X}&\p1}}"
+            r"m -2000 -2000 l 3280 -2000 3280 2720 -2000 2720{\p0}"
+        )
+        return c._mpv_command(
+            {
+                "name": "osd-overlay",
+                "id": COVER_OVERLAY_ID,
+                "format": "ass-events",
+                "data": data,
+                "res_x": 1280,
+                "res_y": 720,
+                "z": COVER_Z,
+            }
+        )
 
     def _handle_file_end(self, event_data):
-        """Handle when a file ends"""
-        if not self.running or not self.current_playlist:
-            return
-
-        reason = event_data.get("reason", "") if event_data else ""
-        logger.debug(f"File ended: {reason}")
-
-        if reason == "error":
-            # A file/stream failed to open or dropped mid-playback (HTTP stream
-            # gone, transcode died, local file vanished). MPV advances the
-            # playlist itself, but at DEBUG this is indistinguishable from a
-            # normal eof and buries a real fault. Surface it at WARNING against
-            # the item that failed, then run the same bookkeeping as a normal
-            # end so the programme keeps moving instead of wedging.
+        """A file ended. MPV advances the playlist itself; a file or stream that
+        failed to open or dropped (reason "error") is logged against its item,
+        since it would otherwise look like a normal end."""
+        if self.running and self.current_playlist and (event_data or {}).get("reason") == "error":
             self._log_playback_error()
-            self._handle_playlist_item_end()
-        elif reason in ["eof", "stop"]:
-            self._handle_playlist_item_end()
 
     def _log_playback_error(self):
         """Emit a WARNING naming the playlist item MPV failed to play, if known."""
@@ -642,33 +741,16 @@ class MPVService:
             self._title_started()
 
         if self.manual_items and self._is_black_clip(filepath):
-            logger.info("Manual queue finished — returning to the ident")
-            self.manual_items = []
-            if not self._load_ident_paused():
-                self.controller.pause()
-            self._notify_live()
+            logger.info("Manual queue finished; going to standby")
+            self.standby()
             return
 
-        # Black video at end of programme - reset to ident. The black clip is
-        # streamed (/stream/system/black/) now that the player is remote;
-        # interior hold-black command items play the same clip, so confirm it's
-        # really the end sentinel via the playlist item's content_type.
+        # The black sentinel at the end of a programme: go to standby. Hold-black
+        # command items play the same clip, so confirm it's really the end
+        # sentinel via the playlist item's content_type.
         if filepath and self._is_black_clip(filepath) and self.running and self._is_end_sentinel_position():
-            logger.info("Programme ended — resetting to the System Ident")
-
-            self._programme_cursor = -1
-            self._set_state(ProgrammeState.COMPLETED)
-            self.current_programme = None
-            self.current_playlist = None
-            self.credits_executed.clear()
-            self._persist_session()  # completed: clear the programme reference too
-
-            # Same streamed-ident reset as reset(): loadfile-replace swaps the
-            # end-sentinel black clip for the ident. (The old path appended the
-            # bumper's LOCAL file_path — meaningless on the remote host, so the
-            # programme ended on black instead of the ident.)
-            if not self._load_ident_paused():
-                self.controller.pause()  # no ident configured — hold on black
+            logger.info("Programme ended; going to standby")
+            self.standby()
             return
 
         if not self.current_playlist:
@@ -829,10 +911,10 @@ class MPVService:
 
     def _programme_started(self) -> bool:
         # NOT_LOADED counts as "still cueing": a title's file-start can land before load_programme sets LOADED.
-        return self.programme_state not in (ProgrammeState.LOADED, ProgrammeState.NOT_LOADED)
+        return self.programme_state == ProgrammeState.RUNNING
 
     def _title_started(self):
-        """The cued title card began (after the ident): pause on its first frame, or arm the
+        """The cued title card began (after standby): pause on its first frame, or arm the
         fade-in hold. Dropped once the programme starts or playback moves past the title."""
         pos = self.controller.get_property("playlist_pos") if self.controller else None
         if self._programme_started() or (pos is not None and pos > self._title_index):
@@ -911,37 +993,6 @@ class MPVService:
             pass
         except Exception as e:
             logger.error(f"Error checking credits marker: {e}")
-
-    def _handle_playlist_item_end(self):
-        """Handle when a playlist item ends"""
-        if not self.running or not self.current_playlist:
-            return
-
-        try:
-            current_pos = self.controller.get_property("playlist_pos") or 0
-            programme_item_order = current_pos - self.playlist_offset
-
-            if programme_item_order >= 0:
-                try:
-                    item = self.current_playlist.items.get(order=programme_item_order)
-                    logger.debug(f"Playlist item ended: {item.content_type} at programme order {programme_item_order}")
-
-                    # Programme completion is now handled by the reset dummy file approach
-                    # This ensures predictable programme endings when the reset command starts
-
-                    # Commands are now executed when they start, not when they end
-                    # This method can be used for other end-of-file logic if needed
-
-                except PlaylistItem.DoesNotExist:
-                    logger.warning(f"Playlist item not found for programme order {programme_item_order}")
-
-        except Exception as e:
-            logger.error(f"Error handling playlist item end: {e}")
-
-    def _handle_idle(self, event_data):
-        """Handle when MPV goes idle - should not happen with reset sequence in playlist"""
-        logger.warning("MPV went idle unexpectedly")
-        self._notify_live()
 
     def _handle_pause(self, paused):
         """Cache pause state (observed) and push the stream."""
@@ -1109,13 +1160,17 @@ class MPVService:
             entry = {"title": title, "kind": kind}
             c = self.controller
             if not self.manual_items:
-                ok = c.load_file(url, replace=True) and c.enqueue_file(system_black_stream_url()) and c.pause(False)
+                ok = (
+                    c.load_file(url, replace=True, title=manual_title(kind, title))
+                    and c.enqueue_file(system_black_stream_url(), title=BLACK_TITLE)
+                    and c.pause(False)
+                )
                 self.manual_items = [entry] if ok else []
                 self._notify_live()
                 return ok
             end = len(c.get_playlist() or [])  # the sentinel is the last entry
             to = min((c.get_property("playlist_pos") or 0) + 1, end - 1) if now else end - 1
-            ok = c.enqueue_file(url) and c._mpv_command("playlist-move", end, to)
+            ok = c.enqueue_file(url, title=manual_title(kind, title)) and c._mpv_command("playlist-move", end, to)
             if ok:
                 self.manual_items.insert(to, entry)
                 if now:
@@ -1129,7 +1184,7 @@ class MPVService:
             if not 0 <= index < len(self.manual_items) or not self._ensure_connected():
                 return False
             if len(self.manual_items) == 1:
-                return self.reset()
+                return self.standby()
             ok = self.controller._mpv_command("playlist-remove", index)
             if ok:
                 self.manual_items.pop(index)
@@ -1155,102 +1210,25 @@ class MPVService:
             return None
         return self.controller.get_status()
 
-    def get_enhanced_status(self):
-        """Get enhanced status with both programme and playback states"""
-        # Get basic MPV status
-        mpv_status = self.get_status() if self._ensure_connected() else None
-
-        # Calculate remaining time if position and duration are available
-        position = mpv_status.get("time") if mpv_status else None  # Controller uses 'time', not 'time_pos'
-        duration = mpv_status.get("length") if mpv_status else None  # Controller uses 'length', not 'duration'
-        remaining = None
-        if position is not None and duration is not None and duration > 0:
-            remaining = max(0, duration - position)
-
-        # Get current playlist position for debugging
-        playlist_pos = mpv_status.get("playlist_pos") if mpv_status else None
-
-        # Determine playback state
-        playback_state = "disconnected"
-        if mpv_status:
-            # Use the playback_status from controller, or fall back to checking pause property
-            if "playback_status" in mpv_status:
-                playback_state = mpv_status["playback_status"]
-            else:
-                # Fallback: check pause property directly
-                playback_state = "paused" if mpv_status.get("pause", False) else "playing"
-
-        # Determine final programme state (check for pre-show)
-        final_programme_state = self.programme_state
-        if self.programme_state == ProgrammeState.RUNNING and self.in_preshow(mpv_status):
-            final_programme_state = "pre_show"
-
-        # While a hold-black command runs, MPV's clock describes the looping
-        # black clip (a few seconds, restarting) — report the command's own
-        # dwell instead so every surface shows real progress.
-        hold = self._hold_progress
-        if hold and hold.get("duration"):
-            duration = hold["duration"]
-            position = min(hold.get("elapsed", 0.0), duration)
-            remaining = max(0, duration - position)
-
-        # Build enhanced status response
-        status = {
-            "programme": {
-                "state": final_programme_state,
-                "loaded": self.current_programme is not None,
-                "running": self.running,
-                "name": self.current_programme.name if self.current_programme else None,
-                "id": self.current_programme.id if self.current_programme else None,
-                "can_start": self.programme_state == ProgrammeState.LOADED,
-                "can_pause": self.programme_state == ProgrammeState.RUNNING,
-                "can_stop": self.programme_state in [ProgrammeState.RUNNING, ProgrammeState.PAUSED],
-            },
-            "playback": {
-                "state": playback_state,
-                "position": position,
-                "duration": duration,
-                "remaining": remaining,
-                "playlist_pos": playlist_pos,
-                "playlist_offset": self.playlist_offset if self.current_playlist else None,
-            },
-            "playlist": None,
-            "debug": {
-                "executing_command": self._executing_command,
-                "mpv_playlist_length": len(self.controller.get_playlist())
-                if self.controller and self.controller.get_playlist()
-                else 0,
-            },
-        }
-
-        # Add playlist information if available
-        if self.current_playlist:
-            current_item = None
-            current_file = None
-            programme_item_order = None  # unset when MPV has no position (disconnected)
-
-            if mpv_status and mpv_status.get("playlist_pos") is not None:
-                mpv_pos = mpv_status["playlist_pos"]
-                programme_item_order = mpv_pos - self.playlist_offset
-
-                if programme_item_order >= 0:
-                    try:
-                        item = self.current_playlist.items.get(order=programme_item_order)
-                        current_item = programme_item_order
-                        current_file = item.file
-                    except Exception:
-                        pass
-
-            status["playlist"] = {
-                "total_items": self.current_playlist.items.count(),
-                "current_item": current_item,
-                "current_file": current_file,
-                "programme_position": (
-                    programme_item_order if programme_item_order is not None and programme_item_order >= 0 else None
-                ),
+    def snapshot(self):
+        """What status needs from the player, in five reads: pause, time, duration,
+        playlist position and path. None when the player can't be reached."""
+        if not self._ensure_connected():
+            return None
+        c = self.controller
+        try:
+            player = c.player
+            pos = player.playlist_pos
+            return {
+                "pause": bool(player.pause),
+                "time": c._num(player.time_pos),
+                "duration": c._num(player.duration),
+                "pos": pos if isinstance(pos, int) and pos >= 0 else None,
+                "path": player.path,
             }
-
-        return status
+        except Exception as e:  # noqa: BLE001 - an unreachable player is a status, not an error
+            logger.debug("Player snapshot failed: %s", e)
+            return None
 
     def get_playlist(self):
         """Get current MPV playlist"""
@@ -1291,18 +1269,6 @@ class MPVService:
     def playlist(self):
         """Backward compatibility: get current playlist"""
         return self.current_playlist
-
-    def load_file(self, filepath, replace=True):
-        """Load a file for playback"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.load_file(filepath, replace)
-
-    def enqueue_file(self, filepath):
-        """Add file to playlist"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.enqueue_file(filepath)
 
     def set_audio_track(self, index):
         """Set audio track by index"""
@@ -1404,16 +1370,16 @@ class MPVService:
             # Build playlist info with programme position mapping
             playlist_items = []
             for i, item in enumerate(mpv_playlist):
-                # Pre-show entries (before the programme offset) are stream
-                # URLs — the ident or the generated title card — so label them
-                # rather than showing a URL fragment.
+                # Pre-show entries (before the programme offset) are standby
+                # and the generated title card: label them rather than showing
+                # a URL fragment or a file path on the player.
                 if i < self.playlist_offset:
                     title = self._preshow_title(item.get("filename", ""))
                 else:
                     title = self.getFileName(item.get("filename", "")) or f"Item {i + 1}"
                 programme_position = None
 
-                # Calculate programme position (excluding the System Ident)
+                # Calculate programme position (excluding the pre-show entries)
                 if i >= self.playlist_offset:
                     programme_position = i - self.playlist_offset
 
@@ -1495,32 +1461,23 @@ class MPVService:
         trimmed = path.split("?")[0].rstrip("/")
         return trimmed.split("/")[-1] or path
 
-    def in_preshow(self, mpv_status=None) -> bool:
-        """True while the opening item — the generated title card, else the System
-        Ident — is on screen and the programme proper hasn't started.
-
-        The test is *positional*: programme items occupy mpv indices
-        ``playlist_offset + order``, so anything before the offset is pre-show.
-        The previous test compared mpv's current file against the ident Bumper's
-        local ``file_path``, which could never match (every playlist entry is a
-        stream URL, and the host is remote) and ignored title cards entirely.
-        """
+    def in_preshow(self, position) -> bool:
+        """True while standby or the title card is on screen ahead of the programme's
+        first item. Positional: programme items occupy mpv indices
+        ``playlist_offset + order``, so anything before the offset is pre-show."""
         if not self.current_playlist or self.playlist_offset <= 0:
             return False
-        if mpv_status is None:
-            mpv_status = self.get_status() or {}
-        position = mpv_status.get("playlist_pos")
         return position is not None and position < self.playlist_offset
 
     @staticmethod
     def _preshow_title(url):
-        """Friendly label for a pre-show stream URL (System Ident / title card)."""
+        """Friendly label for a pre-show entry (standby / title card)."""
         path = (url or "").split("?")[0]
         if "/stream/title/" in path:
             return "Title card"
         if "/stream/system/black/" in path:
             return "Black"
-        return "System Ident"
+        return "Standby"
 
     def _guess_file_type(self, filename):
         """Guess file type from filename"""

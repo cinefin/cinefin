@@ -134,7 +134,7 @@
 			await unwrap(
 				api.POST('/api/v2/playout/load', { body: { programme_id: p.id, generate_playlist: true } })
 			);
-			showToast('Programme cued - press Start playout when ready', 'success');
+			showToast('Programme cued - press Start when ready', 'success');
 			void programmes.refresh(); // loading regenerates a stale playlist — clear the flag
 		} catch (e) {
 			showToast(e instanceof Error ? e.message : 'Failed to cue programme', 'error');

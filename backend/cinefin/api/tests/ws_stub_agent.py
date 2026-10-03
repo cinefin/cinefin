@@ -30,10 +30,26 @@ def _read_http_headers(conn: socket.socket) -> dict:
     return headers
 
 
-def _recv_frame(conn: socket.socket):
+def _recv_frame(conn: socket.socket, on_ping=None):
+    """The next text frame, or None when the peer closed. A ping is handed to
+    ``on_ping`` (which may answer it) and skipped."""
+    while True:
+        opcode, payload = _recv_raw_frame(conn)
+        if opcode is None or opcode == 0x8:
+            return None
+        if opcode == 0x9:
+            if on_ping is not None:
+                on_ping(conn, payload)
+            continue
+        if opcode == 0xA:
+            continue
+        return payload.decode()
+
+
+def _recv_raw_frame(conn: socket.socket):
     hdr = _recv_exact(conn, 2)
     if hdr is None:
-        return None
+        return None, b""
     b1, b2 = hdr[0], hdr[1]
     opcode = b1 & 0x0F
     masked = b2 & 0x80
@@ -46,9 +62,7 @@ def _recv_frame(conn: socket.socket):
     payload = _recv_exact(conn, length) or b""
     if masked:
         payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-    if opcode == 0x8:
-        return None
-    return payload.decode()
+    return opcode, payload
 
 
 def _recv_exact(conn: socket.socket, n: int):
@@ -61,9 +75,9 @@ def _recv_exact(conn: socket.socket, n: int):
     return buf
 
 
-def _send_frame(conn: socket.socket, text: str) -> None:
+def _send_frame(conn: socket.socket, text: str, opcode: int = 0x1) -> None:
     payload = text.encode()
-    header = bytearray([0x81])
+    header = bytearray([0x80 | opcode])
     length = len(payload)
     if length < 126:
         header.append(length)
@@ -90,6 +104,9 @@ class StubAgent:
         self.received_commands = []
         self.auth_header = None
         self.connection_count = 0
+        self.pings = 0
+        # False plays a dead agent: pings go unanswered (and nothing else is sent).
+        self.answer_pings = True
 
         self._conn = None
         self._conn_lock = threading.Lock()
@@ -129,7 +146,7 @@ class StubAgent:
         self._client_ready.set()
         try:
             while self._running:
-                text = _recv_frame(conn)
+                text = _recv_frame(conn, on_ping=self._on_ping)
                 if text is None:
                     break
                 self._on_command(conn, json.loads(text))
@@ -143,6 +160,11 @@ class StubAgent:
                 conn.close()
             except OSError:
                 pass
+
+    def _on_ping(self, conn: socket.socket, payload: bytes):
+        self.pings += 1
+        if self.answer_pings:
+            _send_frame(conn, payload.decode(), opcode=0xA)
 
     def _on_command(self, conn: socket.socket, frame: dict):
         cmd = frame.get("command", [])

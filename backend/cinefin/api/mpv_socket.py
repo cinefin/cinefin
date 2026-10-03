@@ -20,12 +20,19 @@ _RECV_BYTES = 65536
 class SocketMPV(WSMPV):
     """Drive a local mpv over its JSON-IPC Unix socket. Drop-in for WSMPV."""
 
+    keepalive = False  # a Unix socket has no pings; a dead mpv closes it
+
     def __init__(self, socket_path, quit_callback=None, connect_timeout=5.0):
         # Must exist before WSMPV.__init__ opens the connection: both are in
         # _INTERNAL_ATTRS so __setattr__ stores them instead of sending set_property.
         self.socket_path = socket_path
         self._recv_buf = b""
-        super().__init__(url=socket_path, token=None, quit_callback=quit_callback, connect_timeout=connect_timeout)
+        super().__init__(
+            url=socket_path,
+            token=None,
+            quit_callback=quit_callback,
+            connect_timeout=connect_timeout,
+        )
 
     def _open_connection(self):
         try:

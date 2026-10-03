@@ -12,7 +12,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 	import TicketDesigner from './TicketDesigner.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 

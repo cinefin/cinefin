@@ -28,9 +28,8 @@ tray.py      the system tray
 cinefin.ico
 ```
 
-The shortcut runs `python\pythonw.exe tray.py`. The tray sets
-`CINEFIN_USERDATA_DIR=%LOCALAPPDATA%\Cinefin`, prepends `ffmpeg\` to `PATH`, and
-runs `python\pythonw.exe -m cinefin.cli serve` as a child (start/stop/restart =
+The shortcut runs `python\pythonw.exe tray.py`. The tray prepends `ffmpeg\` to
+`PATH` and runs `python\pythonw.exe -m cinefin.cli serve` as a child (start/stop/restart =
 manage that child), redirecting its output to `logs\server.log`. `cinefin.cli`
 migrates then runs uvicorn — the same command the pipx package exposes.
 

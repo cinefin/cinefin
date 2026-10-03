@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Cinefin System Ident</title>
+		<!--
+			The System Ident (backend/cinefin/assets/system/ident.mp4), as a page.
+			render.mjs screenshots it frame by frame; opened directly in a browser
+			it plays live, looping 4 s to 34 s the way the player holds it.
+
+			Timeline: 0 to 4 s is the intro, and everything is at rest by 4.0 s.
+			The intro's CSS animations only exist while the stage has the `intro`
+			class; from 4.0 s there are no animations, filters or invisible
+			layers left, only the static lockup and the orbit light. From 4.0 s
+			the picture is periodic with a 30 s period: the orbit turns 360
+			degrees per 30 s and the bloom breathing periods (10, 15, 30 s) all
+			divide 30 s.
+
+			The stage is laid out at 1280x720 and rendered at deviceScaleFactor 1.5
+			(1920x1080). The mark is 96x128 css px, 4 device px per logo unit, and
+			its origin is snapped to an even device pixel so every edge lands on
+			even pixel coordinates (clean 4:2:0 chroma). The rest of the lockup is
+			the mock's, scaled by 16/15 to keep its size relative to the mark.
+
+			The orbit light is drawn into a canvas at device resolution in float
+			and quantised with a fixed per-pixel dither threshold, which breaks up
+			the 8-bit banding of the dark gradients. The threshold pattern is the
+			same in every frame, so the loop stays exactly periodic.
+
+			Fonts are the SPA's bundled faces, so nothing is fetched.
+		-->
+		<style>
+			@font-face {
+				font-family: 'Tilt Warp';
+				font-weight: 400;
+				src: url('../../src/lib/assets/fonts/tilt-warp-400.woff2') format('woff2');
+			}
+			@font-face {
+				font-family: 'Archivo';
+				font-weight: 500;
+				src: url('../../src/lib/assets/fonts/archivo-500.woff2') format('woff2');
+			}
+
+			html,
+			body {
+				margin: 0;
+				background: #000;
+				overflow: hidden;
+			}
+			.stage {
+				width: 1280px;
+				height: 720px;
+				position: relative;
+				overflow: hidden;
+				background: #000;
+				color: #f2f0f0;
+				font-family: 'Archivo', sans-serif;
+			}
+
+			/* Orbit light: a canvas drawn by drawLight() (see seek()). */
+			.light {
+				position: absolute;
+				left: 0;
+				top: 0;
+				width: 1280px;
+				height: 720px;
+			}
+
+			/* Lockup */
+			/* The mock's lockup scaled by 16/15 (mark 90x120 -> 96x128). It is
+			   centred by placeLockup(), not by flex, so the mark sits on whole css
+			   pixels. */
+			.lockup {
+				position: absolute;
+				top: 296px; /* mark centred on 360 */
+				left: 0;
+				display: flex;
+				align-items: center;
+				gap: 38.4px;
+			}
+			.wm {
+				display: flex;
+				flex-direction: column;
+				gap: 9.6px;
+			}
+			.wordmark {
+				font-family: 'Tilt Warp', sans-serif;
+				font-weight: 400;
+				font-size: 46.9333px;
+				line-height: 1;
+				color: #f4f4f6;
+			}
+			.sub {
+				display: flex;
+				justify-content: space-between;
+				padding: 0 1.0667px 0 3.2px;
+				font-size: 13.3333px;
+				font-weight: 500;
+				line-height: 1;
+				color: #9aa1ad;
+			}
+
+			/* Intro: CSS animations, all finished by 4.0 s, present only while the
+			   stage has the intro class (seek() pauses and seeks them). The halo
+			   and glow copies are display: none outside their own windows. */
+			.halo,
+			.glow {
+				display: none;
+			}
+			.intro .fs,
+			.intro .pf {
+				animation: fade 0.8s cubic-bezier(0.22, 0.61, 0.36, 1) 2s both;
+			}
+			.intro .halo {
+				animation: halo 2s ease-out 2s both;
+			}
+			.intro .gr {
+				animation: flare 1.8s ease-out 0.4s both;
+			}
+			.intro .gg {
+				animation: flare 1.8s ease-out 0.85s both;
+			}
+			.intro .gb {
+				animation: flare 1.8s ease-out 1.3s both;
+			}
+			.cr,
+			.cg,
+			.cb {
+				transform-box: fill-box;
+				transform-origin: center;
+			}
+			.intro .cr {
+				animation: strike 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) 0.4s both;
+			}
+			.intro .cg {
+				animation: strike 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) 0.85s both;
+			}
+			.intro .cb {
+				animation: strike 1.1s cubic-bezier(0.22, 0.61, 0.36, 1) 1.3s both;
+			}
+			.intro .wm {
+				animation: wm 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) 2.8s both;
+			}
+			@keyframes fade {
+				from {
+					opacity: 0;
+				}
+				to {
+					opacity: 1;
+				}
+			}
+			@keyframes halo {
+				0% {
+					opacity: 0;
+				}
+				35% {
+					opacity: 0.32;
+				}
+				100% {
+					opacity: 0;
+				}
+			}
+			@keyframes strike {
+				from {
+					opacity: 0;
+					transform: translateY(4px) scaleY(0.72);
+				}
+				to {
+					opacity: 1;
+					transform: none;
+				}
+			}
+			@keyframes flare {
+				0% {
+					opacity: 0;
+				}
+				30% {
+					opacity: 0.9;
+				}
+				100% {
+					opacity: 0;
+				}
+			}
+			@keyframes wm {
+				from {
+					opacity: 0;
+					transform: translateX(-14px);
+				}
+				to {
+					opacity: 1;
+					transform: none;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="stage intro" id="stage">
+			<canvas class="light" id="light"></canvas>
+
+			<div class="lockup">
+				<!-- The mark: logo.svg (repo root), plus the intro's glow and halo copies. -->
+				<svg
+					width="96"
+					height="128"
+					viewBox="0 0 36 48"
+					aria-hidden="true"
+					style="overflow: visible"
+				>
+					<defs>
+						<filter id="halo" x="-50%" y="-50%" width="200%" height="200%">
+							<feGaussianBlur stdDeviation="1.4" />
+						</filter>
+						<filter id="cellglow" x="-100%" y="-100%" width="300%" height="300%">
+							<feGaussianBlur stdDeviation="2" />
+						</filter>
+					</defs>
+					<g class="halo" id="halo" filter="url(#halo)" fill="#e4e7ee">
+						<path fill-rule="evenodd" d="M0 0h36v48H0V0Zm3 3h30v42H3V3Z" />
+						<rect x="6" y="6" width="4" height="6" />
+						<rect x="6" y="16" width="4" height="6" />
+						<rect x="6" y="26" width="4" height="6" />
+						<rect x="6" y="36" width="4" height="6" />
+						<rect x="26" y="6" width="4" height="6" />
+						<rect x="26" y="16" width="4" height="6" />
+						<rect x="26" y="26" width="4" height="6" />
+						<rect x="26" y="36" width="4" height="6" />
+					</g>
+					<path
+						class="fs"
+						fill-rule="evenodd"
+						clip-rule="evenodd"
+						d="M0 0h36v48H0V0Zm3 3h30v42H3V3Z"
+						fill="#8b929e"
+					/>
+					<g fill="#8b929e">
+						<rect class="pf" x="6" y="6" width="4" height="6" />
+						<rect class="pf" x="6" y="16" width="4" height="6" />
+						<rect class="pf" x="6" y="26" width="4" height="6" />
+						<rect class="pf" x="6" y="36" width="4" height="6" />
+						<rect class="pf" x="26" y="6" width="4" height="6" />
+						<rect class="pf" x="26" y="16" width="4" height="6" />
+						<rect class="pf" x="26" y="26" width="4" height="6" />
+						<rect class="pf" x="26" y="36" width="4" height="6" />
+					</g>
+					<g class="glow gr" filter="url(#cellglow)">
+						<rect x="13" y="6" width="10" height="10" fill="#FF2F4D" />
+					</g>
+					<g class="glow gg" filter="url(#cellglow)">
+						<rect x="13" y="19" width="10" height="10" fill="#25E88A" />
+					</g>
+					<g class="glow gb" filter="url(#cellglow)">
+						<rect x="13" y="32" width="10" height="10" fill="#3A7BFF" />
+					</g>
+					<rect class="cr" x="13" y="6" width="10" height="10" fill="#FF2F4D" />
+					<rect class="cg" x="13" y="19" width="10" height="10" fill="#25E88A" />
+					<rect class="cb" x="13" y="32" width="10" height="10" fill="#3A7BFF" />
+				</svg>
+				<div class="wm">
+					<span class="wordmark">Cinefin</span>
+					<span class="sub"
+						><span>H</span><span>O</span><span>M</span><span>E</span
+						><span style="width: 7.4667px"></span><span>T</span><span>H</span><span>E</span
+						><span>A</span><span>T</span><span>E</span><span>R</span></span
+					>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			// Timeline constants (seconds). LOOP_A/LOOP_B match SYSTEM_IDENT_LOOP in
+			// backend/cinefin/api/utils/assets.py.
+			const LOOP_A = 4;
+			const LOOP_B = 34;
+			const PERIOD = LOOP_B - LOOP_A;
+			const SPIN = 360 / PERIOD; // deg/s once the loop starts
+			const UNFOLD_START = 0.5;
+			const UNFOLD_FADE_END = 3.9; // scale and opacity: 3.4 s, as in the mock
+			const ROT_FROM = -120;
+			const ROT_V0 = 70; // deg/s at the start of the unfold; it ends at SPIN
+			const BREATH = [10, 15, 30]; // s, each divides PERIOD
+			const BREATH_DEPTH = 0.4; // opacity 1 -> 0.6 -> 1
+
+			// CSS cubic-bezier(x1, y1, x2, y2) as a function of progress 0..1.
+			function bezier(x1, y1, x2, y2) {
+				const cx = 3 * x1,
+					bx = 3 * (x2 - x1) - cx,
+					ax = 1 - cx - bx;
+				const cy = 3 * y1,
+					by = 3 * (y2 - y1) - cy,
+					ay = 1 - cy - by;
+				const X = (s) => ((ax * s + bx) * s + cx) * s;
+				const Y = (s) => ((ay * s + by) * s + cy) * s;
+				const dX = (s) => (3 * ax * s + 2 * bx) * s + cx;
+				return (x) => {
+					if (x <= 0) return 0;
+					if (x >= 1) return 1;
+					let s = x;
+					for (let i = 0; i < 8; i++) {
+						const d = dX(s);
+						if (Math.abs(d) < 1e-7) break;
+						s -= (X(s) - x) / d;
+					}
+					let lo = 0,
+						hi = 1;
+					for (let i = 0; i < 40 && Math.abs(X(s) - x) > 1e-9; i++) {
+						s = (lo + hi) / 2;
+						if (X(s) < x) lo = s;
+						else hi = s;
+					}
+					return Y(s);
+				};
+			}
+			const unfoldEase = bezier(0.2, 0.7, 0.2, 1);
+
+			// Orbit rotation in degrees. The unfold is a cubic Hermite from
+			// ROT_FROM (velocity ROT_V0) to 0 at LOOP_A (velocity SPIN), so it runs
+			// straight into the constant spin with no jump in angle or speed.
+			function orbitAngle(t) {
+				if (t >= LOOP_A) return (((t - LOOP_A) % PERIOD) * SPIN) % 360;
+				if (t <= UNFOLD_START) return ROT_FROM;
+				const T = LOOP_A - UNFOLD_START;
+				const s = (t - UNFOLD_START) / T;
+				const s2 = s * s,
+					s3 = s2 * s;
+				return (
+					(2 * s3 - 3 * s2 + 1) * ROT_FROM + (s3 - 2 * s2 + s) * ROT_V0 * T + (s3 - s2) * SPIN * T
+				);
+			}
+
+			// Orbit light: three radial blooms, each `radial-gradient(circle, c a0
+			// 0%, transparent 72%)` in a 580px box (the gradient's radius is the
+			// farthest corner, 290 * sqrt 2), centred on these offsets from the stage
+			// centre, painted in order with source-over.
+			const BLOOMS = [
+				{ rgb: [255, 59, 85], a: 0.42, x: 0, y: -240 },
+				{ rgb: [46, 224, 138], a: 0.36, x: 207, y: 120 },
+				{ rgb: [58, 123, 255], a: 0.46, x: -207, y: 120 }
+			];
+			const BLOOM_RADIUS = 290 * Math.SQRT2 * 0.72;
+			const CX = 640;
+			const CY = 360;
+
+			const stage = document.getElementById('stage');
+			const canvas = document.getElementById('light');
+			const dpr = window.devicePixelRatio || 1;
+			canvas.width = Math.round(1280 * dpr);
+			canvas.height = Math.round(720 * dpr);
+			// A software canvas on purpose: an accelerated one gets a composited
+			// layer, and Chromium then drew the lockup above it 1.5 device px off
+			// its layout position, blurring the mark's pixel-aligned edges.
+			const ctx = canvas.getContext('2d', { willReadFrequently: true });
+			const image = ctx.createImageData(canvas.width, canvas.height);
+
+			// Fixed dither threshold per device pixel (interleaved gradient noise):
+			// the same pattern in every frame, so equal light gives equal pixels.
+			const dither = new Float32Array(canvas.width * canvas.height);
+			for (let y = 0; y < canvas.height; y++) {
+				for (let x = 0; x < canvas.width; x++) {
+					const f = 0.06711056 * x + 0.00583715 * y;
+					const g = 52.9829189 * (f - Math.floor(f));
+					dither[y * canvas.width + x] = g - Math.floor(g);
+				}
+			}
+
+			function drawLight(opacity, angleDeg, scale, breath) {
+				const W = canvas.width;
+				const H = canvas.height;
+				const d = image.data;
+				const rad = (angleDeg * Math.PI) / 180;
+				const cos = Math.cos(rad);
+				const sin = Math.sin(rad);
+				const R = BLOOM_RADIUS * scale;
+				const blooms = BLOOMS.map((b, i) => ({
+					// device-pixel centre and radius
+					x: (CX + scale * (b.x * cos - b.y * sin)) * dpr,
+					y: (CY + scale * (b.x * sin + b.y * cos)) * dpr,
+					r: R * dpr,
+					a: b.a * breath[i],
+					rgb: b.rgb
+				}));
+				for (let py = 0; py < H; py++) {
+					const yc = py + 0.5;
+					for (let px = 0; px < W; px++) {
+						const xc = px + 0.5;
+						let r = 0,
+							g = 0,
+							bl = 0;
+						for (const b of blooms) {
+							const dx = xc - b.x;
+							const dy = yc - b.y;
+							const dist2 = dx * dx + dy * dy;
+							if (dist2 >= b.r * b.r) continue;
+							const al = b.a * (1 - Math.sqrt(dist2) / b.r);
+							const k = 1 - al;
+							r = b.rgb[0] * al + r * k;
+							g = b.rgb[1] * al + g * k;
+							bl = b.rgb[2] * al + bl * k;
+						}
+						const i = py * W + px;
+						const t = dither[i];
+						const o = i * 4;
+						d[o] = Math.min(255, Math.floor(r * opacity + t));
+						d[o + 1] = Math.min(255, Math.floor(g * opacity + t));
+						d[o + 2] = Math.min(255, Math.floor(bl * opacity + t));
+						d[o + 3] = 255;
+					}
+				}
+				ctx.putImageData(image, 0, 0);
+			}
+
+			// Halo and cell-glow copies are only displayed while they animate, so
+			// nothing invisible (and no filter region) is left in the tree.
+			const WINDOWS = [
+				[document.getElementById('halo'), 2.0, 4.0],
+				[document.querySelector('.glow.gr'), 0.4, 2.2],
+				[document.querySelector('.glow.gg'), 0.85, 2.65],
+				[document.querySelector('.glow.gb'), 1.3, 3.1]
+			];
+
+			function seek(t) {
+				const intro = t < LOOP_A;
+				stage.classList.toggle('intro', intro);
+				for (const [el, a, b] of WINDOWS)
+					el.style.display = intro && t > a && t < b ? 'inline' : '';
+				if (intro) {
+					for (const a of document.getAnimations()) {
+						a.pause();
+						a.currentTime = t * 1000;
+					}
+				}
+				const e = unfoldEase((t - UNFOLD_START) / (UNFOLD_FADE_END - UNFOLD_START));
+				const phase = t >= LOOP_A ? (t - LOOP_A) % PERIOD : 0;
+				const breath = BREATH.map(
+					(p) => 1 - (BREATH_DEPTH * (1 - Math.cos((2 * Math.PI * phase) / p))) / 2
+				);
+				drawLight(e, orbitAngle(t), 0.15 + 0.85 * e, breath);
+			}
+
+			// Centre the lockup on a css x that is a multiple of 4 px: at
+			// deviceScaleFactor 1.5 that is a whole, even device pixel (a multiple
+			// of 6), so with 4 device px per logo unit every edge of the mark lands
+			// on an even pixel. The top (296 px, 444 device px) already does.
+			function placeLockup() {
+				const lockup = document.querySelector('.lockup');
+				const width = lockup.getBoundingClientRect().width;
+				lockup.style.left = `${Math.round((1280 - width) / 2 / 4) * 4}px`;
+			}
+
+			window.identReady = Promise.all([
+				document.fonts.load("46.9333px 'Tilt Warp'"),
+				document.fonts.load("500 13.3333px 'Archivo'")
+			])
+				.then(() => document.fonts.ready)
+				.then(() => {
+					placeLockup();
+					seek(0);
+					return true;
+				});
+			window.identSeek = seek;
+			window.identLoop = [LOOP_A, LOOP_B];
+
+			// Opened directly (not by render.mjs): play live, holding 4..34 s.
+			if (!new URLSearchParams(location.search).has('render')) {
+				window.identReady.then(() => {
+					const start = performance.now();
+					const tick = (now) => {
+						let t = (now - start) / 1000;
+						if (t >= LOOP_B) t = LOOP_A + ((t - LOOP_A) % PERIOD);
+						seek(t);
+						requestAnimationFrame(tick);
+					};
+					requestAnimationFrame(tick);
+				});
+			}
+		</script>
+	</body>
+</html>

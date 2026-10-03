@@ -16,14 +16,6 @@ def _restart_player() -> tuple[bool, str, str]:
     return True, "player restarted", ""
 
 
-def _reset_ident() -> tuple[bool, str, str]:
-    from cinefin.api.mpv_service import mpv_service
-
-    if mpv_service.reset():
-        return True, "reset to the idle ident", ""
-    return False, "could not reach the player", ""
-
-
 def _player(method: str, done: str):
     def action() -> tuple[bool, str, str]:
         from cinefin.api.mpv_service import mpv_service
@@ -36,11 +28,12 @@ def _player(method: str, done: str):
 
 
 # The choice string is BOTH the label the SPA shows and the stable id stored in the
-# command's config, so keep these strings stable once shipped.
+# command's config, so keep these strings stable once shipped (a rename needs a
+# data migration, as 0049 did for "Reset to the idle ident" -> "Standby").
 _ACTIONS = {
     "Restart the player": _restart_player,
-    "Reset to the idle ident": _reset_ident,
-    "Stop the programme": _player("stop_programme", "programme stopped"),
+    "Standby": _player("standby", "on standby"),
+    "Stop the programme": _player("pause", "programme stopped"),  # a pause; "Standby" ends it
     "Pause": _player("pause", "paused"),
     "Resume": _player("play", "resumed"),
 }
@@ -51,7 +44,7 @@ class System(CommandProvider):
     id = "system"
     label = "System"
     icon = "terminal"
-    description = "Cinefin's own actions: restart the player, reset to the ident, stop, pause, resume"
+    description = "Cinefin's own actions: restart the player, standby, stop, pause, resume"
     fields = [Field("action", "Action", type="select", choices=tuple(_ACTIONS), required=True)]
 
     def run(self, config, settings):

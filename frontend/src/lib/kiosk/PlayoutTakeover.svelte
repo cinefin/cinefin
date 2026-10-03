@@ -34,7 +34,7 @@
 			{/if}
 			<div class="takeover-body">
 				<div class="eyebrow">
-					{#if p.programmeState === 'pre_show'}
+					{#if p.phase === 'preshow'}
 						<span class="live-dot"></span>Pre-show
 					{:else if p.paused}
 						Paused

@@ -1,6 +1,6 @@
 # Cinefin — web app image.
-# Runs the Django app under gunicorn; the schedule runner and sync engine run
-# as background threads inside it.
+# Runs `cinefin serve` (migrate, then uvicorn); the schedule runner and sync
+# engine run as background threads inside it.
 # NOTE: actual MPV playout, the thermal printer and projector/lights are host
 # hardware and live OUTSIDE this container — see docs/DOCKER.md.
 
@@ -59,12 +59,13 @@ COPY backend/pyproject.toml backend/poetry.lock ./
 RUN poetry install --only main --no-root
 
 # Application code, the contrib command-provider plugins (loaded from
-# REPO_ROOT/contrib/plugins), the container entrypoint (repo-root docker/),
-# then the compiled SPA on top at the sibling /app/frontend/build.
+# REPO_ROOT/contrib/plugins), then the compiled SPA on top at the sibling
+# /app/frontend/build. Installing the project itself (deps are already in)
+# puts the `cinefin` command on PATH.
 COPY backend/ ./
 COPY contrib/ /app/contrib/
-COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 COPY --from=spa /app/frontend/build/ /app/frontend/build/
+RUN poetry install --only main
 
 # Version stamped in at build time (CI and the compose helper pass `git
 # describe`). Baked into env vars so the running container reports the right
@@ -86,12 +87,10 @@ LABEL org.opencontainers.image.title="Cinefin" \
 # Collect static files for WhiteNoise (baked into the image, not a volume).
 RUN python manage.py collectstatic --no-input
 
-RUN chmod +x /app/docker/entrypoint.sh
-
 EXPOSE 8000
 
-ENTRYPOINT ["/app/docker/entrypoint.sh"]
-# uvicorn (ASGI) so the real-time WebSocket works. ONE process only — the MPV
-# service is a per-process singleton and the WebSocket's in-process event bus
-# must reach every client, so never add --workers.
-CMD ["uvicorn", "cinefin.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
+# Applies migrations, then serves on 0.0.0.0:8000 under uvicorn (ASGI, so the
+# real-time WebSocket works) as ONE process: the MPV service is a per-process
+# singleton and the WebSocket's in-process event bus must reach every client.
+# Data lives in /app/userdata (the repo layout's <repo>/userdata).
+CMD ["cinefin", "serve"]

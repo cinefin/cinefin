@@ -14,5 +14,5 @@ test('root redirects to the SPA and the shell renders', async ({ page }) => {
 
 	// Dashboard content arrives (seeded library stats), and the booth lamp
 	// settles on a real state rather than "Connecting".
-	await expect(page.getByText(/On air|Paused|Cued|Idle|Status unavailable/).first()).toBeVisible();
+	await expect(page.getByText(/On air|Paused|Cued|Standby|Offline|Status unavailable/).first()).toBeVisible();
 });

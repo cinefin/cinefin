@@ -31,55 +31,6 @@ def running_service(item_types, offset=1):
     return service, playlist
 
 
-class TestIdentStreams:
-    def test_reset_loads_the_ident_stream_url(self):
-        from cinefin.api.models import Bumper, Settings
-
-        ident = Bumper.objects.create(title="Ident", file_path="/media/ident.mp4")
-        Settings.set("cinema.default_ident_id", ident.id)
-        service = make_service()
-
-        assert service.reset() is True
-        (loaded,), kwargs = service.controller.load_file.call_args
-        assert loaded == ident.get_stream_url()["stream_url"]
-        assert "/stream/bumper/" in loaded and loaded.startswith("http")
-        assert kwargs.get("replace") is True
-
-    def test_reset_falls_back_to_the_bundled_system_ident(self):
-        from cinefin.api.models import Settings
-
-        Settings.set("cinema.default_ident_id", None)
-        service = make_service()
-
-        assert service.reset() is True
-        (loaded,), kwargs = service.controller.load_file.call_args
-        assert "/stream/system/ident/?t=" in loaded and loaded.startswith("http")
-        assert kwargs.get("replace") is True
-        service.controller.playlist_clear.assert_not_called()
-
-    def test_a_deleted_ident_bumper_falls_back_to_the_system_ident(self):
-        from cinefin.api.models import Settings
-
-        Settings.set("cinema.default_ident_id", 999999)
-        service = make_service()
-
-        assert service.reset() is True
-        (loaded,), _ = service.controller.load_file.call_args
-        assert "/stream/system/ident/?t=" in loaded
-
-    def test_load_programme_streams_the_title(self, tmp_path):
-        title = tmp_path / "title.mp4"
-        title.write_bytes(b"x")
-        programme = ProgrammeFactory(title_file=str(title))
-        PlaylistItemFactory(playlist=PlaylistFactory(programme=programme), order=0, content_type="bumper")
-        service = make_service()
-
-        assert service.load_programme(programme) is True
-        loaded = service.controller.enqueue_file.call_args_list[0][0][0]  # queued after the ident
-        assert loaded == programme.get_title_stream_url()
-        assert f"/stream/title/{programme.id}/" in loaded
-
-
 class TestCueFiring:
     def _capture_sequential(self, monkeypatch):
         fired = []
@@ -248,17 +199,6 @@ class TestHoldItems:
 
         service.controller.set_property.assert_not_called()
         service.controller.next.assert_not_called()
-
-
-class TestHoldClockInStatus:
-    def test_status_reports_hold_progress_not_black_clip(self):
-        service, _ = running_service(["bumper", "system"])
-        service.controller.get_status.return_value = {"time": 2.0, "length": 5.0, "playlist_pos": 1}
-        service._hold_progress = {"duration": 40.0, "elapsed": 12.5}
-        playback = service.get_enhanced_status()["playback"]
-        assert playback["duration"] == 40.0
-        assert playback["position"] == 12.5
-        assert playback["remaining"] == 27.5
 
 
 class TestHoldAdvanceGuard:

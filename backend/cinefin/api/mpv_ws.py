@@ -12,8 +12,10 @@ import json
 import logging
 import queue
 import threading
+import time
 
 import websocket  # websocket-client
+from websocket import ABNF
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,15 @@ COMMAND_TIMEOUT = 120.0
 # never replies, so a full COMMAND_TIMEOUT block would keep the UI showing stale
 # "connected". Reads are sub-second when alive, so this never bites the happy path.
 READ_TIMEOUT = 5.0
+# Redial backoff after the link drops: RECONNECT_DELAY, doubling up to RECONNECT_MAX_DELAY.
 RECONNECT_DELAY = 2.0
+RECONNECT_MAX_DELAY = 30.0
+# Keepalive (WebSocket transport only): ping the agent every PING_INTERVAL; a link
+# on which nothing (frame or pong) has arrived for KEEPALIVE_TIMEOUT is dead, so it
+# is closed and redialled instead of hanging until a command times out. The agent
+# pings too, and drops a client that stops answering.
+PING_INTERVAL = 15.0
+KEEPALIVE_TIMEOUT = 45.0
 
 # Reachability "log once per episode" state, keyed by WS URL.
 _reachable_state: dict[str, bool] = {}
@@ -51,11 +61,18 @@ class WSMPV:
     """Drop-in for ``python_mpv_jsonipc.MPV``, speaking mpv JSON-IPC over a
     WebSocket to the agent's ``/ws/control`` endpoint."""
 
+    # Ping the peer and watch for silence (see PING_INTERVAL). The local-socket
+    # subclass turns it off: a Unix socket has no pings.
+    keepalive = True
+
     def __init__(self, url, token=None, quit_callback=None, connect_timeout=5.0):
         self.url = url
         self.token = token
         self.quit_callback = quit_callback
         self.connect_timeout = connect_timeout
+        self._stop = threading.Event()  # set by terminate(); wakes the backoff and keepalive waits
+        self._reconnect_delay = RECONNECT_DELAY
+        self._last_rx = time.monotonic()  # when anything last arrived from the peer
 
         self._ws = None
         self._ws_lock = threading.Lock()
@@ -91,6 +108,28 @@ class WSMPV:
         self._reader.start()
         self._dispatcher = threading.Thread(target=self._dispatch_loop, name="wsmpv-dispatch", daemon=True)
         self._dispatcher.start()
+        if self.keepalive:
+            self._pinger = threading.Thread(target=self._keepalive_loop, name="wsmpv-keepalive", daemon=True)
+            self._pinger.start()
+
+    def _keepalive_loop(self):
+        """Ping every PING_INTERVAL; close a link that has been silent for
+        KEEPALIVE_TIMEOUT. The reader then redials it. Pings go through the send
+        lock like every other write."""
+        while not self._stop.wait(PING_INTERVAL):
+            with self._ws_lock:
+                ws = self._ws
+            if ws is None:
+                continue  # the reader is redialling
+            if time.monotonic() - self._last_rx > KEEPALIVE_TIMEOUT:
+                logger.warning("MPV agent at %s silent for %.0f s; reconnecting", self.url, KEEPALIVE_TIMEOUT)
+                self._drop_connection()
+                continue
+            try:
+                with self._send_lock:
+                    ws.ping()
+            except Exception:  # noqa: BLE001 — a failed write means the link is gone
+                self._drop_connection()
 
     def _dispatch_loop(self):
         """Run queued observer/event callbacks serially, off the reader thread."""
@@ -113,6 +152,7 @@ class WSMPV:
         except Exception as e:
             _note_unreachable(self.url, str(e))
             raise MPVError(f"Cannot connect to agent WS: {e}") from e
+        self._last_rx = time.monotonic()
         with self._ws_lock:
             self._ws = ws
         _note_reachable(self.url)
@@ -149,11 +189,20 @@ class WSMPV:
     def _recv_frames(self, ws):
         """One blocking read → its complete JSON frames, or ``None`` when the peer
         closed. The agent may pack several newline-delimited frames per WS message.
-        Overridden by the socket transport (byte stream); the rest is transport-agnostic."""
-        raw = ws.recv()
-        if raw is None or raw == "":
+        Overridden by the socket transport (byte stream); the rest is transport-agnostic.
+
+        Control frames come back too (``control_frame=True``), so a pong counts as
+        the peer being alive (see _keepalive_loop); they carry no mpv frames.
+        websocket-client answers the agent's pings itself."""
+        opcode, data = ws.recv_data(control_frame=True)
+        self._last_rx = time.monotonic()
+        if opcode == ABNF.OPCODE_CLOSE:
             return None
-        return raw.splitlines()
+        if opcode not in (ABNF.OPCODE_TEXT, ABNF.OPCODE_BINARY):
+            return []
+        if isinstance(data, bytes):
+            data = data.decode("utf-8", "replace")
+        return data.splitlines()
 
     def _read_loop(self):
         while not self._closed:
@@ -237,9 +286,11 @@ class WSMPV:
         try:
             self._open_connection()
         except Exception:  # noqa: BLE001 — already logged once via _note_unreachable
-            stop = threading.Event()
-            stop.wait(RECONNECT_DELAY)  # back off before the reader retries
+            # Back off before the reader retries: 2 s, doubling up to 30 s.
+            self._stop.wait(self._reconnect_delay)
+            self._reconnect_delay = min(self._reconnect_delay * 2, RECONNECT_MAX_DELAY)
             return False
+        self._reconnect_delay = RECONNECT_DELAY
         # Fresh link = possibly-restarted mpv: allow quit_callback to fire again, re-register observers.
         self._quit_fired = False
         self._resubscribe()
@@ -259,7 +310,8 @@ class WSMPV:
 
         event = threading.Event()
         self._pending[rid] = event
-        frame = {"command": [command, *args], "request_id": rid}
+        # A dict is mpv's named-argument form ({"name": ..., ...}), sent as is.
+        frame = {"command": command if isinstance(command, dict) else [command, *args], "request_id": rid}
 
         with self._ws_lock:
             ws = self._ws
@@ -314,6 +366,7 @@ class WSMPV:
     def terminate(self, join=True):
         """Close the WS. Does NOT stop agent-side mpv (that's ``/mpv/stop``)."""
         self._closed = True
+        self._stop.set()  # end the keepalive and any backoff wait
         self._callbacks.put(None)  # stop the dispatch worker
         with self._ws_lock:
             ws = self._ws
@@ -345,6 +398,10 @@ _INTERNAL_ATTRS = frozenset(
         "token",
         "quit_callback",
         "connect_timeout",
+        "_stop",
+        "_reconnect_delay",
+        "_last_rx",
+        "_pinger",
         "_ws",
         "_ws_lock",
         "_send_lock",

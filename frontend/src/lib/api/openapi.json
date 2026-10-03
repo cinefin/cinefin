@@ -370,6 +370,18 @@
             ],
             "description": "MPV uptime in seconds",
             "title": "Uptime Seconds"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A player problem to show: a local mpv too old, or a standby ident download failure",
+            "title": "Warning"
           }
         },
         "required": [
@@ -1126,6 +1138,18 @@
             "title": "Duration",
             "type": "number"
           },
+          "hold_point": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As the ident: where standby freezes (null = last frame)",
+            "title": "Hold Point"
+          },
           "id": {
             "description": "Bumper unique identifier",
             "title": "Id",
@@ -1747,74 +1771,37 @@
         "title": "CompleteInput",
         "type": "object"
       },
-      "ControlPlayoutDataSchema": {
+      "ControlPlayoutSchema": {
         "properties": {
           "action": {
-            "description": "Action that was performed",
+            "description": "A transport action; it must be in the status's actions (else 409)",
+            "enum": [
+              "start",
+              "pause",
+              "resume",
+              "previous",
+              "next",
+              "seek",
+              "jump",
+              "end_hold",
+              "end"
+            ],
             "title": "Action",
             "type": "string"
           },
-          "status": {
-            "additionalProperties": true,
-            "description": "Current playback status",
-            "title": "Status",
-            "type": "object"
-          }
-        },
-        "required": [
-          "action",
-          "status"
-        ],
-        "title": "ControlPlayoutDataSchema",
-        "type": "object"
-      },
-      "ControlPlayoutResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/ControlPlayoutDataSchema",
-            "description": "Control action result"
-          },
-          "message": {
+          "index": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
+            "description": "jump: to this player playlist index",
+            "title": "Index"
           },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "ControlPlayoutResponseSchema",
-        "type": "object"
-      },
-      "ControlPlayoutSchema": {
-        "properties": {
-          "action": {
-            "description": "Playback control action",
-            "enum": [
-              "play",
-              "pause",
-              "toggle",
-              "next",
-              "previous",
-              "seek"
-            ],
-            "title": "Action",
-            "type": "string"
-          },
-          "position": {
+          "offset": {
             "anyOf": [
               {
                 "type": "number"
@@ -1823,8 +1810,20 @@
                 "type": "null"
               }
             ],
-            "description": "Seek position in seconds (required for seek action)",
-            "title": "Position"
+            "description": "seek: by this many seconds (negative is back)",
+            "title": "Offset"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "seek: to this many seconds into the item on screen",
+            "title": "Seconds"
           }
         },
         "required": [
@@ -2378,51 +2377,6 @@
           "key"
         ],
         "title": "CreatedAPIKeySchema",
-        "type": "object"
-      },
-      "CurrentItemSchema": {
-        "properties": {
-          "details": {
-            "additionalProperties": true,
-            "description": "Type-specific item details",
-            "title": "Details",
-            "type": "object"
-          },
-          "file": {
-            "description": "File path of current item",
-            "title": "File",
-            "type": "string"
-          },
-          "position": {
-            "description": "Position in programme playlist",
-            "title": "Position",
-            "type": "integer"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Title of current item",
-            "title": "Title"
-          },
-          "type": {
-            "description": "Type of current item (movie, trailer, etc.)",
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "position",
-          "file",
-          "details"
-        ],
-        "title": "CurrentItemSchema",
         "type": "object"
       },
       "CustomTicketRequestSchema": {
@@ -3552,12 +3506,6 @@
             "title": "Hwdec",
             "type": "string"
           },
-          "idle_media": {
-            "default": "",
-            "description": "Cinefin-owned: the System Ident stream URL",
-            "title": "Idle Media",
-            "type": "string"
-          },
           "mode": {
             "default": "desktop",
             "description": "\"desktop\" (X/Wayland session) or \"drm\" (headless KMS)",
@@ -3770,17 +3718,6 @@
         "title": "HostScreenSchema",
         "type": "object"
       },
-      "IdleMediaInput": {
-        "properties": {
-          "idle_media": {
-            "default": "",
-            "title": "Idle Media",
-            "type": "string"
-          }
-        },
-        "title": "IdleMediaInput",
-        "type": "object"
-      },
       "ImageListResponseSchema": {
         "properties": {
           "data": {
@@ -3887,76 +3824,32 @@
         "title": "ImageSchema",
         "type": "object"
       },
-      "JumpPlaylistDataSchema": {
+      "ItemSchema": {
         "properties": {
-          "index": {
-            "description": "MPV playlist index jumped to",
-            "title": "Index",
-            "type": "integer"
-          },
-          "item": {
+          "details": {
             "additionalProperties": true,
-            "description": "Information about jumped-to item",
-            "title": "Item",
+            "description": "content_id and per-type metadata",
+            "title": "Details",
             "type": "object"
           },
-          "programme_position": {
+          "duration": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Programme position (if applicable)",
-            "title": "Programme Position"
-          }
-        },
-        "required": [
-          "index",
-          "item"
-        ],
-        "title": "JumpPlaylistDataSchema",
-        "type": "object"
-      },
-      "JumpPlaylistSchema": {
-        "properties": {
-          "index": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "MPV playlist index to jump to",
-            "title": "Index"
+            "description": "Length in seconds, when known",
+            "title": "Duration"
           },
-          "programme_position": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Programme position to jump to (will be converted to MPV index)",
-            "title": "Programme Position"
-          }
-        },
-        "title": "JumpPlaylistSchema",
-        "type": "object"
-      },
-      "JumpPlayoutPlaylistResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/JumpPlaylistDataSchema",
-            "description": "Playlist jump result"
+          "position": {
+            "description": "Programme position; -1 for the title card",
+            "title": "Position",
+            "type": "integer"
           },
-          "message": {
+          "title": {
             "anyOf": [
               {
                 "type": "string"
@@ -3965,20 +3858,20 @@
                 "type": "null"
               }
             ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
+            "description": "Display title",
+            "title": "Title"
           },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
-            "type": "boolean"
+          "type": {
+            "description": "Item type (movie, trailer, title, ...)",
+            "title": "Type",
+            "type": "string"
           }
         },
         "required": [
-          "data"
+          "type",
+          "position"
         ],
-        "title": "JumpPlayoutPlaylistResponseSchema",
+        "title": "ItemSchema",
         "type": "object"
       },
       "KioskCinemaSchema": {
@@ -4567,42 +4460,73 @@
       "MPVPlaylistItemSchema": {
         "properties": {
           "current": {
-            "description": "Whether this is the currently playing item",
+            "description": "Whether this is the current item",
             "title": "Current",
             "type": "boolean"
           },
-          "filename": {
-            "description": "Filename/path of the media",
-            "title": "Filename",
-            "type": "string"
+          "details": {
+            "additionalProperties": true,
+            "description": "Additional item details and metadata",
+            "title": "Details",
+            "type": "object"
           },
-          "index": {
-            "description": "Playlist item index",
-            "title": "Index",
-            "type": "integer"
-          },
-          "title": {
+          "duration": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Display title of the media",
-            "title": "Title"
+            "description": "Item duration in seconds",
+            "title": "Duration"
+          },
+          "file": {
+            "description": "File path",
+            "title": "File",
+            "type": "string"
+          },
+          "index": {
+            "description": "Index in MPV playlist",
+            "title": "Index",
+            "type": "integer"
+          },
+          "programme_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Position in programme (excluding pre-show)",
+            "title": "Programme Position"
+          },
+          "title": {
+            "description": "Item title",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "description": "Item type",
+            "title": "Type",
+            "type": "string"
           }
         },
         "required": [
           "index",
-          "filename",
+          "title",
+          "type",
+          "file",
           "current"
         ],
         "title": "MPVPlaylistItemSchema",
         "type": "object"
       },
       "MPVStatusDataSchema": {
+        "description": "Raw player settings the programme status doesn't carry (what plays, and whether it is\npaused, is GET /playout/status).",
         "properties": {
           "audio": {
             "anyOf": [
@@ -4620,43 +4544,6 @@
             "title": "Connected",
             "type": "boolean"
           },
-          "executing_command": {
-            "default": false,
-            "description": "True while a hold-black command item is holding the screen",
-            "title": "Executing Command",
-            "type": "boolean"
-          },
-          "playlist": {
-            "description": "Current playlist items",
-            "items": {
-              "$ref": "#/components/schemas/MPVPlaylistItemSchema"
-            },
-            "title": "Playlist",
-            "type": "array"
-          },
-          "playlist_pos": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Current playlist position",
-            "title": "Playlist Pos"
-          },
-          "programme": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ProgrammeInfoSchema"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Currently running programme info"
-          },
           "status": {
             "anyOf": [
               {
@@ -4666,7 +4553,7 @@
                 "type": "null"
               }
             ],
-            "description": "MPV playback status"
+            "description": "Volume, mute, speed and fullscreen"
           },
           "tracks": {
             "$ref": "#/components/schemas/TracksInfoSchema",
@@ -4685,7 +4572,6 @@
           }
         },
         "required": [
-          "playlist",
           "tracks",
           "connected"
         ],
@@ -4725,30 +4611,6 @@
       },
       "MPVStatusSchema": {
         "properties": {
-          "duration": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Total duration in seconds",
-            "title": "Duration"
-          },
-          "filename": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Currently playing filename",
-            "title": "Filename"
-          },
           "fullscreen": {
             "anyOf": [
               {
@@ -4773,15 +4635,17 @@
             "description": "Whether audio is muted",
             "title": "Muted"
           },
-          "paused": {
-            "description": "Whether MPV is paused",
-            "title": "Paused",
-            "type": "boolean"
-          },
-          "playing": {
-            "description": "Whether MPV is currently playing",
-            "title": "Playing",
-            "type": "boolean"
+          "panscan": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "mpv panscan: 0 fits the whole picture, 1 zooms to fill the screen (crops wide films)",
+            "title": "Panscan"
           },
           "speed": {
             "anyOf": [
@@ -4794,18 +4658,6 @@
             ],
             "description": "Playback speed multiplier",
             "title": "Speed"
-          },
-          "time": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Current playback time in seconds",
-            "title": "Time"
           },
           "volume": {
             "anyOf": [
@@ -4820,10 +4672,6 @@
             "title": "Volume"
           }
         },
-        "required": [
-          "playing",
-          "paused"
-        ],
         "title": "MPVStatusSchema",
         "type": "object"
       },
@@ -5223,6 +5071,18 @@
             "description": "URL to access the file",
             "title": "File Url"
           },
+          "hold_point": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As the ident: where standby freezes, in seconds (null = last frame)",
+            "title": "Hold Point"
+          },
           "id": {
             "description": "Media ID",
             "title": "Id",
@@ -5372,6 +5232,18 @@
             ],
             "description": "URL to access the file",
             "title": "File Url"
+          },
+          "hold_point": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As the ident: where standby freezes, in seconds (null = last frame)",
+            "title": "Hold Point"
           },
           "id": {
             "description": "Media unique identifier",
@@ -6582,42 +6454,42 @@
         "title": "MovieStreamSchema",
         "type": "object"
       },
-      "NextItemSchema": {
+      "NextScreeningSchema": {
         "properties": {
-          "duration": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Duration of the upcoming item in seconds",
-            "title": "Duration"
+          "cue_time": {
+            "description": "When its lead-in cues it",
+            "format": "date-time",
+            "title": "Cue Time",
+            "type": "string"
           },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Title of the upcoming item",
-            "title": "Title"
+          "id": {
+            "description": "Schedule ID",
+            "title": "Id",
+            "type": "integer"
           },
-          "type": {
-            "description": "Type of the upcoming item (movie, trailer, etc.)",
-            "title": "Type",
+          "programme_id": {
+            "title": "Programme Id",
+            "type": "integer"
+          },
+          "programme_name": {
+            "title": "Programme Name",
+            "type": "string"
+          },
+          "start_time": {
+            "description": "When the programme plays",
+            "format": "date-time",
+            "title": "Start Time",
             "type": "string"
           }
         },
         "required": [
-          "type"
+          "id",
+          "programme_id",
+          "programme_name",
+          "start_time",
+          "cue_time"
         ],
-        "title": "NextItemSchema",
+        "title": "NextScreeningSchema",
         "type": "object"
       },
       "PaginationSchema": {
@@ -6719,39 +6591,64 @@
       "PlaybackStatusSchema": {
         "properties": {
           "duration": {
-            "description": "Total duration in seconds",
+            "description": "Length of the item on screen in seconds",
             "title": "Duration",
             "type": "number"
           },
           "percentage": {
-            "description": "Playback progress percentage",
+            "description": "Progress through the item, 0 to 100",
             "title": "Percentage",
             "type": "number"
           },
           "position": {
-            "description": "Current playback position in seconds",
+            "description": "Seconds into the item on screen (a hold's own clock during a hold)",
             "title": "Position",
             "type": "number"
           },
           "remaining": {
-            "description": "Remaining time in seconds",
+            "description": "Seconds left in the item",
             "title": "Remaining",
             "type": "number"
-          },
-          "state": {
-            "description": "Playback state (playing, paused, stopped)",
-            "title": "State",
-            "type": "string"
           }
         },
         "required": [
-          "state",
           "position",
           "duration",
           "remaining",
           "percentage"
         ],
         "title": "PlaybackStatusSchema",
+        "type": "object"
+      },
+      "PlayerSchema": {
+        "description": "The active player. Never its address, token or socket path: this status is public to\nkiosks (GET /playout/status and the WebSocket), and the address is in GET /playout/hosts.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "'agent' or 'local_socket'",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "show_status": {
+            "description": "Whether the player shows its status line over standby",
+            "title": "Show Status",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "show_status"
+        ],
+        "title": "PlayerSchema",
         "type": "object"
       },
       "PlaylistControlSchema": {
@@ -7013,54 +6910,53 @@
                 "type": "null"
               }
             ],
-            "description": "Current position in programme playlist",
+            "description": "Programme position on screen (None before the first item)",
             "title": "Current Position"
           },
-          "mpv_info": {
-            "additionalProperties": true,
-            "description": "MPV-specific playlist information",
-            "title": "Mpv Info",
-            "type": "object"
+          "mpv_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The player's playlist index",
+            "title": "Mpv Position"
+          },
+          "offset": {
+            "description": "Player index of programme item 0 (1, or 2 with a title card)",
+            "title": "Offset",
+            "type": "integer"
           },
           "programme_elapsed_time": {
-            "description": "Elapsed time across entire programme in seconds",
+            "description": "Seconds of the programme played",
             "title": "Programme Elapsed Time",
             "type": "number"
           },
           "programme_remaining_time": {
-            "description": "Remaining time in entire programme in seconds",
+            "description": "Seconds of the programme left",
             "title": "Programme Remaining Time",
             "type": "number"
           },
-          "programme_time_percentage": {
-            "description": "Programme progress as time-based percentage",
-            "title": "Programme Time Percentage",
-            "type": "number"
-          },
           "programme_total_duration": {
-            "description": "Total duration of entire programme in seconds",
+            "description": "Length of the whole programme in seconds",
             "title": "Programme Total Duration",
             "type": "number"
           },
-          "progress_percentage": {
-            "description": "Programme progress percentage",
-            "title": "Progress Percentage",
-            "type": "number"
-          },
           "total_items": {
-            "description": "Total items in playlist",
+            "description": "Items in the running order (the end sentinel not counted)",
             "title": "Total Items",
             "type": "integer"
           }
         },
         "required": [
           "total_items",
-          "progress_percentage",
+          "offset",
           "programme_total_duration",
           "programme_elapsed_time",
-          "programme_remaining_time",
-          "programme_time_percentage",
-          "mpv_info"
+          "programme_remaining_time"
         ],
         "title": "PlaylistStatusSchema",
         "type": "object"
@@ -7122,6 +7018,18 @@
               }
             ],
             "title": "Name"
+          },
+          "show_status": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the player shows its status over standby",
+            "title": "Show Status"
           },
           "socket_path": {
             "anyOf": [
@@ -7262,10 +7170,28 @@
             "title": "Name",
             "type": "string"
           },
+          "needs_pairing_again": {
+            "default": false,
+            "description": "An agent paired before pairing codes (a token but no agent id): remove it and pair again",
+            "title": "Needs Pairing Again",
+            "type": "boolean"
+          },
+          "needs_update": {
+            "default": false,
+            "description": "The agent is older than this Cinefin needs (recorded on pairing and refresh)",
+            "title": "Needs Update",
+            "type": "boolean"
+          },
           "os": {
             "default": "",
             "title": "Os",
             "type": "string"
+          },
+          "show_status": {
+            "default": true,
+            "description": "Whether the player shows its status over standby",
+            "title": "Show Status",
+            "type": "boolean"
           },
           "socket_path": {
             "default": "",
@@ -7317,22 +7243,42 @@
       },
       "PlayoutStatusDataSchema": {
         "properties": {
+          "actions": {
+            "description": "The actions allowed now",
+            "items": {
+              "enum": [
+                "cue",
+                "start",
+                "pause",
+                "resume",
+                "previous",
+                "next",
+                "seek",
+                "jump",
+                "end_hold",
+                "end"
+              ],
+              "type": "string"
+            },
+            "title": "Actions",
+            "type": "array"
+          },
           "current_item": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/CurrentItemSchema"
+                "$ref": "#/components/schemas/ItemSchema"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Currently playing item"
+            "description": "The item on screen (the title card in the pre-show)"
           },
-          "executing_command": {
-            "default": false,
-            "description": "True while a hold-black command item is holding the screen",
-            "title": "Executing Command",
-            "type": "boolean"
+          "label": {
+            "default": "",
+            "description": "One line for the phase, e.g. 'Cued \u00b7 Friday Night: Alien'",
+            "title": "Label",
+            "type": "string"
           },
           "manual": {
             "anyOf": [
@@ -7348,13 +7294,39 @@
           "next_item": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/NextItemSchema"
+                "$ref": "#/components/schemas/ItemSchema"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The upcoming playlist item (the readout's 'Next \u00b7' foot)"
+            "description": "The item after it"
+          },
+          "next_screening": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextScreeningSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The next scheduled screening"
+          },
+          "phase": {
+            "description": "What the player is doing, worked out once for every surface",
+            "enum": [
+              "offline",
+              "standby",
+              "cued",
+              "preshow",
+              "playing",
+              "paused",
+              "hold",
+              "manual"
+            ],
+            "title": "Phase",
+            "type": "string"
           },
           "playback": {
             "anyOf": [
@@ -7365,7 +7337,18 @@
                 "type": "null"
               }
             ],
-            "description": "Playback status"
+            "description": "The clock of the item on screen"
+          },
+          "player": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlayerSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The active player, if one is set up"
           },
           "playlist": {
             "anyOf": [
@@ -7376,7 +7359,7 @@
                 "type": "null"
               }
             ],
-            "description": "Playlist status"
+            "description": "Where the programme is"
           },
           "programme": {
             "anyOf": [
@@ -7387,9 +7370,18 @@
                 "type": "null"
               }
             ],
-            "description": "Current programme information"
+            "description": "The loaded programme"
+          },
+          "screen": {
+            "default": "",
+            "description": "What the audience sees, e.g. 'System Ident', 'Title card', 'Alien'",
+            "title": "Screen",
+            "type": "string"
           }
         },
+        "required": [
+          "phase"
+        ],
         "title": "PlayoutStatusDataSchema",
         "type": "object"
       },
@@ -7397,7 +7389,7 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/PlayoutStatusDataSchema",
-            "description": "Comprehensive playout status"
+            "description": "The playout status"
           },
           "message": {
             "anyOf": [
@@ -8304,6 +8296,36 @@
       },
       "ProgrammeInfoSchema": {
         "properties": {
+          "block_count": {
+            "description": "Number of blocks in programme",
+            "title": "Block Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO timestamp of programme creation",
+            "title": "Created At"
+          },
+          "description": {
+            "description": "Programme description",
+            "title": "Description",
+            "type": "string"
+          },
+          "features": {
+            "description": "The programme's feature films, in running order",
+            "items": {
+              "$ref": "#/components/schemas/ProgrammeFeatureSchema"
+            },
+            "title": "Features",
+            "type": "array"
+          },
           "id": {
             "description": "Programme ID",
             "title": "Id",
@@ -8314,16 +8336,24 @@
             "title": "Name",
             "type": "string"
           },
-          "running": {
-            "description": "Whether the programme is currently running",
-            "title": "Running",
-            "type": "boolean"
+          "runtime_formatted": {
+            "description": "Formatted runtime string",
+            "title": "Runtime Formatted",
+            "type": "string"
+          },
+          "runtime_minutes": {
+            "description": "Total runtime in minutes",
+            "title": "Runtime Minutes",
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "name",
-          "running"
+          "description",
+          "runtime_minutes",
+          "runtime_formatted",
+          "block_count"
         ],
         "title": "ProgrammeInfoSchema",
         "type": "object"
@@ -9243,72 +9273,6 @@
         "title": "RestoreResponseSchema",
         "type": "object"
       },
-      "RunProgrammeDataSchema": {
-        "properties": {
-          "actions": {
-            "description": "Actions performed",
-            "items": {
-              "type": "string"
-            },
-            "title": "Actions",
-            "type": "array"
-          },
-          "mpv_status": {
-            "$ref": "#/components/schemas/MPVStatusSchema",
-            "description": "MPV player status"
-          },
-          "programme": {
-            "additionalProperties": true,
-            "description": "Programme information",
-            "title": "Programme",
-            "type": "object"
-          },
-          "status": {
-            "description": "Programme status",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "programme",
-          "status",
-          "actions",
-          "mpv_status"
-        ],
-        "title": "RunProgrammeDataSchema",
-        "type": "object"
-      },
-      "RunProgrammeResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/RunProgrammeDataSchema",
-            "description": "Programme run data"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
-          },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "RunProgrammeResponseSchema",
-        "type": "object"
-      },
       "RunResultDataSchema": {
         "properties": {
           "result": {
@@ -10008,7 +9972,7 @@
                 "type": "null"
               }
             ],
-            "description": "Default cinema ident bumper ID",
+            "description": "Default cinema ident media item ID (null = the System Ident)",
             "title": "Default Cinema Ident Id"
           },
           "display_time_format": {
@@ -10503,73 +10467,6 @@
           "configured"
         ],
         "title": "StatusSchema",
-        "type": "object"
-      },
-      "StopPlayoutDataSchema": {
-        "properties": {
-          "actions": {
-            "description": "Actions performed during stop",
-            "items": {
-              "type": "string"
-            },
-            "title": "Actions",
-            "type": "array"
-          }
-        },
-        "required": [
-          "actions"
-        ],
-        "title": "StopPlayoutDataSchema",
-        "type": "object"
-      },
-      "StopPlayoutResponseSchema": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/StopPlayoutDataSchema",
-            "description": "Stop playout result"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Human-readable message about the operation",
-            "title": "Message"
-          },
-          "success": {
-            "default": true,
-            "description": "Always True for successful responses",
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "data"
-        ],
-        "title": "StopPlayoutResponseSchema",
-        "type": "object"
-      },
-      "StopPlayoutSchema": {
-        "properties": {
-          "reset": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": false,
-            "description": "Whether to reset to default state",
-            "title": "Reset"
-          }
-        },
-        "title": "StopPlayoutSchema",
         "type": "object"
       },
       "SubtitleTrackListResponseSchema": {
@@ -11490,6 +11387,69 @@
         "title": "TemplateSummarySchema",
         "type": "object"
       },
+      "TestCardInput": {
+        "properties": {
+          "on": {
+            "description": "Show (true) or hide (false) the test card",
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "TestCardInput",
+        "type": "object"
+      },
+      "TestCardResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TestCardSchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "TestCardResponse",
+        "type": "object"
+      },
+      "TestCardSchema": {
+        "properties": {
+          "off_in_s": {
+            "default": 0,
+            "description": "Seconds until the player hides it by itself",
+            "title": "Off In S",
+            "type": "integer"
+          },
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "TestCardSchema",
+        "type": "object"
+      },
       "TestCommandSchema": {
         "description": "Schema for testing a command configuration without saving it.",
         "properties": {
@@ -11507,24 +11467,6 @@
           }
         },
         "title": "TestCommandSchema",
-        "type": "object"
-      },
-      "TestIdentSchema": {
-        "properties": {
-          "bumper_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "User media item to test as the ident; omit to test the bundled System Ident",
-            "title": "Bumper Id"
-          }
-        },
-        "title": "TestIdentSchema",
         "type": "object"
       },
       "TestInput": {
@@ -11583,6 +11525,92 @@
           "message"
         ],
         "title": "TestResponse",
+        "type": "object"
+      },
+      "TestSoundResponse": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TestSoundSchema"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "TestSoundResponse",
+        "type": "object"
+      },
+      "TestSoundSchema": {
+        "properties": {
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "frequency_hz": {
+            "default": 0,
+            "title": "Frequency Hz",
+            "type": "integer"
+          },
+          "playing": {
+            "default": true,
+            "title": "Playing",
+            "type": "boolean"
+          },
+          "sequence": {
+            "description": "Which side sounds when",
+            "items": {
+              "$ref": "#/components/schemas/TestSoundStepSchema"
+            },
+            "title": "Sequence",
+            "type": "array"
+          }
+        },
+        "title": "TestSoundSchema",
+        "type": "object"
+      },
+      "TestSoundStepSchema": {
+        "properties": {
+          "channel": {
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "start_ms": {
+            "title": "Start Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "channel",
+          "start_ms",
+          "duration_ms"
+        ],
+        "title": "TestSoundStepSchema",
         "type": "object"
       },
       "TestTicketRequestSchema": {
@@ -13142,6 +13170,19 @@
             "description": "Audio format this intro announces ('' to clear)",
             "title": "Audio Format"
           },
+          "hold_point": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "As the ident: where standby freezes, in seconds; send null for its last frame",
+            "title": "Hold Point"
+          },
           "tag_names": {
             "anyOf": [
               {
@@ -13377,7 +13418,7 @@
                 "type": "null"
               }
             ],
-            "description": "Default cinema ident bumper ID",
+            "description": "Default cinema ident media item ID; an explicit null selects the System Ident",
             "title": "Default Cinema Ident"
           },
           "display_time_format": {
@@ -18887,7 +18928,7 @@
     },
     "/api/v2/playout/agent/start": {
       "post": {
-        "description": "Start MPV via the playout agent (pushes the current launch config).",
+        "description": "Start MPV via the playout agent (it comes up on standby).",
         "operationId": "cinefin_api_ninja_views_playout_ninja_agent_start_mpv",
         "parameters": [],
         "responses": {
@@ -19001,6 +19042,7 @@
     },
     "/api/v2/playout/control": {
       "post": {
+        "description": "Every transport button: start, pause, resume, previous, next, seek, jump, end_hold and end\n(to standby). An action the status doesn't list in `actions` is refused with a 409.",
         "operationId": "cinefin_api_ninja_views_playout_ninja_control_playout",
         "parameters": [],
         "requestBody": {
@@ -19018,7 +19060,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ControlPlayoutResponseSchema"
+                  "$ref": "#/components/schemas/PlayoutStatusResponseSchema"
                 }
               }
             },
@@ -19034,6 +19076,16 @@
             },
             "description": "Bad Request"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -19043,16 +19095,6 @@
               }
             },
             "description": "Unprocessable Content"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -19126,54 +19168,6 @@
           }
         ],
         "summary": "Get Host Config",
-        "tags": [
-          "Playout"
-        ]
-      }
-    },
-    "/api/v2/playout/host/idle-media": {
-      "put": {
-        "description": "Push only the idle-screen media (the cinema ident).",
-        "operationId": "cinefin_api_ninja_views_playout_ninja_put_host_idle_media",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IdleMediaInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HostConfigResponse"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Put Host Idle Media",
         "tags": [
           "Playout"
         ]
@@ -19707,8 +19701,203 @@
         ]
       }
     },
+    "/api/v2/playout/hosts/{host_id}/restart": {
+      "post": {
+        "description": "Restart one player's mpv, so a changed launch config applies.",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_restart_host",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Restart Host",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/hosts/{host_id}/testcard": {
+      "post": {
+        "description": "Show or hide the player's test card: its name, output and speaker boxes, over standby.",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_host_test_card",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestCardInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestCardResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Host Test Card",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/hosts/{host_id}/testsound": {
+      "post": {
+        "description": "Play the player's test sound, left then right. 409 while one plays or when the player is not on standby.",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_host_test_sound",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_id",
+            "required": true,
+            "schema": {
+              "title": "Host Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestSoundResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Host Test Sound",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
     "/api/v2/playout/load": {
       "post": {
+        "description": "Cue a programme. Refused (409) while one is on air: end it first.",
         "operationId": "cinefin_api_ninja_views_playout_ninja_load_programme",
         "parameters": [],
         "requestBody": {
@@ -19751,6 +19940,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -19948,26 +20147,9 @@
     },
     "/api/v2/playout/playlist": {
       "get": {
-        "description": "GET: current playlist. POST: jump to playlist item.",
-        "operationId": "playout_get_playlist",
+        "description": "The player's playlist, programme items filled in from the database (jump with /control).",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_get_playlist",
         "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/JumpPlaylistSchema"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            }
-          },
-          "required": false
-        },
         "responses": {
           "200": {
             "content": {
@@ -19995,80 +20177,7 @@
             "SessionAuthWhenEnabled": []
           }
         ],
-        "summary": "Control Playlist",
-        "tags": [
-          "Playout"
-        ]
-      },
-      "post": {
-        "description": "GET: current playlist. POST: jump to playlist item.",
-        "operationId": "playout_jump_playlist",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/JumpPlaylistSchema"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              }
-            }
-          },
-          "required": false
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JumpPlayoutPlaylistResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Control Playlist",
+        "summary": "Get Playlist",
         "tags": [
           "Playout"
         ]
@@ -20076,7 +20185,7 @@
     },
     "/api/v2/playout/reset": {
       "post": {
-        "description": "Return the player to its idle state: clear any loaded programme and show the paused ident.",
+        "description": "Clear any loaded programme or manual queue and put the player on standby.",
         "operationId": "cinefin_api_ninja_views_playout_ninja_reset_playout",
         "parameters": [],
         "responses": {
@@ -20112,120 +20221,9 @@
         ]
       }
     },
-    "/api/v2/playout/run": {
-      "get": {
-        "operationId": "playout_run_programme_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunProgrammeResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Run Programme",
-        "tags": [
-          "Playout"
-        ]
-      },
-      "post": {
-        "operationId": "playout_run_programme",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunProgrammeResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Run Programme",
-        "tags": [
-          "Playout"
-        ]
-      }
-    },
     "/api/v2/playout/status": {
       "get": {
+        "description": "The playout status (also pushed on the WebSocket's \"playout\" channel).",
         "operationId": "cinefin_api_ninja_views_playout_ninja_get_playout_status",
         "parameters": [],
         "responses": {
@@ -20238,26 +20236,6 @@
               }
             },
             "description": "OK"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -20266,53 +20244,6 @@
           }
         ],
         "summary": "Get Playout Status",
-        "tags": [
-          "Playout"
-        ]
-      }
-    },
-    "/api/v2/playout/stop": {
-      "post": {
-        "operationId": "cinefin_api_ninja_views_playout_ninja_stop_playout",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StopPlayoutSchema"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StopPlayoutResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Stop Playout",
         "tags": [
           "Playout"
         ]
@@ -22270,6 +22201,54 @@
         ]
       }
     },
+    "/api/v2/settings/preview-standby/": {
+      "post": {
+        "description": "Put the player on standby with the saved ident, to see it. Refused while\na programme or a manual queue is loaded, since standby would end it.",
+        "operationId": "cinefin_api_ninja_views_settings_ninja_preview_standby",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponseSchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Preview Standby",
+        "tags": [
+          "Settings"
+        ]
+      }
+    },
     "/api/v2/settings/reset/": {
       "post": {
         "operationId": "cinefin_api_ninja_views_settings_ninja_reset_settings",
@@ -22302,74 +22281,6 @@
           }
         ],
         "summary": "Reset Settings",
-        "tags": [
-          "Settings"
-        ]
-      }
-    },
-    "/api/v2/settings/test-ident/": {
-      "post": {
-        "description": "Play the ident \u2014 the chosen user media item, or the bundled System Ident when no bumper_id is given.",
-        "operationId": "cinefin_api_ninja_views_settings_ninja_test_ident",
-        "parameters": [],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TestIdentSchema"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MessageResponseSchema"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Unprocessable Content"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseSchema"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Test Ident",
         "tags": [
           "Settings"
         ]

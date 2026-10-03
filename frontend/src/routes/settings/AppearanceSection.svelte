@@ -7,7 +7,7 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 	import { display } from '$lib/display.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 

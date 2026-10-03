@@ -224,6 +224,12 @@ class Bumper(VideoContent):
     mime_type = models.CharField(max_length=100, blank=True, help_text="MIME type of the file")
     upload_date = models.DateTimeField(null=True, blank=True, help_text="Date when file was uploaded")
     screenshot = models.CharField(max_length=500, blank=True, help_text="Path to screenshot image file")
+    hold_point = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="As the ident: where standby freezes, in seconds (empty = its last frame)",
+    )
 
     def get_stream_url(self):
         from cinefin.api.utils.stream_token import make_stream_token

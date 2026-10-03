@@ -1253,7 +1253,7 @@ export interface paths {
         put?: never;
         /**
          * Agent Start Mpv
-         * @description Start MPV via the playout agent (pushes the current launch config).
+         * @description Start MPV via the playout agent (it comes up on standby).
          */
         post: operations["cinefin_api_ninja_views_playout_ninja_agent_start_mpv"];
         delete?: never;
@@ -1311,7 +1311,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Control Playout */
+        /**
+         * Control Playout
+         * @description Every transport button: start, pause, resume, previous, next, seek, jump, end_hold and end
+         *     (to standby). An action the status doesn't list in `actions` is refused with a 409.
+         */
         post: operations["cinefin_api_ninja_views_playout_ninja_control_playout"];
         delete?: never;
         options?: never;
@@ -1349,26 +1353,6 @@ export interface paths {
         /** Get Host Config */
         get: operations["cinefin_api_ninja_views_playout_ninja_get_host_config"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/playout/host/idle-media": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Put Host Idle Media
-         * @description Push only the idle-screen media (the cinema ident).
-         */
-        put: operations["cinefin_api_ninja_views_playout_ninja_put_host_idle_media"];
         post?: never;
         delete?: never;
         options?: never;
@@ -1510,6 +1494,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/playout/hosts/{host_id}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart Host
+         * @description Restart one player's mpv, so a changed launch config applies.
+         */
+        post: operations["cinefin_api_ninja_views_playout_ninja_restart_host"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/playout/hosts/{host_id}/testcard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Host Test Card
+         * @description Show or hide the player's test card: its name, output and speaker boxes, over standby.
+         */
+        post: operations["cinefin_api_ninja_views_playout_ninja_host_test_card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/playout/hosts/{host_id}/testsound": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Host Test Sound
+         * @description Play the player's test sound, left then right. 409 while one plays or when the player is not on standby.
+         */
+        post: operations["cinefin_api_ninja_views_playout_ninja_host_test_sound"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/playout/load": {
         parameters: {
             query?: never;
@@ -1519,7 +1563,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Load Programme */
+        /**
+         * Load Programme
+         * @description Cue a programme. Refused (409) while one is on air: end it first.
+         */
         post: operations["cinefin_api_ninja_views_playout_ninja_load_programme"];
         delete?: never;
         options?: never;
@@ -1589,16 +1636,12 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Control Playlist
-         * @description GET: current playlist. POST: jump to playlist item.
+         * Get Playlist
+         * @description The player's playlist, programme items filled in from the database (jump with /control).
          */
-        get: operations["playout_get_playlist"];
+        get: operations["cinefin_api_ninja_views_playout_ninja_get_playlist"];
         put?: never;
-        /**
-         * Control Playlist
-         * @description GET: current playlist. POST: jump to playlist item.
-         */
-        post: operations["playout_jump_playlist"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1616,27 +1659,9 @@ export interface paths {
         put?: never;
         /**
          * Reset Playout
-         * @description Return the player to its idle state: clear any loaded programme and show the paused ident.
+         * @description Clear any loaded programme or manual queue and put the player on standby.
          */
         post: operations["cinefin_api_ninja_views_playout_ninja_reset_playout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/playout/run": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Run Programme */
-        get: operations["playout_run_programme_get"];
-        put?: never;
-        /** Run Programme */
-        post: operations["playout_run_programme"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1650,27 +1675,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Playout Status */
+        /**
+         * Get Playout Status
+         * @description The playout status (also pushed on the WebSocket's "playout" channel).
+         */
         get: operations["cinefin_api_ninja_views_playout_ninja_get_playout_status"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/playout/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Stop Playout */
-        post: operations["cinefin_api_ninja_views_playout_ninja_stop_playout"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2171,6 +2182,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/settings/preview-standby/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Standby
+         * @description Put the player on standby with the saved ident, to see it. Refused while
+         *     a programme or a manual queue is loaded, since standby would end it.
+         */
+        post: operations["cinefin_api_ninja_views_settings_ninja_preview_standby"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/settings/reset/": {
         parameters: {
             query?: never;
@@ -2182,26 +2214,6 @@ export interface paths {
         put?: never;
         /** Reset Settings */
         post: operations["cinefin_api_ninja_views_settings_ninja_reset_settings"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/settings/test-ident/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test Ident
-         * @description Play the ident — the chosen user media item, or the bundled System Ident when no bumper_id is given.
-         */
-        post: operations["cinefin_api_ninja_views_settings_ninja_test_ident"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3636,6 +3648,11 @@ export interface components {
              * @description MPV uptime in seconds
              */
             uptime_seconds?: number | null;
+            /**
+             * Warning
+             * @description A player problem to show: a local mpv too old, or a standby ident download failure
+             */
+            warning?: string | null;
         };
         /** AgentStatusResponseSchema */
         AgentStatusResponseSchema: {
@@ -4026,6 +4043,11 @@ export interface components {
              */
             duration: number;
             /**
+             * Hold Point
+             * @description As the ident: where standby freezes (null = last frame)
+             */
+            hold_point?: number | null;
+            /**
              * Id
              * @description Bumper unique identifier
              */
@@ -4400,50 +4422,29 @@ export interface components {
              */
             start_sync: boolean;
         };
-        /** ControlPlayoutDataSchema */
-        ControlPlayoutDataSchema: {
-            /**
-             * Action
-             * @description Action that was performed
-             */
-            action: string;
-            /**
-             * Status
-             * @description Current playback status
-             */
-            status: {
-                [key: string]: unknown;
-            };
-        };
-        /** ControlPlayoutResponseSchema */
-        ControlPlayoutResponseSchema: {
-            /** @description Control action result */
-            data: components["schemas"]["ControlPlayoutDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
         /** ControlPlayoutSchema */
         ControlPlayoutSchema: {
             /**
              * Action
-             * @description Playback control action
+             * @description A transport action; it must be in the status's actions (else 409)
              * @enum {string}
              */
-            action: "play" | "pause" | "toggle" | "next" | "previous" | "seek";
+            action: "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end";
             /**
-             * Position
-             * @description Seek position in seconds (required for seek action)
+             * Index
+             * @description jump: to this player playlist index
              */
-            position?: number | null;
+            index?: number | null;
+            /**
+             * Offset
+             * @description seek: by this many seconds (negative is back)
+             */
+            offset?: number | null;
+            /**
+             * Seconds
+             * @description seek: to this many seconds into the item on screen
+             */
+            seconds?: number | null;
         };
         /** CreateAPIKeyInput */
         CreateAPIKeyInput: {
@@ -4753,36 +4754,6 @@ export interface components {
              * @description Display prefix, e.g. cplx_a1b2c3d4 (never the full key)
              */
             prefix: string;
-        };
-        /** CurrentItemSchema */
-        CurrentItemSchema: {
-            /**
-             * Details
-             * @description Type-specific item details
-             */
-            details: {
-                [key: string]: unknown;
-            };
-            /**
-             * File
-             * @description File path of current item
-             */
-            file: string;
-            /**
-             * Position
-             * @description Position in programme playlist
-             */
-            position: number;
-            /**
-             * Title
-             * @description Title of current item
-             */
-            title?: string | null;
-            /**
-             * Type
-             * @description Type of current item (movie, trailer, etc.)
-             */
-            type: string;
         };
         /** CustomTicketRequestSchema */
         CustomTicketRequestSchema: {
@@ -5376,12 +5347,6 @@ export interface components {
              */
             hwdec: string;
             /**
-             * Idle Media
-             * @description Cinefin-owned: the System Ident stream URL
-             * @default
-             */
-            idle_media: string;
-            /**
              * Mode
              * @description "desktop" (X/Wayland session) or "drm" (headless KMS)
              * @default desktop
@@ -5500,14 +5465,6 @@ export interface components {
              */
             w: number;
         };
-        /** IdleMediaInput */
-        IdleMediaInput: {
-            /**
-             * Idle Media
-             * @default
-             */
-            idle_media: string;
-        };
         /** ImageListResponseSchema */
         ImageListResponseSchema: {
             /** Data */
@@ -5556,54 +5513,35 @@ export interface components {
             /** Width */
             width?: number | null;
         };
-        /** JumpPlaylistDataSchema */
-        JumpPlaylistDataSchema: {
+        /** ItemSchema */
+        ItemSchema: {
             /**
-             * Index
-             * @description MPV playlist index jumped to
+             * Details
+             * @description content_id and per-type metadata
              */
-            index: number;
-            /**
-             * Item
-             * @description Information about jumped-to item
-             */
-            item: {
+            details?: {
                 [key: string]: unknown;
             };
             /**
-             * Programme Position
-             * @description Programme position (if applicable)
+             * Duration
+             * @description Length in seconds, when known
              */
-            programme_position?: number | null;
-        };
-        /** JumpPlaylistSchema */
-        JumpPlaylistSchema: {
+            duration?: number | null;
             /**
-             * Index
-             * @description MPV playlist index to jump to
+             * Position
+             * @description Programme position; -1 for the title card
              */
-            index?: number | null;
+            position: number;
             /**
-             * Programme Position
-             * @description Programme position to jump to (will be converted to MPV index)
+             * Title
+             * @description Display title
              */
-            programme_position?: number | null;
-        };
-        /** JumpPlayoutPlaylistResponseSchema */
-        JumpPlayoutPlaylistResponseSchema: {
-            /** @description Playlist jump result */
-            data: components["schemas"]["JumpPlaylistDataSchema"];
+            title?: string | null;
             /**
-             * Message
-             * @description Human-readable message about the operation
+             * Type
+             * @description Item type (movie, trailer, title, ...)
              */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
+            type: string;
         };
         /** KioskCinemaSchema */
         KioskCinemaSchema: {
@@ -5982,26 +5920,52 @@ export interface components {
         MPVPlaylistItemSchema: {
             /**
              * Current
-             * @description Whether this is the currently playing item
+             * @description Whether this is the current item
              */
             current: boolean;
             /**
-             * Filename
-             * @description Filename/path of the media
+             * Details
+             * @description Additional item details and metadata
              */
-            filename: string;
+            details?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Duration
+             * @description Item duration in seconds
+             */
+            duration?: number | null;
+            /**
+             * File
+             * @description File path
+             */
+            file: string;
             /**
              * Index
-             * @description Playlist item index
+             * @description Index in MPV playlist
              */
             index: number;
             /**
-             * Title
-             * @description Display title of the media
+             * Programme Position
+             * @description Position in programme (excluding pre-show)
              */
-            title?: string | null;
+            programme_position?: number | null;
+            /**
+             * Title
+             * @description Item title
+             */
+            title: string;
+            /**
+             * Type
+             * @description Item type
+             */
+            type: string;
         };
-        /** MPVStatusDataSchema */
+        /**
+         * MPVStatusDataSchema
+         * @description Raw player settings the programme status doesn't carry (what plays, and whether it is
+         *     paused, is GET /playout/status).
+         */
         MPVStatusDataSchema: {
             /** @description Audio technical information */
             audio?: components["schemas"]["AudioTechInfoSchema"] | null;
@@ -6010,25 +5974,7 @@ export interface components {
              * @description Whether MPV is connected
              */
             connected: boolean;
-            /**
-             * Executing Command
-             * @description True while a hold-black command item is holding the screen
-             * @default false
-             */
-            executing_command: boolean;
-            /**
-             * Playlist
-             * @description Current playlist items
-             */
-            playlist: components["schemas"]["MPVPlaylistItemSchema"][];
-            /**
-             * Playlist Pos
-             * @description Current playlist position
-             */
-            playlist_pos?: number | null;
-            /** @description Currently running programme info */
-            programme?: components["schemas"]["ProgrammeInfoSchema"] | null;
-            /** @description MPV playback status */
+            /** @description Volume, mute, speed and fullscreen */
             status?: components["schemas"]["MPVStatusSchema"] | null;
             /** @description Available media tracks */
             tracks: components["schemas"]["TracksInfoSchema"];
@@ -6054,16 +6000,6 @@ export interface components {
         /** MPVStatusSchema */
         MPVStatusSchema: {
             /**
-             * Duration
-             * @description Total duration in seconds
-             */
-            duration?: number | null;
-            /**
-             * Filename
-             * @description Currently playing filename
-             */
-            filename?: string | null;
-            /**
              * Fullscreen
              * @description Whether MPV is in fullscreen mode
              */
@@ -6074,25 +6010,15 @@ export interface components {
              */
             muted?: boolean | null;
             /**
-             * Paused
-             * @description Whether MPV is paused
+             * Panscan
+             * @description mpv panscan: 0 fits the whole picture, 1 zooms to fill the screen (crops wide films)
              */
-            paused: boolean;
-            /**
-             * Playing
-             * @description Whether MPV is currently playing
-             */
-            playing: boolean;
+            panscan?: number | null;
             /**
              * Speed
              * @description Playback speed multiplier
              */
             speed?: number | null;
-            /**
-             * Time
-             * @description Current playback time in seconds
-             */
-            time?: number | null;
             /**
              * Volume
              * @description Current volume level (0-100)
@@ -6295,6 +6221,11 @@ export interface components {
              */
             file_url?: string | null;
             /**
+             * Hold Point
+             * @description As the ident: where standby freezes, in seconds (null = last frame)
+             */
+            hold_point?: number | null;
+            /**
              * Id
              * @description Media ID
              */
@@ -6372,6 +6303,11 @@ export interface components {
              * @description URL to access the file
              */
             file_url?: string | null;
+            /**
+             * Hold Point
+             * @description As the ident: where standby freezes, in seconds (null = last frame)
+             */
+            hold_point?: number | null;
             /**
              * Id
              * @description Media unique identifier
@@ -7013,23 +6949,29 @@ export interface components {
              */
             stream_url: string;
         };
-        /** NextItemSchema */
-        NextItemSchema: {
+        /** NextScreeningSchema */
+        NextScreeningSchema: {
             /**
-             * Duration
-             * @description Duration of the upcoming item in seconds
+             * Cue Time
+             * Format: date-time
+             * @description When its lead-in cues it
              */
-            duration?: number | null;
+            cue_time: string;
             /**
-             * Title
-             * @description Title of the upcoming item
+             * Id
+             * @description Schedule ID
              */
-            title?: string | null;
+            id: number;
+            /** Programme Id */
+            programme_id: number;
+            /** Programme Name */
+            programme_name: string;
             /**
-             * Type
-             * @description Type of the upcoming item (movie, trailer, etc.)
+             * Start Time
+             * Format: date-time
+             * @description When the programme plays
              */
-            type: string;
+            start_time: string;
         };
         /** PaginationSchema */
         PaginationSchema: {
@@ -7095,29 +7037,45 @@ export interface components {
         PlaybackStatusSchema: {
             /**
              * Duration
-             * @description Total duration in seconds
+             * @description Length of the item on screen in seconds
              */
             duration: number;
             /**
              * Percentage
-             * @description Playback progress percentage
+             * @description Progress through the item, 0 to 100
              */
             percentage: number;
             /**
              * Position
-             * @description Current playback position in seconds
+             * @description Seconds into the item on screen (a hold's own clock during a hold)
              */
             position: number;
             /**
              * Remaining
-             * @description Remaining time in seconds
+             * @description Seconds left in the item
              */
             remaining: number;
+        };
+        /**
+         * PlayerSchema
+         * @description The active player. Never its address, token or socket path: this status is public to
+         *     kiosks (GET /playout/status and the WebSocket), and the address is in GET /playout/hosts.
+         */
+        PlayerSchema: {
+            /** Id */
+            id: number;
             /**
-             * State
-             * @description Playback state (playing, paused, stopped)
+             * Kind
+             * @description 'agent' or 'local_socket'
              */
-            state: string;
+            kind: string;
+            /** Name */
+            name: string;
+            /**
+             * Show Status
+             * @description Whether the player shows its status line over standby
+             */
+            show_status: boolean;
         };
         /** PlaylistControlSchema */
         PlaylistControlSchema: {
@@ -7283,44 +7241,37 @@ export interface components {
         PlaylistStatusSchema: {
             /**
              * Current Position
-             * @description Current position in programme playlist
+             * @description Programme position on screen (None before the first item)
              */
             current_position?: number | null;
             /**
-             * Mpv Info
-             * @description MPV-specific playlist information
+             * Mpv Position
+             * @description The player's playlist index
              */
-            mpv_info: {
-                [key: string]: unknown;
-            };
+            mpv_position?: number | null;
+            /**
+             * Offset
+             * @description Player index of programme item 0 (1, or 2 with a title card)
+             */
+            offset: number;
             /**
              * Programme Elapsed Time
-             * @description Elapsed time across entire programme in seconds
+             * @description Seconds of the programme played
              */
             programme_elapsed_time: number;
             /**
              * Programme Remaining Time
-             * @description Remaining time in entire programme in seconds
+             * @description Seconds of the programme left
              */
             programme_remaining_time: number;
             /**
-             * Programme Time Percentage
-             * @description Programme progress as time-based percentage
-             */
-            programme_time_percentage: number;
-            /**
              * Programme Total Duration
-             * @description Total duration of entire programme in seconds
+             * @description Length of the whole programme in seconds
              */
             programme_total_duration: number;
             /**
-             * Progress Percentage
-             * @description Programme progress percentage
-             */
-            progress_percentage: number;
-            /**
              * Total Items
-             * @description Total items in playlist
+             * @description Items in the running order (the end sentinel not counted)
              */
             total_items: number;
         };
@@ -7339,6 +7290,11 @@ export interface components {
             kind?: string | null;
             /** Name */
             name?: string | null;
+            /**
+             * Show Status
+             * @description Whether the player shows its status over standby
+             */
+            show_status?: boolean | null;
             /** Socket Path */
             socket_path?: string | null;
         };
@@ -7415,10 +7371,28 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Needs Pairing Again
+             * @description An agent paired before pairing codes (a token but no agent id): remove it and pair again
+             * @default false
+             */
+            needs_pairing_again: boolean;
+            /**
+             * Needs Update
+             * @description The agent is older than this Cinefin needs (recorded on pairing and refresh)
+             * @default false
+             */
+            needs_update: boolean;
+            /**
              * Os
              * @default
              */
             os: string;
+            /**
+             * Show Status
+             * @description Whether the player shows its status over standby
+             * @default true
+             */
+            show_status: boolean;
             /**
              * Socket Path
              * @default
@@ -7443,28 +7417,49 @@ export interface components {
         };
         /** PlayoutStatusDataSchema */
         PlayoutStatusDataSchema: {
-            /** @description Currently playing item */
-            current_item?: components["schemas"]["CurrentItemSchema"] | null;
             /**
-             * Executing Command
-             * @description True while a hold-black command item is holding the screen
-             * @default false
+             * Actions
+             * @description The actions allowed now
              */
-            executing_command: boolean;
+            actions?: ("cue" | "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end")[];
+            /** @description The item on screen (the title card in the pre-show) */
+            current_item?: components["schemas"]["ItemSchema"] | null;
+            /**
+             * Label
+             * @description One line for the phase, e.g. 'Cued · Friday Night: Alien'
+             * @default
+             */
+            label: string;
             /** @description The manual queue, while one plays */
             manual?: components["schemas"]["ManualQueueSchema"] | null;
-            /** @description The upcoming playlist item (the readout's 'Next ·' foot) */
-            next_item?: components["schemas"]["NextItemSchema"] | null;
-            /** @description Playback status */
+            /** @description The item after it */
+            next_item?: components["schemas"]["ItemSchema"] | null;
+            /** @description The next scheduled screening */
+            next_screening?: components["schemas"]["NextScreeningSchema"] | null;
+            /**
+             * Phase
+             * @description What the player is doing, worked out once for every surface
+             * @enum {string}
+             */
+            phase: "offline" | "standby" | "cued" | "preshow" | "playing" | "paused" | "hold" | "manual";
+            /** @description The clock of the item on screen */
             playback?: components["schemas"]["PlaybackStatusSchema"] | null;
-            /** @description Playlist status */
+            /** @description The active player, if one is set up */
+            player?: components["schemas"]["PlayerSchema"] | null;
+            /** @description Where the programme is */
             playlist?: components["schemas"]["PlaylistStatusSchema"] | null;
-            /** @description Current programme information */
+            /** @description The loaded programme */
             programme?: components["schemas"]["ProgrammeInfoSchema"] | null;
+            /**
+             * Screen
+             * @description What the audience sees, e.g. 'System Ident', 'Title card', 'Alien'
+             * @default
+             */
+            screen: string;
         };
         /** PlayoutStatusResponseSchema */
         PlayoutStatusResponseSchema: {
-            /** @description Comprehensive playout status */
+            /** @description The playout status */
             data: components["schemas"]["PlayoutStatusDataSchema"];
             /**
              * Message
@@ -7953,6 +7948,26 @@ export interface components {
         /** ProgrammeInfoSchema */
         ProgrammeInfoSchema: {
             /**
+             * Block Count
+             * @description Number of blocks in programme
+             */
+            block_count: number;
+            /**
+             * Created At
+             * @description ISO timestamp of programme creation
+             */
+            created_at?: string | null;
+            /**
+             * Description
+             * @description Programme description
+             */
+            description: string;
+            /**
+             * Features
+             * @description The programme's feature films, in running order
+             */
+            features?: components["schemas"]["ProgrammeFeatureSchema"][];
+            /**
              * Id
              * @description Programme ID
              */
@@ -7963,10 +7978,15 @@ export interface components {
              */
             name: string;
             /**
-             * Running
-             * @description Whether the programme is currently running
+             * Runtime Formatted
+             * @description Formatted runtime string
              */
-            running: boolean;
+            runtime_formatted: string;
+            /**
+             * Runtime Minutes
+             * @description Total runtime in minutes
+             */
+            runtime_minutes: number;
         };
         /** ProgrammeItemDetailSchema */
         ProgrammeItemDetailSchema: {
@@ -8464,44 +8484,6 @@ export interface components {
              */
             success: boolean;
         };
-        /** RunProgrammeDataSchema */
-        RunProgrammeDataSchema: {
-            /**
-             * Actions
-             * @description Actions performed
-             */
-            actions: string[];
-            /** @description MPV player status */
-            mpv_status: components["schemas"]["MPVStatusSchema"];
-            /**
-             * Programme
-             * @description Programme information
-             */
-            programme: {
-                [key: string]: unknown;
-            };
-            /**
-             * Status
-             * @description Programme status
-             */
-            status: string;
-        };
-        /** RunProgrammeResponseSchema */
-        RunProgrammeResponseSchema: {
-            /** @description Programme run data */
-            data: components["schemas"]["RunProgrammeDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
         /** RunResultDataSchema */
         RunResultDataSchema: {
             /** @description The outcome of this execution */
@@ -8865,7 +8847,7 @@ export interface components {
             default_cinema_ident?: components["schemas"]["CinemaIdentSchema"] | null;
             /**
              * Default Cinema Ident Id
-             * @description Default cinema ident bumper ID
+             * @description Default cinema ident media item ID (null = the System Ident)
              */
             default_cinema_ident_id?: number | null;
             /**
@@ -9175,39 +9157,6 @@ export interface components {
              * @default 0
              */
             wizard_step: number;
-        };
-        /** StopPlayoutDataSchema */
-        StopPlayoutDataSchema: {
-            /**
-             * Actions
-             * @description Actions performed during stop
-             */
-            actions: string[];
-        };
-        /** StopPlayoutResponseSchema */
-        StopPlayoutResponseSchema: {
-            /** @description Stop playout result */
-            data: components["schemas"]["StopPlayoutDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
-        /** StopPlayoutSchema */
-        StopPlayoutSchema: {
-            /**
-             * Reset
-             * @description Whether to reset to default state
-             * @default false
-             */
-            reset: boolean | null;
         };
         /** SubtitleTrackListResponseSchema */
         SubtitleTrackListResponseSchema: {
@@ -9709,6 +9658,40 @@ export interface components {
              */
             number_of_features: number;
         };
+        /** TestCardInput */
+        TestCardInput: {
+            /**
+             * On
+             * @description Show (true) or hide (false) the test card
+             */
+            on: boolean;
+        };
+        /** TestCardResponse */
+        TestCardResponse: {
+            data: components["schemas"]["TestCardSchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** TestCardSchema */
+        TestCardSchema: {
+            /**
+             * Off In S
+             * @description Seconds until the player hides it by itself
+             * @default 0
+             */
+            off_in_s: number;
+            /** On */
+            on: boolean;
+        };
         /**
          * TestCommandSchema
          * @description Schema for testing a command configuration without saving it.
@@ -9727,14 +9710,6 @@ export interface components {
              * @default rest
              */
             provider: string;
-        };
-        /** TestIdentSchema */
-        TestIdentSchema: {
-            /**
-             * Bumper Id
-             * @description User media item to test as the ident; omit to test the bundled System Ident
-             */
-            bumper_id?: number | null;
         };
         /** TestInput */
         TestInput: {
@@ -9759,6 +9734,56 @@ export interface components {
              * @default true
              */
             success: boolean;
+        };
+        /** TestSoundResponse */
+        TestSoundResponse: {
+            data: components["schemas"]["TestSoundSchema"];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** TestSoundSchema */
+        TestSoundSchema: {
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /**
+             * Frequency Hz
+             * @default 0
+             */
+            frequency_hz: number;
+            /**
+             * Playing
+             * @default true
+             */
+            playing: boolean;
+            /**
+             * Sequence
+             * @description Which side sounds when
+             */
+            sequence?: components["schemas"]["TestSoundStepSchema"][];
+        };
+        /** TestSoundStepSchema */
+        TestSoundStepSchema: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "left" | "right";
+            /** Duration Ms */
+            duration_ms: number;
+            /** Start Ms */
+            start_ms: number;
         };
         /** TestTicketRequestSchema */
         TestTicketRequestSchema: {
@@ -10523,6 +10548,11 @@ export interface components {
              */
             audio_format?: string | null;
             /**
+             * Hold Point
+             * @description As the ident: where standby freezes, in seconds; send null for its last frame
+             */
+            hold_point?: number | null;
+            /**
              * Tag Names
              * @description Updated list of tag names
              */
@@ -10627,7 +10657,7 @@ export interface components {
             cinema_name?: string | null;
             /**
              * Default Cinema Ident
-             * @description Default cinema ident bumper ID
+             * @description Default cinema ident media item ID; an explicit null selects the System Ident
              */
             default_cinema_ident?: number | null;
             /**
@@ -14175,7 +14205,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ControlPlayoutResponseSchema"];
+                    "application/json": components["schemas"]["PlayoutStatusResponseSchema"];
                 };
             };
             /** @description Bad Request */
@@ -14187,8 +14217,8 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseSchema"];
                 };
             };
-            /** @description Unprocessable Content */
-            422: {
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14196,8 +14226,8 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponseSchema"];
                 };
             };
-            /** @description Internal Server Error */
-            500: {
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14235,39 +14265,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HostConfigResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_playout_ninja_put_host_idle_media: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["IdleMediaInput"];
-            };
-        };
         responses: {
             /** @description OK */
             200: {
@@ -14654,6 +14651,139 @@ export interface operations {
             };
         };
     };
+    cinefin_api_ninja_views_playout_ninja_restart_host: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponseSchema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_host_test_card: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestCardInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCardResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_host_test_sound: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                host_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestSoundResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
     cinefin_api_ninja_views_playout_ninja_load_programme: {
         parameters: {
             query?: never;
@@ -14687,6 +14817,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14822,18 +14961,14 @@ export interface operations {
             };
         };
     };
-    playout_get_playlist: {
+    cinefin_api_ninja_views_playout_ninja_get_playlist: {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["JumpPlaylistSchema"] | null;
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description OK */
             200: {
@@ -14842,57 +14977,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlayoutPlaylistResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    playout_jump_playlist: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["JumpPlaylistSchema"] | null;
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JumpPlayoutPlaylistResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
                 };
             };
             /** @description Internal Server Error */
@@ -14935,100 +15019,6 @@ export interface operations {
             };
         };
     };
-    playout_run_programme_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunProgrammeResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    playout_run_programme: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RunProgrammeResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_playout_ninja_get_playout_status: {
         parameters: {
             query?: never;
@@ -15045,57 +15035,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlayoutStatusResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_playout_ninja_stop_playout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StopPlayoutSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StopPlayoutResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
                 };
             };
         };
@@ -16437,7 +16376,7 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_settings_ninja_reset_settings: {
+    cinefin_api_ninja_views_settings_ninja_preview_standby: {
         parameters: {
             query?: never;
             header?: never;
@@ -16455,41 +16394,8 @@ export interface operations {
                     "application/json": components["schemas"]["MessageResponseSchema"];
                 };
             };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_settings_ninja_test_ident: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TestIdentSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16504,6 +16410,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_settings_ninja_reset_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageResponseSchema"];
                 };
             };
             /** @description Internal Server Error */

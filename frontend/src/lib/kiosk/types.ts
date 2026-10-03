@@ -1,5 +1,5 @@
 import type { components } from '$lib/api/types.gen';
-import type { PlayoutStatus } from '$lib/api/refinements';
+import type { Phase } from '$lib/playout/phase';
 
 export type KioskFilm = components['schemas']['KioskFilmSchema'];
 export type KioskScreening = components['schemas']['KioskScreeningSchema'];
@@ -9,30 +9,9 @@ export type KioskDisplayData = components['schemas']['KioskDisplayDataSchema'];
 
 export type KioskFilmish = Partial<KioskFilm>;
 
-export interface KioskPlayoutFeature {
-	id: number;
-	title: string;
-	year?: number | null;
-	certification?: string | null;
-	runtime_minutes?: number | null;
-	thumbnail_url?: string | null;
-}
-
-export interface KioskPlayoutStatus extends PlayoutStatus {
-	programme:
-		(NonNullable<PlayoutStatus['programme']> & { features?: KioskPlayoutFeature[] }) | null;
-	playlist?:
-		| (NonNullable<PlayoutStatus['playlist']> & {
-				programme_total_duration?: number;
-				programme_elapsed_time?: number;
-				programme_remaining_time?: number;
-		  })
-		| null;
-}
-
 export interface KioskPlayout {
 	programmeName: string;
-	programmeState: string;
+	phase: Phase;
 	paused: boolean;
 	features: KioskFilmish[];
 	programmeDuration: number;

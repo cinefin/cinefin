@@ -4,6 +4,7 @@
 	// Library, beside a rail of quick actions (data in lib/dashboard/data.svelte.ts).
 	import { base } from '$app/paths';
 	import { MonitorPlay, Settings } from '@lucide/svelte';
+	import { lamp } from '$lib/playout/phase';
 	import { playout } from '$lib/stores/playout.svelte';
 	import { playoutReach } from '$lib/stores/playoutReach.svelte';
 	import { dayLabel, formatClock, formatRuntime, formatTime } from '$lib/format';
@@ -26,7 +27,6 @@
 		SCHEDULE_BADGE,
 		isToday,
 		itemProgress,
-		playoutBadge,
 		untilLabel
 	} from '$lib/dashboard/data.svelte';
 
@@ -37,7 +37,7 @@
 	$effect(() => playoutReach.subscribe());
 
 	const prog = $derived(playout.status?.programme ?? null);
-	const badge = $derived(playoutBadge(prog?.state));
+	const badge = $derived(lamp(playout.status));
 	const pb = $derived(playout.status?.playback ?? null);
 	const progressPct = $derived(itemProgress(pb));
 
@@ -214,12 +214,12 @@
 									<TypeBadge type={playout.status.current_item.type} short />
 								{/if}
 								<span class="min-w-0 truncate">
-									{playout.status?.current_item?.title || playout.status?.current_item?.name || '-'}
+									{playout.status?.current_item?.title || playout.status?.screen || '-'}
 								</span>
 								<span class="ml-auto shrink-0 font-mono text-xs text-faint">
-									{#if playout.status?.playlist?.total_items}
-										item {(playout.status.playlist.current_position ?? 0) + 1} of {playout.status
-											.playlist.total_items}
+									{#if playout.status?.playlist?.current_position != null}
+										item {playout.status.playlist.current_position + 1} of {playout.status.playlist
+											.total_items}
 									{/if}
 									{#if endsAt}· ends {formatClock(endsAt)}{/if}
 								</span>
@@ -237,8 +237,13 @@
 					{:else}
 						<MonitorPlay size={20} class="shrink-0 text-faint" />
 						<div class="min-w-0 flex-1 border-border sm:border-l sm:pl-6">
-							<p class="font-display text-3xl">Nothing cued</p>
-							<p class="mt-1 text-sm text-muted">The player is idle — no programme is loaded.</p>
+							{#if playout.status?.phase === 'offline'}
+								<p class="font-display text-3xl">Player offline</p>
+								<p class="mt-1 text-sm text-muted">{playout.status.label}.</p>
+							{:else}
+								<p class="font-display text-3xl">Nothing cued</p>
+								<p class="mt-1 text-sm text-muted">The player is on standby.</p>
+							{/if}
 						</div>
 						<div class="flex w-full shrink-0 gap-2 sm:w-auto sm:flex-col">
 							<Button href="{base}/programmes" size="sm">Cue a programme</Button>

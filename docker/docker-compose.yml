@@ -17,9 +17,8 @@ services:
         CINEFIN_COMMIT: "${CINEFIN_COMMIT:-unknown}"
         CINEFIN_CHANNEL: "${CINEFIN_CHANNEL:-dev}"
     image: cinefin:latest
-    # uvicorn (ASGI) so the real-time WebSocket works. ONE process only — the MPV
-    # service is a per-process singleton (never add --workers).
-    command: uvicorn cinefin.asgi:application --host 0.0.0.0 --port 8000
+    # The image runs `cinefin serve`: migrate, then one uvicorn process (the MPV
+    # service is a per-process singleton, so never run more than one).
     ports:
       - "8000:8000"
     environment:

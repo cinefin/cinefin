@@ -10,6 +10,7 @@ import { replaceState } from '$app/navigation';
 import { api, unwrap } from '$lib/api/client';
 import { onInvalidate } from '$lib/invalidate';
 import { realtime, type RealtimeMessage } from '$lib/realtime.svelte';
+import { started, type PlayoutStatus } from '$lib/playout/phase';
 import { countdownClockText, fmtClock, isRunning, setClockFormat } from './time';
 import type {
 	KioskCinema,
@@ -18,7 +19,6 @@ import type {
 	KioskFilmish,
 	KioskMode,
 	KioskPlayout,
-	KioskPlayoutStatus,
 	KioskPrefs,
 	KioskScreening,
 	KioskSettings
@@ -155,9 +155,7 @@ export class KioskController {
 	// Programme-level on purpose: item changes must NOT crossfade the takeover; only a state flip / pause / new bill does.
 	playoutKey = $derived.by((): string => {
 		const p = this.playout;
-		return p
-			? `${p.programmeName}:${p.programmeState}:${p.paused}:${p.features.map((f) => f.id).join(',')}`
-			: '';
+		return p ? `${p.programmeName}:${p.phase}:${p.features.map((f) => f.id).join(',')}` : '';
 	});
 
 	headerClockText = $derived(fmtClock(new Date(this.now)));
@@ -183,8 +181,7 @@ export class KioskController {
 		this.#realtimeStops.push(
 			realtime.subscribe({
 				channel: 'playout',
-				onMessage: (msg: RealtimeMessage) =>
-					this.#adoptPlayoutStatus(msg.data as KioskPlayoutStatus)
+				onMessage: (msg: RealtimeMessage) => this.#adoptPlayoutStatus(msg.data as PlayoutStatus)
 			}),
 			onInvalidate('schedules', () => void this.#pollSchedules()),
 			onInvalidate(['settings', 'movies', 'deploy'], () => void this.#refreshDisplay())
@@ -428,7 +425,7 @@ export class KioskController {
 	/** One-shot fetch of the playout status for the first paint; the socket drives updates after. */
 	async #pollPlayout(): Promise<void> {
 		try {
-			const data = (await unwrap(api.GET('/api/v2/playout/status'))) as KioskPlayoutStatus;
+			const data = await unwrap(api.GET('/api/v2/playout/status'));
 			this.#adoptPlayoutStatus(data);
 		} catch {
 			this.playout = null;
@@ -436,19 +433,18 @@ export class KioskController {
 	}
 
 	/** Normalise the status payload down to what the takeover renders. */
-	#adoptPlayoutStatus(data: KioskPlayoutStatus | null | undefined): void {
+	#adoptPlayoutStatus(data: PlayoutStatus | null | undefined): void {
+		// The takeover shows while a programme has started (the server's phase), paused included.
 		const prog = data?.programme;
-		// "Live" is the programme lifecycle state — playback fields drop out between items, so they only decorate.
-		if (!prog || !['running', 'paused', 'pre_show'].includes(prog.state)) {
+		if (!data || !prog || !started(data)) {
 			this.playout = null;
 			return;
 		}
-		const playback = data!.playback;
-		const playlist = data!.playlist;
+		const playlist = data.playlist;
 		this.playout = {
 			programmeName: prog.name,
-			programmeState: prog.state,
-			paused: prog.state === 'paused' || playback?.state === 'paused',
+			phase: data.phase,
+			paused: data.phase === 'paused',
 			features: (prog.features || []).map((f) => ({
 				id: f.id,
 				title: f.title,
@@ -513,8 +509,7 @@ export class KioskController {
 
 	/** The progress readout — always the programme-wide clock. */
 	playoutEndsText(p: KioskPlayout): string {
-		// Pre-show holds the ident paused, so check it before the paused state.
-		if (p.programmeState === 'pre_show') return 'Starting shortly';
+		if (p.phase === 'preshow') return 'Starting shortly';
 		if (p.paused) return 'Paused';
 		const left =
 			p.programmeDuration > 0

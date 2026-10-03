@@ -12,8 +12,9 @@ pytestmark = pytest.mark.django_db
 def make_service():
     service = MPVService()
     service.controller = MagicMock()
-    service.controller.get_playlist.return_value = [{"filename": "ident"}]
+    service.controller.get_playlist.return_value = [{"filename": "standby"}]
     service._lazy_initialized = True
+    service._on_standby = lambda: True
     return service
 
 
@@ -62,31 +63,33 @@ class TestStreamErrorHandling:
         service.current_playlist = playlist
         service.playlist_offset = 1
         service.programme_state = ProgrammeState.RUNNING
-        service._handle_playlist_item_end = MagicMock()
         return service
 
-    def test_error_reason_advances_and_warns(self, caplog):
+    def _errors(self, caplog):
+        return [r for r in caplog.records if "playback error" in r.message.lower()]
+
+    def test_error_reason_warns_against_the_item(self, caplog):
         service = self._running_service()
         service.controller.get_property.return_value = 1
 
         with caplog.at_level("WARNING"):
             service._handle_file_end({"reason": "error"})
 
-        service._handle_playlist_item_end.assert_called_once()
         assert service.current_programme is not None
-        assert any("playback error" in r.message.lower() for r in caplog.records)
+        assert "/tmp/item-0.mp4" in self._errors(caplog)[0].message
 
-    def test_eof_still_advances(self):
+    def test_eof_is_quiet(self, caplog):
         service = self._running_service()
-        service.controller.get_property.return_value = 1
-        service._handle_file_end({"reason": "eof"})
-        service._handle_playlist_item_end.assert_called_once()
+        with caplog.at_level("WARNING"):
+            service._handle_file_end({"reason": "eof"})
+        assert not self._errors(caplog)
 
-    def test_ignores_events_when_not_running(self):
+    def test_ignores_events_when_not_running(self, caplog):
         service = self._running_service()
         service.programme_state = ProgrammeState.LOADED
-        service._handle_file_end({"reason": "error"})
-        service._handle_playlist_item_end.assert_not_called()
+        with caplog.at_level("WARNING"):
+            service._handle_file_end({"reason": "error"})
+        assert not self._errors(caplog)
 
 
 class TestPlayoutLock:
@@ -112,5 +115,5 @@ class TestPlaylistItemTitles:
 
         assert mpv_service._preshow_title("http://h/stream/title/5/?t=abc") == "Title card"
         assert mpv_service._preshow_title("http://h/stream/system/black/?t=abc") == "Black"
-        assert mpv_service._preshow_title("http://h/stream/bumper/9/?t=abc") == "System Ident"
-        assert mpv_service._preshow_title("http://h/stream/system/ident/?t=abc") == "System Ident"
+        assert mpv_service._preshow_title("http://h/stream/bumper/9/?t=abc") == "Standby"
+        assert mpv_service._preshow_title("/var/lib/cinefin-playout/idents/ab12.mp4") == "Standby"

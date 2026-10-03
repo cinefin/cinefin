@@ -125,7 +125,7 @@ def execute_schedule(schedule):
     if not ProgrammeSchedule.objects.filter(id=schedule.id, status="running").exists():
         logger.info("Schedule %s was removed during its lead-in; not starting", schedule.id)
         return
-    if mpv_service.programme_state not in (ProgrammeState.RUNNING, ProgrammeState.PAUSED):
+    if mpv_service.programme_state != ProgrammeState.RUNNING:
         if not mpv_service.start_programme():
             raise RuntimeError("Failed to start playback")
     mark_programme_played(programme.id)
@@ -158,11 +158,11 @@ def _claim(schedule_id):
 
 
 def _mpv_busy() -> bool:
-    """True while a programme is RUNNING or PAUSED, so a due schedule doesn't seize the player."""
+    """True while a programme has started (playing or paused), so a due schedule doesn't seize the player."""
     try:
         from cinefin.api.mpv_service import ProgrammeState, mpv_service
 
-        return mpv_service.programme_state in (ProgrammeState.RUNNING, ProgrammeState.PAUSED)
+        return mpv_service.programme_state == ProgrammeState.RUNNING
     except Exception:  # noqa: BLE001 - never let a status read break the tick
         return False
 
@@ -181,10 +181,7 @@ def recover_orphans():
     try:
         from cinefin.api.mpv_service import ProgrammeState, mpv_service
 
-        if (
-            mpv_service.programme_state in (ProgrammeState.RUNNING, ProgrammeState.PAUSED)
-            and mpv_service.current_programme
-        ):
+        if mpv_service.programme_state == ProgrammeState.RUNNING and mpv_service.current_programme:
             playing_programme_id = mpv_service.current_programme.id
     except Exception:  # noqa: BLE001 - a status read must never block recovery
         pass

@@ -24,7 +24,7 @@
 	import { itemTypeLabel } from '$lib/item-types';
 	import { type SettingsStore } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
-	import type { PlayoutStatus } from '$lib/api/refinements';
+	import type { PlayoutStatus } from '$lib/playout/phase';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -33,9 +33,10 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
-	import PlayerPairing from '$lib/components/PlayerPairing.svelte';
+	import Banner from '$lib/components/ui/Banner.svelte';
+	import AddPlayerWizard from '$lib/playout/AddPlayerWizard.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 	import HostConfigPanel from './HostConfigPanel.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -47,7 +48,7 @@
 	let { store, confirm }: Props = $props();
 
 	// Players: each paired machine and its own screen and sound. Presentation:
-	// what every player shows (idle ident, subtitles) and where it streams from.
+	// what every player shows (standby, subtitles) and where it streams from.
 	const TABS = [
 		{ id: 'players', label: 'Players' },
 		{ id: 'presentation', label: 'Presentation' }
@@ -61,15 +62,13 @@
 	// Live "what's on the player right now", from the shared playout feed.
 	$effect(() => playout.subscribe());
 	const liveProg = $derived(playout.status?.programme ?? null);
-	const idle = $derived(
-		!liveProg || liveProg.state === 'not_loaded' || liveProg.state === 'stopped'
-	);
+	const idle = $derived(!liveProg);
 	const nowOnPlayer = $derived.by(() => {
-		if (idle) return { label: 'Idle', detail: 'showing the idle ident' };
+		if (idle) return { label: 'Standby', detail: 'showing the ident' };
 		const item = playout.status?.current_item;
 		const detail = item?.title
 			? `${itemTypeLabel(item.type, { short: true })} · ${item.title}`
-			: (liveProg?.state ?? '');
+			: (playout.status?.label ?? '');
 		return { label: liveProg?.name ?? 'On air', detail };
 	});
 
@@ -168,18 +167,18 @@
 
 	// Soft reset: clear any loaded programme and drop back to the paused ident.
 	// Destructive when a show is on air, so it asks first.
-	async function returnToIdent() {
+	async function goToStandby() {
 		if (!idle) {
 			const ok = await confirm(
-				`"${liveProg?.name}" is on the player. Return to the idle ident and clear it?`,
-				{ confirmLabel: 'Return to ident' }
+				`"${liveProg?.name}" is on the player. Go to standby and clear it?`,
+				{ confirmLabel: 'Go to standby' }
 			);
 			if (!ok) return;
 		}
 		mpvBusy = 'reset';
 		try {
 			await mutate(api.POST('/api/v2/playout/reset'));
-			showToast('Player reset to the idle ident', 'success');
+			showToast('The player is on standby', 'success');
 			void playout.refresh();
 		} catch (e) {
 			showToast(e instanceof Error ? e.message : 'Could not reach the player', 'error');
@@ -194,7 +193,7 @@
 		try {
 			const status = await unwrapLoose<PlayoutStatus>(api.GET('/api/v2/playout/status'));
 			const prog = status?.programme;
-			if (prog && prog.state && prog.state !== 'stopped' && prog.state !== 'not_loaded') {
+			if (prog) {
 				const ok = await confirm(
 					`"${prog.name}" is loaded on the current host. Switching hosts will stop it. Switch anyway?`,
 					{ confirmLabel: 'Switch' }
@@ -256,18 +255,48 @@
 		}
 	}
 
-	// The player shown on the right of the Players tab: a host id, or 'add' for
-	// the pairing panel. Defaults to the active host (else the first).
-	let selectedId = $state<number | 'add' | null>(null);
+	// The player shown on the right of the Players tab. Defaults to the active
+	// host (else the first).
+	let selectedId = $state<number | null>(null);
 	const selected = $derived.by(() => {
-		if (selectedId === 'add') return null;
 		const list = hosts.data ?? [];
 		return list.find((h) => h.id === selectedId) ?? activeHost ?? list[0] ?? null;
 	});
-	const addingPlayer = $derived(selectedId === 'add' || !(hosts.data ?? []).length);
 
-	// Adding a playout agent is pairing (PlayerPairing); this dialog edits a
-	// host, or adds a local mpv the operator runs themselves.
+	// Adding a playout agent is the Add a player wizard (also used to pair a
+	// known player again, starting at its Pair step).
+	let wizardOpen = $state(false);
+	let wizardStart = $state<{ base_url: string; name: string } | undefined>();
+
+	function openWizard(start?: { base_url: string; name: string }) {
+		wizardStart = start;
+		wizardOpen = true;
+	}
+
+	async function onWizardFinish(host: { id: number; name: string }) {
+		wizardOpen = false;
+		selectedId = host.id;
+		showToast(`${host.name} is ready`, 'success');
+		await reloadAll();
+	}
+
+	// The status line over standby, per player (pushed to it with its spec).
+	async function setShowStatus(id: number, on: boolean) {
+		try {
+			await unwrap(
+				api.PATCH('/api/v2/playout/hosts/{host_id}', {
+					params: { path: { host_id: id } },
+					body: { show_status: on }
+				})
+			);
+			await hosts.refresh();
+		} catch (e) {
+			showToast(e instanceof Error ? e.message : 'Could not save', 'error');
+			await hosts.refresh();
+		}
+	}
+
+	// This dialog edits a host, or adds a local mpv the operator runs themselves.
 	let hostOpen = $state(false);
 	let editingHostId = $state<number | null>(null);
 	let hKind = $state('local_socket');
@@ -292,12 +321,6 @@
 		hSocket = host?.socket_path ?? '';
 		hostSaveResult = null;
 		hostOpen = true;
-	}
-
-	async function onPaired(host: { id: number; name: string }) {
-		selectedId = host.id;
-		showToast(`Paired with ${host.name}`, 'success');
-		await reloadAll();
 	}
 
 	async function saveHost() {
@@ -344,25 +367,50 @@
 		}
 	}
 
-	let identTesting = $state(false);
+	let standbyPreviewing = $state(false);
 
-	async function playIdentNow() {
-		identTesting = true;
+	// Your own ident freezes on its hold point (a property of the media item,
+	// saved at once, not with the page).
+	const ownIdent = $derived(
+		store.bumpers.find((b) => String(b.id) === store.main.default_cinema_ident) ?? null
+	);
+
+	async function saveHoldPoint(raw: string) {
+		if (!ownIdent) return;
+		const value = raw.trim() === '' ? null : Number(raw);
+		if (value !== null && (!Number.isFinite(value) || value < 0)) {
+			showToast('Enter seconds from the start, or leave it empty for the last frame', 'error');
+			return;
+		}
+		const bumper = ownIdent;
 		try {
-			// No selection means the bundled System Ident — the backend derives it.
-			await mutate(
-				api.POST('/api/v2/settings/test-ident/', {
-					body: store.main.default_cinema_ident
-						? { bumper_id: parseInt(store.main.default_cinema_ident, 10) }
-						: {}
+			await unwrap(
+				api.PUT('/api/v2/media/{media_id}', {
+					params: { path: { media_id: bumper.id } },
+					body: { hold_point: value }
 				})
 			);
-			showToast('Ident playing on the player', 'success');
+			bumper.hold_point = value;
+			showToast(
+				value === null ? 'Standby holds the last frame' : `Standby holds at ${value}s`,
+				'success'
+			);
+		} catch (e) {
+			showToast(e instanceof Error ? e.message : 'Could not save the hold point', 'error');
+		}
+	}
+
+	// Standby plays the saved ident, so an unsaved choice is saved first.
+	async function previewStandby() {
+		standbyPreviewing = true;
+		try {
+			await mutate(api.POST('/api/v2/settings/preview-standby/'));
+			showToast('The player is on standby', 'success');
 			void playout.refresh();
 		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to play ident', 'error');
+			showToast(e instanceof Error ? e.message : 'Could not preview standby', 'error');
 		} finally {
-			identTesting = false;
+			standbyPreviewing = false;
 		}
 	}
 
@@ -413,29 +461,18 @@
 			>
 				{#if !hosts.data?.length}
 					<!-- ── First run: no players yet ──────────────────────────────── -->
-					<section class="max-w-2xl space-y-5">
+					<section class="max-w-2xl space-y-4">
 						<div>
 							<h3 class="text-base font-medium">Add your first player</h3>
 							<p class="mt-1 text-sm text-muted">
-								Cinefin plays through a player: the machine wired to your screen.
+								Cinefin plays through a player: the machine wired to your screen, running
+								<code class="font-mono text-[0.8rem]">cinefin-playout</code>. Its screen shows a
+								pairing code.
 							</p>
 						</div>
-						<div class="flex gap-3">
-							<span class="step">1</span>
-							<div>
-								<p class="text-sm">
-									Run <code class="font-mono text-[0.8rem]">cinefin-playout</code> on that machine.
-								</p>
-								<p class="mt-0.5 text-xs text-muted">Its screen shows a pairing code.</p>
-							</div>
-						</div>
-						<div class="flex gap-3">
-							<span class="step">2</span>
-							<div class="min-w-0 flex-1">
-								<p class="mb-3 text-sm">Choose it and type the code.</p>
-								<PlayerPairing onpaired={onPaired} />
-							</div>
-						</div>
+						<Button variant="primary" onclick={() => openWizard()}>
+							<Plus size={14} /> Add a player
+						</Button>
 						<p class="border-t border-border pt-3 text-xs text-muted">
 							Running mpv yourself?
 							<button
@@ -450,7 +487,7 @@
 						<!-- ── The players ───────────────────────────────────────────── -->
 						<nav aria-label="Players" class="flex flex-col gap-1">
 							{#each hosts.data as h (h.id)}
-								{@const on = selectedId !== 'add' && selected?.id === h.id}
+								{@const on = selected?.id === h.id}
 								<button
 									type="button"
 									aria-current={on ? 'true' : undefined}
@@ -465,43 +502,25 @@
 										<span class="sr-only">{h.is_active ? activeState.label : 'Not in use'}</span>
 									</StatusLamp>
 									<span class="min-w-0 flex-1 truncate">{h.name}</span>
-									{#if h.is_active}<span class="text-[0.7rem] text-success">Active</span>{/if}
+									{#if h.needs_pairing_again}<span class="text-[0.7rem] text-warning"
+											>Pair again</span
+										>{:else if h.needs_update}<span class="text-[0.7rem] text-warning">Update</span
+										>{:else if h.is_active}<span class="text-[0.7rem] text-success">Active</span
+										>{/if}
 								</button>
 							{/each}
 							<div class="my-2 h-px bg-border"></div>
 							<button
 								type="button"
-								aria-current={selectedId === 'add' ? 'true' : undefined}
-								class="flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2
-									{selectedId === 'add' ? 'bg-surface-2 text-text' : 'text-muted'}"
-								onclick={() => (selectedId = 'add')}
+								class="flex items-center gap-2 px-3 py-2 text-left text-sm text-muted hover:bg-surface-2"
+								onclick={() => openWizard()}
 							>
 								<Plus size={14} /> Add a player
 							</button>
 						</nav>
 
 						<div class="min-w-0">
-							{#if addingPlayer}
-								<!-- ── Pairing another player ──────────────────────────────── -->
-								<section class="space-y-4">
-									<div>
-										<h3 class="text-base font-medium">Add a player</h3>
-										<p class="mt-1 text-sm text-muted">
-											Run <code class="font-mono text-[0.8rem]">cinefin-playout</code> on the machine,
-											then choose it and type the code on its screen.
-										</p>
-									</div>
-									<PlayerPairing onpaired={onPaired} />
-									<p class="border-t border-border pt-3 text-xs text-muted">
-										Running mpv yourself?
-										<button
-											type="button"
-											class="underline hover:text-text"
-											onclick={() => openHostDialog(null)}>Add a local mpv</button
-										>
-									</p>
-								</section>
-							{:else if selected}
+							{#if selected}
 								{@const isSocket = selected.kind === 'local_socket'}
 								{@const isActive = selected.is_active}
 								<div class="space-y-5">
@@ -549,6 +568,28 @@
 											{/if}
 										</p>
 
+										{#if selected.needs_pairing_again}
+											<Banner severity="warning" title="Needs pairing again.">
+												This player was paired by an older Cinefin. Pair it again with the code on
+												its screen; its name and settings are kept.
+												{#snippet actions()}
+													<Button
+														size="sm"
+														variant="primary"
+														onclick={() =>
+															openWizard({ base_url: selected.base_url, name: selected.name })}
+													>
+														Pair again
+													</Button>
+												{/snippet}
+											</Banner>
+										{:else if selected.needs_update}
+											<Banner severity="warning" title="Update needed.">
+												This player runs an older cinefin-playout, so it cannot hold standby or show
+												the test card. Update it to the latest release, then refresh its status.
+											</Banner>
+										{/if}
+
 										{#if isActive}
 											<div
 												class="flex flex-wrap items-center gap-1.5 border border-border bg-surface-1 px-3 py-2.5"
@@ -563,10 +604,10 @@
 												<Button
 													size="sm"
 													disabled={mpvBusy !== null}
-													title="Clear any loaded programme and show the paused idle ident"
-													onclick={() => void returnToIdent()}
+													title="Clear any loaded programme and put the player on standby"
+													onclick={() => void goToStandby()}
 												>
-													<RotateCcw size={13} /> Return to ident
+													<RotateCcw size={13} /> Standby
 												</Button>
 												{#if !isSocket && agentStatus?.reachable}
 													{#if agentStatus.mpv_running}
@@ -633,6 +674,19 @@
 										{/if}
 									</section>
 
+									{#if !isSocket}
+										<!-- ── Standby ───────────────────────────────────────────── -->
+										<section class="border border-border bg-surface-1 p-4">
+											<Toggle
+												label="Show the status line on standby"
+												checked={selected.show_status ?? true}
+												hint="The cinema name, this player's name and its connection, over the ident."
+												onchange={(e) =>
+													void setShowStatus(selected.id, (e.target as HTMLInputElement).checked)}
+											/>
+										</section>
+									{/if}
+
 									<!-- ── Remove ────────────────────────────────────────────── -->
 									<section class="flex items-center gap-3 border-t border-border pt-4">
 										<div class="mr-auto">
@@ -668,7 +722,7 @@
 					<div>
 						<h3 class="text-sm font-medium">Idle screen</h3>
 						<p class="mt-0.5 text-xs text-muted">
-							Shown paused when nothing plays, and first in every programme.
+							Standby: played once, then held on screen whenever no programme is playing.
 						</p>
 					</div>
 					<Field
@@ -688,11 +742,37 @@
 									<option value={String(b.id)}>{b.title} ({b.duration}s)</option>
 								{/each}
 							</Select>
-							<Button disabled={identTesting} onclick={playIdentNow}>
-								<MonitorPlay size={14} /> Show on player
+							<Button
+								disabled={standbyPreviewing || store.isDirty('default_cinema_ident')}
+								title={store.isDirty('default_cinema_ident')
+									? 'Save to preview this ident'
+									: undefined}
+								onclick={previewStandby}
+							>
+								<MonitorPlay size={14} /> Preview standby
 							</Button>
 						</div>
 					</Field>
+					{#if ownIdent}
+						{#key ownIdent.id}
+							<Field
+								label="Hold at"
+								forId="set-ident-hold"
+								hint="Seconds into {ownIdent.title} where standby freezes. Empty holds its last frame."
+							>
+								<div class="w-40">
+									<Input
+										id="set-ident-hold"
+										type="number"
+										value={ownIdent.hold_point == null ? '' : String(ownIdent.hold_point)}
+										placeholder="Last frame"
+										class="font-mono"
+										onchange={(e) => void saveHoldPoint((e.target as HTMLInputElement).value)}
+									/>
+								</div>
+							</Field>
+						{/key}
+					{/if}
 				</section>
 
 				<!-- ── Subtitles ─────────────────────────────────────────────────── -->
@@ -874,18 +954,22 @@
 	{/snippet}
 </Dialog>
 
+<Dialog
+	bind:open={wizardOpen}
+	title={wizardStart ? `Pair ${wizardStart.name} again` : 'Add a player'}
+	size="3xl"
+>
+	{#if wizardOpen}
+		<AddPlayerWizard
+			start={wizardStart}
+			onpaired={() => void reloadAll()}
+			onfinish={onWizardFinish}
+			oncancel={() => (wizardOpen = false)}
+		/>
+	{/if}
+</Dialog>
+
 <style>
-	.step {
-		display: flex;
-		flex: none;
-		align-items: center;
-		justify-content: center;
-		width: 1.5rem;
-		height: 1.5rem;
-		border: 1px solid var(--color-border-strong);
-		font: 500 0.75rem var(--font-mono);
-		color: var(--color-muted);
-	}
 	.subtitle-frame {
 		container-type: size;
 	}

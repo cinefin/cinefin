@@ -8,12 +8,13 @@ import time
 
 import pytest
 
-from cinefin.api.models import Bumper, PlaylistCue, PlayoutHost, PlayoutSession, Settings
-from cinefin.api.mpv_service import MPVService, ProgrammeState
+from cinefin.api import mpv_service as mpv_module
+from cinefin.api.models import PlaylistCue, PlayoutHost, PlayoutSession
+from cinefin.api.mpv_service import COVER_OVERLAY_ID, COVER_Z, MPVService, ProgrammeState
 from cinefin.api.services import command_runner
 
 from .factories import CommandFactory, PlaylistFactory, PlaylistItemFactory, ProgrammeFactory
-from .fake_mpv_agent import FakeMPVAgent
+from .fake_mpv_agent import FakeMPVAgent, agent_http
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -37,11 +38,10 @@ def fake():
 
 
 @pytest.fixture
-def service(fake):
+def service(fake, monkeypatch):
     PlayoutHost.objects.all().delete()
     PlayoutHost.objects.create(name="Fake", base_url=f"http://127.0.0.1:{fake.port}", token="tkn", is_active=True)
-    ident = Bumper.objects.create(title="Ident", file_path="/media/ident.mp4")
-    Settings.set("cinema.default_ident_id", ident.id)
+    agent_http(monkeypatch, fake)
 
     svc = MPVService()
     assert svc._ensure_connected(), "service must connect to the fake agent"
@@ -69,36 +69,77 @@ def capture_cues(monkeypatch):
     return fired
 
 
+def assert_aligned(service, fake, playlist):
+    """Entry by entry: every item sits at mpv_index = playlist_offset + order."""
+    for item in playlist.items.order_by("order"):
+        assert fake.playlist[service.playlist_offset + item.order] == item.file
+    assert len(fake.playlist) == service.playlist_offset + playlist.items.count()
+
+
 class TestLoadAndStart:
-    def test_load_streams_ident_then_appends_the_whole_playlist(self, service, fake):
-        programme, _ = build_programme(
+    def test_load_keeps_standby_first_and_appends_the_whole_playlist(self, service, fake):
+        programme, playlist = build_programme(
             [("bumper", "http://d/stream/bumper/1/"), ("movie", "http://d/stream/movie/1/"), ("system", BLACK_URL)]
         )
 
         assert service.load_programme(programme) is True
 
-        assert wait_until(lambda: len(fake.playlist) == 4)
-        assert "/stream/bumper/" in fake.playlist[0]
-        assert fake.playlist[1:] == [
-            "http://d/stream/bumper/1/",
-            "http://d/stream/movie/1/",
-            BLACK_URL,
-        ]
+        # The player was sent its spec and put on standby, which stays as entry 0.
+        assert fake.standby_spec["ident"]["options"] == "ab-loop-a=4,ab-loop-b=34"
+        assert fake.playlist[0] == fake.standby_loaded
         assert service.playlist_offset == 1
+        assert_aligned(service, fake, playlist)
+        assert fake.pos == 0  # no title card: standby holds until start
         assert service.programme_state == ProgrammeState.LOADED
-        assert fake.paused is True
+        assert fake.commands_named("playlist-clear")
 
         session = PlayoutSession.load()
         assert session.programme_id == programme.id
         assert session.playlist_offset == 1
 
-    def test_start_unpauses_and_runs(self, service, fake):
+    def test_start_moves_off_standby_and_runs(self, service, fake):
         programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
         service.load_programme(programme)
 
         assert service.start_programme() is True
         assert service.programme_state == ProgrammeState.RUNNING
+        assert wait_until(lambda: fake.current_file == "http://d/stream/bumper/1/")
         assert wait_until(lambda: fake.paused is False)
+        assert wait_until(lambda: service._programme_cursor == 0)
+
+    def test_title_card_starts_at_once_and_holds_paused(self, service, fake, tmp_path):
+        title = tmp_path / "title.mp4"
+        title.write_bytes(b"x")
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        programme.title_file, programme.title_hold, programme.title_fade_in = str(title), False, 0
+        programme.save()
+
+        assert service.load_programme(programme) is True
+
+        assert fake.playlist[0] == fake.standby_loaded
+        assert f"/stream/title/{programme.id}/" in fake.playlist[1]
+        assert service.playlist_offset == 2
+        assert_aligned(service, fake, playlist)
+        assert wait_until(lambda: fake.pos == 1)
+        assert wait_until(lambda: fake.paused is True)  # held on the title's first frame
+        assert service.in_preshow(fake.pos)
+
+        assert service.start_programme() is True
+        assert wait_until(lambda: fake.paused is False)
+        assert fake.pos == 1  # plays on from the title card
+        fake.finish_current()
+        assert wait_until(lambda: service._programme_cursor == 0)
+
+    def test_reloading_goes_back_to_standby_first(self, service, fake):
+        first, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        second, playlist = build_programme([("movie", "http://d/stream/movie/2/"), ("system", BLACK_URL)])
+        service.load_programme(first)
+        service.start_programme()
+        assert wait_until(lambda: fake.pos == 1)
+
+        assert service.load_programme(second) is True
+        assert fake.pos == 0 and fake.playlist[0] == fake.standby_loaded
+        assert_aligned(service, fake, playlist)
 
     def test_empty_playlist_refused(self, service, fake):
         programme = ProgrammeFactory()
@@ -118,7 +159,6 @@ class TestCueFiring:
         service.load_programme(programme)
         service.start_programme()
 
-        fake.finish_current()
         assert wait_until(lambda: service._programme_cursor == 0)
         assert fired == []
 
@@ -191,7 +231,6 @@ class TestHoldBlackJourney:
         service.start_programme()
 
         fake.finish_current()
-        fake.finish_current()
 
         assert wait_until(lambda: executed)
         assert executed == [("Projector on", "block")]
@@ -200,13 +239,79 @@ class TestHoldBlackJourney:
 
         assert wait_until(lambda: fake.commands_named("playlist-next"), timeout=10)
         assert wait_until(lambda: ("loop-file", "no") in [tuple(c[1:]) for c in fake.commands_named("set_property")])
-        assert wait_until(lambda: service.programme_state == ProgrammeState.COMPLETED, timeout=10)
-        assert wait_until(lambda: len(fake.playlist) == 1 and "/stream/bumper/" in fake.playlist[0])
-        # Ident is loaded and THEN paused (two commands); the playlist arriving
-        # does not mean the pause has — must wait for it separately.
-        assert wait_until(lambda: fake.paused is True)
+        # The end sentinel put the player straight on standby.
+        assert wait_until(lambda: service.programme_state == ProgrammeState.NOT_LOADED, timeout=10)
+        assert wait_until(lambda: fake.playlist == [fake.standby_loaded])
+        assert fake.paused is False
         assert service.current_programme is None
         assert not service.executing_command
+
+
+class TestStatusPhases:
+    """The phase every surface shows, from a real MPVService driving the fake player."""
+
+    @pytest.fixture
+    def status(self, service, monkeypatch):
+        from cinefin.api.services.playout_service import playout_status
+
+        monkeypatch.setattr("cinefin.api.mpv_service.mpv_service", service)
+        return playout_status
+
+    def test_standby_to_cued_to_playing_to_paused_and_back_to_standby(self, service, fake, status):
+        programme, _ = build_programme(
+            [("bumper", "http://d/stream/bumper/1/"), ("bumper", "http://d/stream/bumper/2/"), ("system", BLACK_URL)]
+        )
+        assert status().phase == "standby"
+
+        service.load_programme(programme)
+        assert (status().phase, status().screen) == ("cued", "Standby")
+
+        service.start_programme()
+        assert wait_until(lambda: status().phase == "playing")
+        assert status().playlist.current_position == 0
+
+        service.pause()
+        assert wait_until(lambda: status().phase == "paused")
+        service.play()
+        assert wait_until(lambda: status().phase == "playing")
+
+        fake.finish_current()
+        fake.finish_current()  # onto the end sentinel
+        assert wait_until(lambda: status().phase == "standby", timeout=10)
+
+    def test_title_card_is_cued_then_preshow(self, service, fake, status, tmp_path):
+        title = tmp_path / "title.mp4"
+        title.write_bytes(b"x")
+        programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        programme.title_file, programme.title_hold, programme.title_fade_in = str(title), False, 0
+        programme.save()
+
+        service.load_programme(programme)
+        assert wait_until(lambda: fake.pos == 1 and fake.paused)
+        assert (status().phase, status().screen) == ("cued", "Title card")
+
+        service.start_programme()
+        assert wait_until(lambda: status().phase == "preshow")
+        fake.finish_current()
+        assert wait_until(lambda: status().phase == "playing")
+
+    def test_a_hold_then_manual_play(self, service, fake, status, monkeypatch):
+        monkeypatch.setattr(command_runner, "execute", lambda command, trigger, wait=True: time.sleep(0.5) or True)
+        lights = CommandFactory(name="Dim the lights", duration=30)
+        programme, _ = build_programme([("command", BLACK_URL, {"command": lights}), ("system", BLACK_URL)])
+        service.load_programme(programme)
+        service.start_programme()
+        assert wait_until(lambda: status().phase == "hold")
+        assert status().label == "Hold · Dim the lights"
+        assert "end_hold" in status().actions
+
+        assert service.manual_add("Dune", "url", A)
+        assert wait_until(lambda: status().phase == "manual")
+        assert status().label == "Manual · 1 of 1 · Dune"
+
+    def test_a_lost_player_is_offline(self, service, fake, status):
+        fake.close()
+        assert wait_until(lambda: status().phase == "offline")
 
 
 class TestSessionRestore:
@@ -216,7 +321,6 @@ class TestSessionRestore:
         )
         service.load_programme(programme)
         service.start_programme()
-        fake.finish_current()
         assert wait_until(lambda: service._programme_cursor == 0)
 
         service.controller.terminate()
@@ -260,7 +364,6 @@ class TestErrorAdvance:
         )
         service.load_programme(programme)
         service.start_programme()
-        fake.finish_current()
         assert wait_until(lambda: service._programme_cursor == 0)
 
         with caplog.at_level("WARNING", logger="cinefin.api.mpv_service"):
@@ -308,15 +411,236 @@ class TestManualQueue:
         assert wait_until(lambda: fake.playlist[:2] == [C, A])
         assert titles(service) == ["C", "A"]
 
-    def test_the_sentinel_returns_the_player_to_the_ident(self, service, fake):
+    def test_the_sentinel_puts_the_player_on_standby(self, service, fake):
         service.manual_add("A", "url", A)
         assert wait_until(lambda: len(fake.playlist) == 2)
         fake.finish_current()
         assert wait_until(lambda: not service.manual_items)
-        assert wait_until(lambda: len(fake.playlist) == 1 and "/stream/" in fake.playlist[0])
+        assert wait_until(lambda: fake.playlist == [fake.standby_loaded])
 
     def test_loading_a_programme_replaces_manual_play(self, service, fake):
         service.manual_add("A", "url", A)
-        programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
         assert service.load_programme(programme) is True
         assert service.manual_items == []
+        assert fake.playlist[0] == fake.standby_loaded
+        assert_aligned(service, fake, playlist)
+
+
+class TestLeadInCue:
+    """A screening's lead-in cues the programme, then it plays at its play time."""
+
+    def _with_title(self, programme, tmp_path):
+        title = tmp_path / "title.mp4"
+        title.write_bytes(b"x")
+        programme.title_file, programme.title_hold, programme.title_fade_in = str(title), True, 2.0
+        programme.save()
+
+    def test_cue_holds_the_title_card_then_plays(self, service, fake, monkeypatch, tmp_path):
+        from cinefin.api.services import preshow
+
+        monkeypatch.setattr("cinefin.api.mpv_service.mpv_service", service)
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        self._with_title(programme, tmp_path)
+
+        preshow.run(programme, [])  # just the cue
+        assert service.programme_state == ProgrammeState.LOADED
+        assert wait_until(lambda: fake.pos == 1)
+        fake.set_time(1.0)  # mid fade-in: still playing
+        assert not fake.paused
+        fake.set_time(2.1)  # faded in: held
+        assert wait_until(lambda: fake.paused is True)
+        assert_aligned(service, fake, playlist)
+
+        assert service.start_programme() is True
+        assert wait_until(lambda: fake.paused is False) and fake.pos == 1
+        fake.finish_current()
+        assert wait_until(lambda: service._programme_cursor == 0)
+
+    def test_cue_without_a_title_card_stays_on_standby(self, service, fake, monkeypatch):
+        from cinefin.api.services import preshow
+
+        monkeypatch.setattr("cinefin.api.mpv_service.mpv_service", service)
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        fake.enter_standby()
+        fake.finish_current()  # the System Ident loops: still on standby
+
+        preshow.run(programme, [])
+        assert fake.pos == 0 and fake.current_file == fake.standby_loaded
+        assert_aligned(service, fake, playlist)
+
+        assert service.start_programme() is True
+        assert wait_until(lambda: fake.current_file == "http://d/stream/bumper/1/")
+
+
+class TestHeldIdent:
+    def test_own_ident_freezes_and_programme_moves_off_it(self, service, fake, tmp_path):
+        from cinefin.api.models import Bumper, Settings
+
+        path = tmp_path / "ident.mp4"
+        path.write_bytes(b"roxy")
+        bumper = Bumper.objects.create(title="Roxy", file_path=str(path), hold_point=6)
+        Settings.set("cinema.default_ident_id", bumper.id)
+
+        assert service.standby() is True
+        assert fake.current_options == {"end": "6", "keep-open": "always"}
+        fake.set_time(6.0)  # reaches its hold point: frozen, paused, not advanced
+        assert fake.paused is True and fake.eof_reached and fake.pos == 0
+
+        programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        assert service.load_programme(programme) is True
+        assert fake.pos == 0 and fake.eof_reached  # standby was already on screen: not replayed
+        assert service.start_programme() is True
+        assert wait_until(lambda: fake.pos == 1 and fake.paused is False)
+
+
+def _cover_alpha(overlay):
+    """The cover's ASS alpha (0 opaque, 255 clear), or None for a removal."""
+    if overlay["format"] == "none":
+        return None
+    return int(overlay["data"].split(r"\1a&H", 1)[1][:2], 16)
+
+
+def _cover_sequence(fake):
+    """The cover overlays and playlist moves, in the order the player received them."""
+    seq = []
+    for c in list(fake.received_commands):
+        if isinstance(c, dict) and c.get("name") == "osd-overlay":
+            seq.append(("cover", _cover_alpha(c)))
+        elif isinstance(c, list) and c[:2] == ["set_property", "playlist-pos"]:
+            seq.append(("move", c[2]))
+    return seq
+
+
+def _cover_removed(fake):
+    return bool(fake.overlays()) and fake.overlays()[-1]["format"] == "none"
+
+
+class TestStandbyFade:
+    """Leaving standby for a programme fades to black, moves on, then reveals the
+    next entry, under a black osd-overlay cover (id 2, above the agent's card)."""
+
+    @pytest.fixture(autouse=True)
+    def short_fade(self, monkeypatch):
+        # A few steps each way, quickly (conftest makes it instant elsewhere).
+        monkeypatch.setattr(mpv_module, "COVER_FADE_SECONDS", 0.12)
+        monkeypatch.setattr(mpv_module, "COVER_REVEAL_SECONDS", 0.12)
+        monkeypatch.setattr(mpv_module, "COVER_FIRST_FRAME_WAIT", 1.0)
+
+    @staticmethod
+    def _with_title(programme, tmp_path, *, hold, fade_in):
+        title = tmp_path / "title.mp4"
+        title.write_bytes(b"x")
+        programme.title_file, programme.title_hold, programme.title_fade_in = str(title), hold, fade_in
+        programme.save()
+
+    def test_start_fades_out_then_moves_then_reveals(self, service, fake):
+        programme, playlist = build_programme(
+            [("bumper", "http://d/stream/bumper/1/"), ("movie", "http://d/stream/movie/1/"), ("system", BLACK_URL)]
+        )
+        assert service.load_programme(programme) is True
+        assert fake.overlays() == []  # no title card: standby holds, untouched
+
+        assert service.start_programme() is True
+        assert wait_until(lambda: _cover_removed(fake))
+
+        seq = _cover_sequence(fake)
+        move = seq.index(("move", 1))
+        fade, reveal = [a for _, a in seq[:move]], [a for _, a in seq[move + 1 :]]
+        assert len(fade) >= 2 and fade == sorted(fade, reverse=True) and fade[-1] == 0  # clear to opaque
+        assert len(reveal) >= 2 and reveal[-1] is None  # back towards clear, then removed
+        assert reveal[0] > 0 and reveal[:-1] == sorted(reveal[:-1])
+        for overlay in fake.overlays():
+            assert overlay["id"] == COVER_OVERLAY_ID
+            if overlay["format"] == "ass-events":
+                assert overlay["z"] == COVER_Z and (overlay["res_x"], overlay["res_y"]) == (1280, 720)
+
+        assert fake.current_file == "http://d/stream/bumper/1/"
+        assert_aligned(service, fake, playlist)
+        assert wait_until(lambda: service._programme_cursor == 0)
+
+    def test_a_title_card_that_fades_in_is_uncovered_at_once_and_still_holds(self, service, fake, tmp_path):
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        self._with_title(programme, tmp_path, hold=True, fade_in=2.0)
+
+        assert service.load_programme(programme) is True
+        assert wait_until(lambda: _cover_removed(fake))
+
+        seq = _cover_sequence(fake)
+        move = seq.index(("move", 1))
+        assert seq[move - 1] == ("cover", 0)  # fully black before the move
+        assert seq[move + 1 :] == [("cover", None)]  # then removed in one go
+        assert service.playlist_offset == 2
+        assert_aligned(service, fake, playlist)
+
+        # The title card still plays its fade-in and holds there.
+        assert wait_until(lambda: fake.pos == 1 and service._title_armed)
+        fake.set_time(1.0)
+        assert fake.paused is False
+        fake.set_time(2.1)
+        assert wait_until(lambda: fake.paused is True)
+
+        # Start plays on from the title card: standby is gone, so no second fade.
+        before = len(fake.overlays())
+        assert service.start_programme() is True
+        assert wait_until(lambda: fake.paused is False)
+        assert len(fake.overlays()) == before and fake.pos == 1
+
+    def test_a_title_card_without_a_fade_in_is_revealed(self, service, fake, tmp_path):
+        programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        self._with_title(programme, tmp_path, hold=False, fade_in=0)
+
+        assert service.load_programme(programme) is True
+        assert wait_until(lambda: _cover_removed(fake))
+        seq = _cover_sequence(fake)
+        assert len(seq[seq.index(("move", 1)) + 1 :]) >= 2  # faded away, not cut
+        assert wait_until(lambda: fake.pos == 1 and fake.paused is True)  # held on its first frame
+
+    def test_the_cover_is_removed_when_the_fade_fails(self, service, fake):
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        service.load_programme(programme)
+        real = service.controller._mpv_command
+        drawn = []
+
+        def flaky(command, *args):
+            if isinstance(command, dict) and command.get("format") == "ass-events":
+                drawn.append(command)
+                if len(drawn) == 2:
+                    raise RuntimeError("link dropped mid-fade")
+            return real(command, *args)
+
+        service.controller._mpv_command = flaky
+        assert service.start_programme() is True
+
+        assert wait_until(lambda: _cover_removed(fake))  # lifted, never left on screen
+        assert ("move", 1) in _cover_sequence(fake)  # and the programme still moved on
+        assert wait_until(lambda: fake.current_file == "http://d/stream/bumper/1/")
+        assert_aligned(service, fake, playlist)
+
+    def test_the_cover_is_removed_when_the_reveal_fails(self, service, fake, monkeypatch):
+        programme, _ = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        service.load_programme(programme)
+        c = service.controller
+        real = c.get_property
+
+        def broken(name):
+            if name == "time-pos":
+                raise RuntimeError("no reply")
+            return real(name)
+
+        monkeypatch.setattr(c, "get_property", broken)
+        assert service.start_programme() is True
+        assert wait_until(lambda: _cover_removed(fake))
+
+    def test_no_fade_when_standby_is_not_on_screen(self, service, fake, monkeypatch):
+        programme, playlist = build_programme([("bumper", "http://d/stream/bumper/1/"), ("system", BLACK_URL)])
+        service.load_programme(programme)
+        c = service.controller
+        real = c.get_property
+        # The player reports no current entry (its mpv restarted, say): nothing to fade.
+        monkeypatch.setattr(c, "get_property", lambda name: None if name == "playlist_pos" else real(name))
+
+        assert service.start_programme() is True
+        assert wait_until(lambda: fake.current_file == "http://d/stream/bumper/1/")
+        assert fake.overlays() == []
+        assert_aligned(service, fake, playlist)

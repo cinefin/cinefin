@@ -12,8 +12,9 @@ from django.utils import timezone
 from ninja import Query, Router, Status
 
 from cinefin.api.exceptions import ConflictError, NotFoundError, ValidationError
-from cinefin.api.models import AUDIO_FORMATS, Bumper, Tag
+from cinefin.api.models import AUDIO_FORMATS, Bumper, Settings, Tag
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema
+from cinefin.api.services import standby
 from cinefin.api.utils.media_paths import to_usermedia_relative, usermedia_abs_path
 
 from .schemas import (
@@ -95,6 +96,7 @@ def serialize_media_item(media: Bumper, request: HttpRequest) -> dict[str, Any]:
         "tags": [{"id": tag.id, "name": tag.name, "color": tag.color or None} for tag in media.tags.all()],
         "upload_date": media.upload_date.isoformat() if media.upload_date else None,
         "audio_format": media.audio_format or None,
+        "hold_point": media.hold_point,
     }
 
 
@@ -425,7 +427,13 @@ def update_media(request: HttpRequest, media_id: int, data: UpdateMediaSchema):
         valid = {key for key, _ in AUDIO_FORMATS}
         media.audio_format = data.audio_format if data.audio_format in valid else ""
 
+    hold_changed = "hold_point" in data.model_fields_set and data.hold_point != media.hold_point
+    if hold_changed:  # sent as null: back to the last frame
+        media.hold_point = data.hold_point
+
     media.save()
+    if hold_changed and Settings.get("cinema.default_ident_id") == media.id:
+        standby.push()  # the ident's hold is in the players' standby spec
 
     return get_media_detail(request, media_id)
 
@@ -442,6 +450,8 @@ def delete_media(request: HttpRequest, media_id: int):
 
     media_title = media.title
     media.delete()
+    if Settings.get("cinema.default_ident_id") == media_id:
+        standby.push()  # standby falls back to the System Ident
 
     logger.info(f"Deleted media: {media_title}")
 

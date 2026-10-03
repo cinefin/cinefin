@@ -1,0 +1,104 @@
+/**
+ * A player's launch config (screen and sound), read from and written to its
+ * agent through the per-host proxies. Shared by Settings › Playout
+ * (HostConfigPanel) and the Add a player wizard.
+ */
+import { api, unwrap } from '$lib/api/client';
+import { mutate } from '$lib/api/mutate';
+import type { components } from '$lib/api/types.gen';
+
+export type Hardware = components['schemas']['HostHardwareSchema'];
+type WireConfig = components['schemas']['HostLaunchConfigSchema'];
+// The wire schema has graphics/audio optional; normalise once so a form has
+// every field present.
+export type LaunchConfig = Required<WireConfig> & {
+	graphics: Required<NonNullable<WireConfig['graphics']>>;
+	audio: Required<NonNullable<WireConfig['audio']>>;
+};
+
+function normalise(wire: WireConfig): LaunchConfig {
+	const g = wire.graphics ?? ({} as NonNullable<WireConfig['graphics']>);
+	const a = wire.audio ?? ({} as NonNullable<WireConfig['audio']>);
+	return {
+		autostart: wire.autostart ?? true,
+		graphics: {
+			mode: g.mode ?? 'desktop',
+			vo: g.vo ?? 'gpu-next',
+			gpu_api: g.gpu_api ?? '',
+			gpu_context: g.gpu_context ?? '',
+			hwdec: g.hwdec ?? 'auto',
+			screen: g.screen ?? 0,
+			drm_connector: g.drm_connector ?? '',
+			drm_mode: g.drm_mode ?? '',
+			fullscreen: g.fullscreen ?? true,
+			hdr_passthrough: g.hdr_passthrough ?? true,
+			osc: g.osc ?? false,
+			display: g.display ?? ''
+		},
+		audio: {
+			device: a.device ?? '',
+			channels: a.channels ?? 'auto',
+			spdif_passthrough: a.spdif_passthrough ?? [],
+			max_volume: a.max_volume ?? 130
+		}
+	};
+}
+
+/** The host's launch config, and its real device lists (null when it cannot list them). */
+export async function loadHostConfig(
+	hostId: number
+): Promise<{ config: LaunchConfig; hardware: Hardware | null }> {
+	const params = { params: { path: { host_id: hostId } } };
+	const config = normalise(await unwrap(api.GET('/api/v2/playout/hosts/{host_id}/config', params)));
+	// Hardware is garnish: without it the selects fall back to the values
+	// already set, so an mpv-less host still shows an editable form.
+	const hardware = await unwrap(api.GET('/api/v2/playout/hosts/{host_id}/hardware', params)).catch(
+		() => null
+	);
+	return { config, hardware };
+}
+
+/**
+ * Save the host's launch config, restarting its mpv when `restart` is set and
+ * the change needs it. Returns whether a restart is still needed.
+ */
+export async function saveHostConfig(
+	hostId: number,
+	config: LaunchConfig,
+	restart: boolean
+): Promise<boolean> {
+	const params = { params: { path: { host_id: hostId } } };
+	const saved = await unwrap(
+		api.PUT('/api/v2/playout/hosts/{host_id}/config', { ...params, body: config })
+	);
+	if (!saved.restart_required) return false;
+	if (!restart) return true;
+	await mutate(api.POST('/api/v2/playout/hosts/{host_id}/restart', params));
+	return false;
+}
+
+/** mpv can list one device name twice (two profiles of the same HDMI sink): keep the first. */
+export function audioDevices(hardware: Hardware | null) {
+	const seen = new Set<string>();
+	return (hardware?.audio_devices ?? []).filter((d) => !seen.has(d.name) && !!seen.add(d.name));
+}
+
+/** One line each for the screen and the sound, as a summary. */
+export function describeConfig(config: LaunchConfig, hardware: Hardware | null) {
+	const g = config.graphics;
+	let screen: string;
+	if (g.mode === 'drm') {
+		screen = g.drm_connector || 'The first connected screen';
+		if (g.drm_mode) screen += ` at ${g.drm_mode}`;
+	} else {
+		const s = hardware?.screens?.find((x) => x.index === g.screen);
+		screen = [`Screen ${g.screen}`, s?.name, s?.w ? `${s.w}×${s.h}` : '']
+			.filter(Boolean)
+			.join(' · ');
+	}
+	if (g.fullscreen) screen += ', fullscreen';
+	const device = audioDevices(hardware).find((d) => d.name === config.audio.device);
+	let sound = config.audio.device ? device?.description || config.audio.device : 'Auto';
+	if (config.audio.channels !== 'auto') sound += `, ${config.audio.channels}`;
+	return { screen, sound };
+}

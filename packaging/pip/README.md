@@ -9,23 +9,16 @@ an optional system dependency (certification/title cards need it —
 
 ```bash
 pipx install ./cinefin3-<version>-py3-none-any.whl   # or the URL from a release
-cinefin                     # migrate, then serve on 0.0.0.0:8000
+cinefin serve               # migrate, then serve on 0.0.0.0:8000
 ```
 
-Open <http://localhost:8000/app/>. Sub-commands:
+The command and its flags are described in the top-level README ("Linux: pip /
+pipx") and in `cinefin --help`. Data goes to `~/.local/share/cinefin` unless
+`--data-dir` or `CINEFIN_USERDATA_DIR` says otherwise. Keep it to a **single
+process**: the schedule runner and playout state are per-process.
 
-```bash
-cinefin serve      # migrate + serve (the default)
-cinefin migrate    # apply migrations and exit
-```
-
-Config via env vars: `CINEFIN_HOST` / `CINEFIN_PORT` (default `0.0.0.0:8000`),
-`CINEFIN_USERDATA_DIR` (default `~/.local/share/cinefin` — holds the SQLite db,
-media, secret key, logs). Keep it to a **single process**: the schedule runner
-and playout state are per-process.
-
-To run it on boot, wrap `cinefin` in a systemd **user** service of your own
-(`~/.config/systemd/user/`) — nothing is shipped.
+To run it on boot, `packaging/systemd/cinefin.service.example` is a system unit
+that runs `cinefin serve --data-dir /var/lib/cinefin`.
 
 ## Building the wheel
 

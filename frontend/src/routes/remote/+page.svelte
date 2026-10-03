@@ -1,7 +1,9 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	// Remote — the operator / playout console. Reads mpv + playlist + playout stores
-	// plus the commands picked on this device (CommandPad).
+	// Remote — the operator console. The status (phase, what is on screen, the allowed
+	// actions) is the shared playout feed read through $lib/playout/phase; the mpv store
+	// only adds the player's own settings (volume, speed, tracks, technical info), and the
+	// playlist store the running order. Commands are the ones picked on this device.
 	import { base } from '$app/paths';
 	import {
 		Captions,
@@ -11,10 +13,12 @@
 		Headphones,
 		ListOrdered,
 		Maximize,
+		ScanSearch,
 		Pause,
 		Play,
 		RotateCcw,
 		RotateCw,
+		Settings,
 		SkipBack,
 		SkipForward,
 		Square,
@@ -23,21 +27,22 @@
 		Volume2,
 		VolumeX
 	} from '@lucide/svelte';
-	import { api, unwrap } from '$lib/api/client';
-	import { query } from '$lib/api/query.svelte';
+	import { api } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import CommandPad from '$lib/commands/CommandPad.svelte';
 	import { showToast as toast } from '$lib/toast.svelte';
 	import { formatClock, formatTime } from '$lib/format';
 	import { itemTypeDisplay } from '$lib/item-types';
-	import { playout } from '$lib/stores/playout.svelte';
-	import { mpv, playlist } from '$lib/stores/player.svelte';
-	import type { PlayoutPlaylistItem } from '$lib/api/refinements';
+	import OnScreen from '$lib/playout/OnScreen.svelte';
+	import RunningOrder from '$lib/playout/RunningOrder.svelte';
+	import { can, primaryAction, started } from '$lib/playout/phase';
+	import { playout, type ControlBody } from '$lib/stores/playout.svelte';
+	import { mpv, playlist, type PlayoutPlaylistItem } from '$lib/stores/player.svelte';
+	import { playoutReach } from '$lib/stores/playoutReach.svelte';
 	import type { components } from '$lib/api/types.gen';
-	import Banner from '$lib/components/ui/Banner.svelte';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import Cued from '$lib/remote/Cued.svelte';
-	import Idle from '$lib/remote/Idle.svelte';
+	import Standby from '$lib/remote/Standby.svelte';
 	import ManualQueue from '$lib/remote/ManualQueue.svelte';
 	import ManualSearch from '$lib/remote/ManualSearch.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
@@ -48,7 +53,6 @@
 
 	type Track = components['schemas']['TrackSchema'];
 
-	// Schema collapses two CommandSchema backends; pin the fields the quick-fire panel needs.
 	/** PlaylistUtils.build_playlist_item_details metadata, per item type. */
 	interface ItemMeta {
 		year?: number | string;
@@ -65,14 +69,7 @@
 	$effect(() => playout.subscribe());
 	$effect(() => mpv.subscribe());
 	$effect(() => playlist.subscribe());
-
-	// The idle and cued panels: what could be cued, and a cued programme's films.
-	const programmesQ = query(() => unwrap(api.GET('/api/v2/programmes/list')));
-	const schedulesQ = query(() =>
-		unwrap(api.GET('/api/v2/schedules/list', { params: { query: { show_past: false } } }))
-	);
-	$effect(() => programmesQ.invalidatesOn(['programmes']));
-	$effect(() => schedulesQ.invalidatesOn(['schedules', 'programmes']));
+	$effect(() => playoutReach.subscribe()); // the player's address when it is offline
 
 	// Pre-flight warnings stashed by the programme page's "Cue & open console".
 	try {
@@ -93,25 +90,26 @@
 		// Stale/corrupt handoff — ignore.
 	}
 
+	const status = $derived(playout.status);
+	const phase = $derived(status?.phase);
+	const connected = $derived(!!status && phase !== 'offline');
+	const programme = $derived(status?.programme ?? null);
+	const primary = $derived(primaryAction(status));
+	const holding = $derived(phase === 'hold');
 	const st = $derived(mpv.status);
-	const connected = $derived(!!st?.connected);
 	const pb = $derived(st?.status ?? null);
-	const mpvPos = $derived(st?.playlist_pos ?? null);
-	const programme = $derived(st?.programme ?? null);
-	const isRunning = $derived(!!programme?.running);
-	const isPaused = $derived(!pb?.playing || !!pb?.paused);
+	const mpvPos = $derived(status?.playlist?.mpv_position ?? null);
 
 	// Manual mode: one-off items the player holds outside any programme (server-side queue).
-	const manual = $derived(playout.status?.manual ?? null);
-	const manualOn = $derived(!!manual);
+	const manual = $derived(status?.manual ?? null);
 	const manualCurrent = $derived(manual?.items[manual.position ?? -1] ?? null);
 	/** Something plays under the operator's hand: the transport and tracks apply. */
-	const playing = $derived(isRunning || manualOn);
+	const playing = $derived(started(status) || !!manual);
 	let mode = $state<'programme' | 'manual'>('programme');
 	// Follow the player: manual play shows the manual tab, a (newly) loaded programme the programme tab.
 	const programmeId = $derived(programme?.id ?? null);
 	$effect(() => {
-		if (manualOn) mode = 'manual';
+		if (manual) mode = 'manual';
 	});
 	$effect(() => {
 		if (programmeId != null) mode = 'programme';
@@ -123,9 +121,12 @@
 	}
 
 	const items = $derived((playlist.data?.playlist ?? []) as PlayoutPlaylistItem[]);
-	const offset = $derived(playlist.data?.programme_offset ?? 0);
-	// The trailing "system" item is the end-of-programme black sentinel — hide it.
-	const visibleItems = $derived(items.filter((it) => it.type !== 'system'));
+	const offset = $derived(status?.playlist?.offset ?? 0);
+	// The trailing "system" item is the end-of-programme black sentinel, and entry 0 is
+	// standby, which the programme never replays: hide both.
+	const visibleItems = $derived(
+		items.filter((it) => it.type !== 'system' && (it.programme_position != null || it.index > 0))
+	);
 	const programmeItems = $derived(
 		visibleItems
 			.filter((it) => it.programme_position != null)
@@ -133,51 +134,15 @@
 			.sort((a, b) => a.programme_position! - b.programme_position!)
 	);
 	const programmeCount = $derived(programmeItems.length);
-
-	/** Elapsed seconds before each programme item + the whole-programme total. */
-	const timing = $derived.by(() => {
-		const before = new Map<number, number>();
-		let running = 0;
-		for (const it of programmeItems) {
-			before.set(it.programme_position!, running);
-			running += it.duration || 0;
-		}
-		return { before, total: playlist.data?.total_duration || running };
-	});
-
 	const current = $derived(items.find((it) => it.index === mpvPos));
-	const programmePosition = $derived(mpvPos != null && mpvPos >= offset ? mpvPos - offset : null);
 
-	// Hold-black command in progress: MPV's clock describes the looping black clip,
-	// so playout status substitutes the command's own dwell.
-	const holding = $derived(!!playout.status?.executing_command);
-
-	// Prefer the playout SSE's 250 ms playback.position push over mpv's event-gated status;
-	// mpv's pb is only a fallback until the first push.
-	const live = $derived(playout.status?.playback ?? null);
-	const itemTime = $derived(live?.position ?? pb?.time ?? 0);
-	const itemDuration = $derived((live?.duration || pb?.duration || current?.duration) ?? 0);
+	// The item's clock (a hold's own dwell during a hold) and the programme's, from the status.
+	const live = $derived(status?.playback ?? null);
+	const itemTime = $derived(live?.position ?? 0);
+	const itemDuration = $derived((live?.duration || current?.duration) ?? 0);
 	const itemPct = $derived(itemDuration > 0 ? Math.min(100, (itemTime / itemDuration) * 100) : 0);
-
-	const programmeElapsed = $derived.by(() => {
-		if (programmePosition == null || programmePosition < 0) return 0;
-		return (timing.before.get(programmePosition) ?? 0) + (live?.position ?? pb?.time ?? 0);
-	});
-	const programmeRemaining = $derived(Math.max(0, timing.total - programmeElapsed));
-	const programmePct = $derived(
-		timing.total > 0 ? Math.min(100, (programmeElapsed / timing.total) * 100) : 0
-	);
-
-	// Pre-show: on an item before the programme's first, and the time left until it.
-	const inPreshow = $derived(isRunning && mpvPos != null && mpvPos < offset);
-	const preshowLeft = $derived.by(() => {
-		if (!inPreshow || mpvPos == null) return 0;
-		// The current item's length is the player's (an ident has none stored).
-		const later = items
-			.filter((it) => it.index > mpvPos && it.index < offset)
-			.reduce((sum, it) => sum + (it.duration || 0), 0);
-		return Math.max(0, itemDuration - itemTime) + later;
-	});
+	const programmeTotal = $derived(status?.playlist?.programme_total_duration ?? 0);
+	const programmeRemaining = $derived(status?.playlist?.programme_remaining_time ?? 0);
 
 	function fileName(path: string | null | undefined): string {
 		if (!path) return '';
@@ -185,32 +150,30 @@
 		return path.split('?')[0].replace(/\/$/, '').split('/').pop() || path;
 	}
 
-	function openingItemLabel(item: { file?: string | null }): string {
-		return (item.file || '').includes('/stream/title/') ? 'Title card' : 'System Ident';
-	}
-
 	function itemTitle(item: PlayoutPlaylistItem): string {
 		const meta = (item.details?.metadata ?? {}) as ItemMeta;
-		// A pre-show opening item is a stream URL (title/ident) — label it, not its file name.
-		const fallback = item.programme_position == null ? openingItemLabel(item) : fileName(item.file);
+		// A pre-show entry (before the programme's first item) is the title card.
+		if (item.programme_position == null) return 'Title card';
 		return (
 			item.title ||
 			meta.movie_title ||
 			meta.trailer_title ||
 			meta.bumper_title ||
-			fallback ||
+			fileName(item.file) ||
 			'Untitled'
 		);
 	}
 
 	const npMeta = $derived((current?.details?.metadata ?? {}) as ItemMeta);
-	const npType = $derived(current?.type || 'item');
-	const npTitle = $derived(current ? itemTitle(current) : 'No media loaded');
-	const cuedFilms = $derived(
-		programmesQ.data?.programmes.find((p) => p.id === programme?.id)?.movies ?? []
-	);
-	const npPosterUrl = $derived(
-		npType === 'movie' || npType === 'feature' ? npMeta.thumbnail_url || '' : ''
+	const npType = $derived(status?.current_item?.type || current?.type || 'item');
+	const npTitle = $derived(status?.current_item?.title || status?.screen || '');
+	const facts = $derived(
+		[
+			npMeta.year,
+			npMeta.certification,
+			current?.duration ? formatTime(current.duration) : null,
+			npMeta.resolution
+		].filter(Boolean)
 	);
 
 	const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -221,6 +184,9 @@
 	});
 	const muted = $derived(!!pb?.muted);
 	const currentSpeed = $derived(pb?.speed ?? 1);
+	// Fill: mpv's panscan zooms a wider-than-16:9 film (DCI 1.9:1) until it fills
+	// the screen, cropping a sliver off each side instead of showing thin bars.
+	const filling = $derived((pb?.panscan ?? 0) > 0.5);
 	const VolumeIcon = $derived(muted || volume === 0 ? VolumeX : volume < 50 ? Volume1 : Volume2);
 
 	let starting = $state(false);
@@ -239,71 +205,60 @@
 		);
 	}
 
+	// Every transport button: one server path, which refuses what the phase doesn't allow.
+	async function act(body: ControlBody, failed: string): Promise<void> {
+		try {
+			await playout.control(body);
+			playlist.refresh();
+		} catch (err) {
+			toast(`${failed}: ${(err as Error).message}`, 'error');
+		}
+	}
+
 	async function runProgramme(): Promise<void> {
 		if (starting) return;
 		starting = true;
-		try {
-			await unwrap(api.POST('/api/v2/playout/run'));
-			toast('Playout started', 'success');
-			void mpv.refresh();
-			void playout.refresh();
-			playlist.refresh();
-		} catch (err) {
-			toast(`Failed to start playout: ${(err as Error).message}`, 'error');
-		} finally {
-			starting = false;
-		}
+		await act({ action: 'start' }, 'Failed to start the programme');
+		starting = false;
 	}
 
-	async function togglePlayPause(): Promise<void> {
-		try {
-			await mpvCommand('cycle', ['pause']);
-			void mpv.refresh();
-		} catch (err) {
-			toast(`Playback control failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function stop(): Promise<void> {
-		if (
-			!(await confirmDlg?.confirm(
-				'End the programme? The running order is cleared and the System Ident returns.',
-				{ confirmLabel: 'End programme' }
-			))
-		)
+	async function end(): Promise<void> {
+		const question = manual
+			? 'End manual play? The queue is cleared and the player goes to standby.'
+			: 'End the programme? The running order is cleared and the player goes to standby.';
+		if (!(await confirmDlg?.confirm(question, { confirmLabel: manual ? 'End' : 'End programme' })))
 			return;
-		try {
-			await unwrap(api.POST('/api/v2/playout/stop', { body: { reset: true } }));
-			toast('Playout stopped', 'info');
-			void playout.refresh();
-			void mpv.refresh();
-			playlist.refresh();
-		} catch (err) {
-			toast(`Failed to stop playout: ${(err as Error).message}`, 'error');
-		}
+		await act({ action: 'end' }, 'Failed to end');
 	}
 
-	// Return the screen to the idle ident. Works whenever the player is
+	// Put the player on standby. Works whenever the player is
 	// connected — a recovery for a stale or fiddled screen — and confirms first
 	// only when it would clear a show that's on air.
-	async function returnToIdent(): Promise<void> {
+	async function goToStandby(): Promise<void> {
 		if (programme) {
 			if (
 				!(await confirmDlg?.confirm(
-					`"${programme.name}" is on the player. Return to the idle ident and clear it?`,
-					{ confirmLabel: 'Return to ident' }
+					`"${programme.name}" is on the player. Go to standby and clear it?`,
+					{ confirmLabel: 'Go to standby' }
 				))
 			)
 				return;
 		}
 		try {
 			await mutate(api.POST('/api/v2/playout/reset'));
-			toast('Player reset to the idle ident', 'info');
-			void playout.refresh();
-			void mpv.refresh();
-			playlist.refresh();
+			toast('The player is on standby', 'info');
+			refreshPlayer();
 		} catch (err) {
 			toast(`Failed to reset the player: ${(err as Error).message}`, 'error');
+		}
+	}
+
+	async function toggleFill(): Promise<void> {
+		try {
+			await setProperty('panscan', filling ? 0 : 1);
+			void mpv.refresh();
+		} catch (err) {
+			toast(`Fill toggle failed: ${(err as Error).message}`, 'error');
 		}
 	}
 
@@ -312,35 +267,6 @@
 			await mpvCommand('cycle', ['fullscreen']);
 		} catch (err) {
 			toast(`Fullscreen toggle failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function seekRelative(seconds: number): Promise<void> {
-		try {
-			await mpvCommand('seek', [seconds, 'relative']);
-			void mpv.refresh();
-		} catch (err) {
-			toast(`Seek failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function playlistNav(direction: 'previous' | 'next'): Promise<void> {
-		try {
-			await unwrap(api.POST('/api/v2/playout/control', { body: { action: direction } }));
-			void mpv.refresh();
-			playlist.refresh();
-		} catch (err) {
-			toast(`Navigation failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function jumpTo(mpvIndex: number): Promise<void> {
-		try {
-			await unwrap(api.POST('/api/v2/playout/playlist', { body: { index: mpvIndex } }));
-			void mpv.refresh();
-			playlist.refresh();
-		} catch (err) {
-			toast(`Jump failed: ${(err as Error).message}`, 'error');
 		}
 	}
 
@@ -388,7 +314,7 @@
 	}
 
 	function onItemTrackDown(e: PointerEvent) {
-		if (!itemTrackEl) return;
+		if (!itemTrackEl || !can(status, 'seek')) return;
 		itemTrackEl.setPointerCapture(e.pointerId);
 		dragPct = trackPct(e, itemTrackEl);
 	}
@@ -402,48 +328,8 @@
 		if (dragPct == null || !itemTrackEl) return;
 		const pct = trackPct(e, itemTrackEl);
 		dragPct = pct;
-		try {
-			await mpvCommand('seek', [pct, 'absolute-percent']);
-			await mpv.refresh();
-		} catch (err) {
-			toast(`Seek failed: ${(err as Error).message}`, 'error');
-		} finally {
-			dragPct = null;
-		}
-	}
-
-	async function seekFromProgrammeTrack(e: MouseEvent) {
-		if (!timing.total) return;
-		const el = e.currentTarget as HTMLElement;
-		const rect = el.getBoundingClientRect();
-		const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-		const targetTime = pct * timing.total;
-
-		let target: PlayoutPlaylistItem | null = null;
-		let timeWithinItem = 0;
-		for (const item of programmeItems) {
-			const before = timing.before.get(item.programme_position!) ?? 0;
-			const end = before + (item.duration || 0);
-			if (targetTime < end || item === programmeItems[programmeItems.length - 1]) {
-				target = item;
-				timeWithinItem = Math.max(0, targetTime - before);
-				break;
-			}
-		}
-		if (!target) return;
-
-		try {
-			await unwrap(api.POST('/api/v2/playout/playlist', { body: { index: target.index } }));
-			void mpv.refresh();
-			playlist.refresh();
-			if (timeWithinItem > 1) {
-				// Let MPV switch items before seeking within the new one.
-				await new Promise((r) => setTimeout(r, 350));
-				await mpvCommand('seek', [timeWithinItem, 'absolute']);
-			}
-		} catch (err) {
-			toast(`Seek failed: ${(err as Error).message}`, 'error');
-		}
+		await act({ action: 'seek', seconds: (pct / 100) * itemDuration }, 'Seek failed');
+		dragPct = null;
 	}
 
 	// Open state is seeded ONCE from the breakpoint, then user-controlled via bind:open.
@@ -494,14 +380,14 @@
 	const startTimes = $derived.by(() => {
 		let anchorAt = 0;
 		let projected = true;
-		if (isRunning && mpvPos != null) {
+		if (started(status) && mpvPos != null) {
 			const cur = programmeItems.findIndex((it) => it.index === mpvPos);
 			if (cur >= 0) {
 				anchorAt = cur;
 				projected = false;
 			}
 		}
-		const anchorMs = projected ? Date.now() : Date.now() - (pb?.time ?? 0) * 1000;
+		const anchorMs = projected ? Date.now() : Date.now() - itemTime * 1000;
 		const starts = new Map<number, number | null>();
 		let t = anchorMs;
 		programmeItems.forEach((it, i) => {
@@ -529,25 +415,15 @@
 	function hideBrokenImage(e: Event) {
 		(e.currentTarget as HTMLImageElement).style.display = 'none';
 	}
-	function showLoadedImage(e: Event) {
-		(e.currentTarget as HTMLImageElement).style.display = '';
-	}
 </script>
 
 <PageHeader title="Remote" />
 
 {#snippet itemBar()}
-	<div class="mt-4">
-		<div class="flex items-baseline justify-between font-mono text-xs">
-			<span class="text-muted">{formatTime(itemTime)}</span>
-			<span class="text-faint">
-				{holding ? 'Command hold' : 'Current item'}
-			</span>
-			<span class="text-muted">{formatTime(itemDuration)}</span>
-		</div>
+	<div>
 		<div
 			bind:this={itemTrackEl}
-			class="group relative mt-1 h-2.5 cursor-pointer touch-none"
+			class="group relative h-2.5 touch-none {can(status, 'seek') ? 'cursor-pointer' : ''}"
 			role="slider"
 			aria-label="Seek within the current item"
 			aria-valuemin={0}
@@ -558,34 +434,101 @@
 			onpointermove={onItemTrackMove}
 			onpointerup={(e) => void onItemTrackUp(e)}
 		>
-			<div
-				class="absolute inset-0 bg-surface-3"
-				style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
-			>
+			<div class="absolute inset-0 bg-surface-3">
 				<div
-					class="h-full {holding ? 'bg-live' : 'bg-text'} {dragPct == null ? 'fill-smooth' : ''}"
+					class="h-full {holding ? 'bg-live' : itemTypeDisplay(npType).classes.bar} {dragPct == null
+						? 'fill-smooth'
+						: ''}"
 					style="width: {(dragPct ?? itemPct).toFixed(2)}%"
 				></div>
 			</div>
-			<div
-				class="absolute top-1/2 h-3.5 w-1 -translate-x-1/2 -translate-y-1/2 bg-accent opacity-0 transition-opacity group-hover:opacity-100"
-				style="left: {(dragPct ?? itemPct).toFixed(2)}%"
-			></div>
+		</div>
+		<div class="mt-1.5 flex items-baseline justify-between font-mono text-xs text-muted">
+			<span>{formatTime(itemTime)}</span>
+			<span class="text-faint">{holding ? 'Command hold' : ''}</span>
+			<span>-{formatTime(Math.max(0, itemDuration - itemTime))}</span>
 		</div>
 	</div>
+{/snippet}
+
+{#snippet transport()}
+	<div class="mx-auto grid max-w-md grid-cols-5 items-center gap-2">
+		<button
+			type="button"
+			class="tbtn"
+			title="Previous item"
+			aria-label="Previous item"
+			disabled={!can(status, 'previous')}
+			onclick={() => void act({ action: 'previous' }, 'Navigation failed')}
+		>
+			<SkipBack size={20} />
+		</button>
+		<button
+			type="button"
+			class="tbtn"
+			title="Back 10 seconds"
+			aria-label="Back 10 seconds"
+			disabled={!can(status, 'seek')}
+			onclick={() => void act({ action: 'seek', offset: -10 }, 'Seek failed')}
+		>
+			<RotateCcw size={18} /><span class="tbtn-num">10s</span>
+		</button>
+		<button
+			type="button"
+			class="tbtn tbtn-primary h-16"
+			title={primary.label}
+			aria-label={primary.label}
+			disabled={!primary.enabled}
+			onclick={() => void act({ action: primary.action }, 'Playback control failed')}
+		>
+			{#if primary.action === 'pause'}<Pause size={24} />{:else}<Play size={24} />{/if}
+		</button>
+		<button
+			type="button"
+			class="tbtn"
+			title="Forward 10 seconds"
+			aria-label="Forward 10 seconds"
+			disabled={!can(status, 'seek')}
+			onclick={() => void act({ action: 'seek', offset: 10 }, 'Seek failed')}
+		>
+			<RotateCw size={18} /><span class="tbtn-num">10s</span>
+		</button>
+		{#if holding}
+			<button
+				type="button"
+				class="tbtn text-xs"
+				title="End the command's hold and move on"
+				disabled={!can(status, 'end_hold')}
+				onclick={() => void act({ action: 'end_hold' }, 'Navigation failed')}
+			>
+				End hold
+			</button>
+		{:else}
+			<button
+				type="button"
+				class="tbtn"
+				title="Next item"
+				aria-label="Next item"
+				disabled={!can(status, 'next')}
+				onclick={() => void act({ action: 'next' }, 'Navigation failed')}
+			>
+				<SkipForward size={20} />
+			</button>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet endButton()}
+	<Button variant="danger" class="w-full" disabled={!can(status, 'end')} onclick={() => void end()}>
+		<Square size={12} />
+		{manual ? 'End manual play' : 'End programme'}
+	</Button>
 {/snippet}
 
 <ConfirmDialog bind:this={confirmDlg} title="End programme?" />
 
 <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
 	<div class="min-w-0 space-y-4">
-		{#if !connected && mpv.loaded}
-			<Banner severity="danger">
-				Player not connected - check the playout host under
-				<a href="{base}/settings?tab=playout" class="font-medium underline">Settings → Playout</a>.
-			</Banner>
-		{/if}
-
 		<Tabs
 			tabs={[
 				{ id: 'programme', label: 'Programme' },
@@ -596,275 +539,163 @@
 			label="Playout mode"
 		/>
 
-		{#if !mpv.loaded}
+		{#if !status}
 			<Spinner label="Connecting to the player…" />
+		{:else if phase === 'offline'}
+			<section class="panel max-w-xl space-y-3 p-4">
+				<p class="font-mono text-xs text-faint">{status.player?.name ?? 'Player'}</p>
+				<p class="text-lg font-semibold">{status.label}</p>
+				<p class="text-sm text-muted">
+					{status.player
+						? `Can't reach the player${playoutReach.hostUrl ? ` at ${playoutReach.hostUrl}` : ''}. Retrying every few seconds${status.player.kind === 'agent' ? '; the player shows its own standby meanwhile' : ''}.`
+						: 'Add a player to put programmes on screen.'}
+				</p>
+				<Button href="{base}/settings?tab=playout" size="sm">
+					<Settings size={13} /> Player settings
+				</Button>
+			</section>
 		{:else if mode === 'manual'}
 			{#if manual}
-				<section class="panel panel-lifted p-4">
-					<p class="font-mono text-xs text-faint">
-						Manual{manual.position != null
-							? ` · item ${manual.position + 1} of ${manual.items.length}`
-							: ''}
-					</p>
-					<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">
-						{manualCurrent?.title ?? 'Starting…'}
-					</h2>
+				<section class="panel panel-lifted max-w-xl space-y-4 p-4">
+					<div>
+						<p class="font-mono text-xs text-faint">
+							Manual{manual.position != null
+								? ` · ${manual.position + 1} of ${manual.items.length}`
+								: ''}
+						</p>
+						<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">
+							{manualCurrent?.title ?? 'Starting…'}
+						</h2>
+					</div>
 					{@render itemBar()}
+					{@render transport()}
+					{@render endButton()}
 				</section>
 			{/if}
-		{:else if !programme}
-			<Idle
-				programmes={programmesQ.data?.programmes ?? []}
-				schedules={schedulesQ.data?.schedules ?? []}
-				oncued={refreshPlayer}
-			/>
-		{:else if !isRunning}
-			<Cued
-				name={programme.name}
-				films={cuedFilms}
-				total={timing.total}
-				count={programmeCount}
-				firstUp={programmeItems[0] ? itemTitle(programmeItems[0]) : null}
-				holding={current ? openingItemLabel(current) : 'System Ident'}
-				{starting}
-				onstart={() => void runProgramme()}
-			/>
-		{:else}
-			<section class="panel panel-lifted p-4">
-				<p class="mb-3 truncate text-sm text-muted">{programme.name}</p>
-				<div class="flex gap-4">
-					{#if current}
-						{@const npTypeInfo = itemTypeDisplay(npType)}
-						{@const TypeIcon = npTypeInfo.icon}
-						<div
-							class="film-grain aspect-[2/3] w-20 shrink-0 overflow-hidden border border-border bg-surface-3 sm:w-28"
-						>
-							{#if npPosterUrl}
-								<img
-									src={npPosterUrl}
-									alt=""
-									class="h-full w-full object-cover"
-									onerror={hideBrokenImage}
-									onload={showLoadedImage}
-								/>
-							{:else}
-								<div class="flex h-full items-center justify-center">
-									<TypeIcon size={30} class={npTypeInfo.classes.icon} aria-hidden="true" />
-								</div>
-							{/if}
-						</div>
-					{/if}
-					<div class="flex min-w-0 flex-1 flex-col">
-						<p class="flex items-center gap-1.5 font-mono text-xs">
-							{#if current}
-								{@const npTypeInfo = itemTypeDisplay(npType)}
-								<span class="text-muted">{npTypeInfo.label}</span>
-								<span class="text-faint">·</span>
-								<span class="text-faint">
-									{programmePosition != null && programmeCount > 0
-										? `Item ${programmePosition + 1} of ${programmeCount}`
-										: 'Pre-show'}
-								</span>
-							{:else}
-								<span class="text-faint">Idle - no media loaded</span>
-							{/if}
-						</p>
-						<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">{npTitle}</h2>
-
-						{#if current}
-							<p class="mt-1.5 flex flex-wrap items-center gap-x-2 font-mono text-xs text-muted">
-								{#each [npMeta.year, npMeta.certification, current.duration ? formatTime(current.duration) : null, npMeta.resolution].filter(Boolean) as fact, i (i)}
-									{#if i > 0}<span class="text-faint">·</span>{/if}<span>{fact}</span>
-								{/each}
-							</p>
-							{@const credits = [
-								npMeta.director,
-								Array.isArray(npMeta.genres) ? npMeta.genres.slice(0, 3).join(', ') : ''
-							].filter(Boolean)}
-							{#if credits.length}
-								<p class="mt-0.5 truncate text-xs text-faint">{credits.join(' · ')}</p>
-							{/if}
-							{#if npType === 'command' && holding}
-								<p class="mt-auto pt-2 text-xs text-live">
-									Command running - <span class="font-medium">Next</span> ends the hold.
-								</p>
-							{/if}
+		{:else if phase === 'standby'}
+			<Standby {status} oncued={refreshPlayer} />
+		{:else if phase === 'cued'}
+			<Cued {status} {starting} onstart={() => void runProgramme()} onend={() => void end()} />
+		{:else if programme}
+			{@const typeInfo = itemTypeDisplay(npType)}
+			<section class="panel panel-lifted max-w-xl space-y-4 p-4">
+				<div>
+					<p class="truncate text-sm text-muted">
+						{programme.name} · {status.current_item && status.current_item.position >= 0
+							? `${status.current_item.position + 1} of ${status.playlist?.total_items ?? 0}`
+							: 'Pre-show'}
+					</p>
+					<h2
+						class="mt-1 flex items-baseline gap-2 text-xl leading-tight font-semibold sm:text-2xl"
+					>
+						{#if npType !== 'title'}
+							<span class="shrink-0 text-sm font-medium {typeInfo.classes.icon}">
+								{holding ? 'Hold' : typeInfo.short}
+							</span>
 						{/if}
-					</div>
+						<span class="min-w-0 truncate">{npTitle}</span>
+					</h2>
+					{#if facts.length}
+						<p class="mt-1 font-mono text-xs text-faint">{facts.join(' · ')}</p>
+					{/if}
 				</div>
 
+				<OnScreen {status} class="aspect-[12/5]" />
 				{@render itemBar()}
+				{@render transport()}
 
-				{#if inPreshow}
-					<p class="mt-3 flex items-baseline justify-between font-mono text-xs">
-						<span class="text-faint">Programme starts in</span>
-						<span class="text-text">{formatTime(preshowLeft)}</span>
+				<div class="space-y-2 border border-border bg-surface-1 p-3">
+					<p class="font-mono text-xs text-faint">Whole programme</p>
+					<RunningOrder
+						{status}
+						items={playlist.data?.playlist ?? []}
+						onjump={(index) => void act({ action: 'jump', index }, 'Jump failed')}
+					/>
+					<p class="flex justify-between text-sm text-muted">
+						<span>
+							{#if phase === 'preshow'}
+								Programme starts in <span class="font-mono">{formatTime(live?.remaining ?? 0)}</span
+								>
+							{:else if programmeTotal > 0}
+								Ends <span class="font-mono"
+									>{formatClock(new Date(Date.now() + programmeRemaining * 1000))}</span
+								>
+							{/if}
+						</span>
+						<span>Then standby</span>
 					</p>
-				{:else}
-					<div class="mt-3">
-						<div class="flex items-baseline justify-between font-mono text-xs">
-							<span class="text-muted">{formatTime(programmeElapsed)}</span>
-							<span class="text-faint">Whole programme</span>
-							<span class="text-muted"
-								>{timing.total > 0 ? `-${formatTime(programmeRemaining)}` : '0:00'}</span
-							>
-						</div>
-						<button
-							type="button"
-							class="mt-1 block h-1.5 w-full cursor-pointer bg-surface-3"
-							style="-webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 9px);"
-							aria-label="Seek within the programme"
-							onclick={(e) => void seekFromProgrammeTrack(e)}
-						>
-							<div
-								class="fill-smooth h-full bg-text/60"
-								style="width: {programmePct.toFixed(2)}%"
-							></div>
-						</button>
-					</div>
-				{/if}
+				</div>
+				{@render endButton()}
 			</section>
 		{/if}
 
-		<section class="panel p-4">
-			{#if playing}
-				<div class="mx-auto grid max-w-md grid-cols-5 gap-2">
-					<button
-						type="button"
-						class="tbtn"
-						title="Previous item"
-						aria-label="Previous item"
-						disabled={!connected}
-						onclick={() => void playlistNav('previous')}
-					>
-						<SkipBack size={20} />
-					</button>
-					<button
-						type="button"
-						class="tbtn"
-						title="Back 10 seconds"
-						aria-label="Back 10 seconds"
-						disabled={!connected}
-						onclick={() => void seekRelative(-10)}
-					>
-						<RotateCcw size={18} /><span class="tbtn-num">10s</span>
-					</button>
-					<button
-						type="button"
-						class="tbtn tbtn-primary"
-						title="Pause / Resume (starts playout when cued)"
-						aria-label="Pause or resume"
-						disabled={!connected}
-						onclick={() => void togglePlayPause()}
-					>
-						{#if isPaused}
-							<Play size={24} />
-						{:else}
-							<Pause size={24} />
-						{/if}
-					</button>
-					<button
-						type="button"
-						class="tbtn"
-						title="Forward 10 seconds"
-						aria-label="Forward 10 seconds"
-						disabled={!connected}
-						onclick={() => void seekRelative(10)}
-					>
-						<RotateCw size={18} /><span class="tbtn-num">10s</span>
-					</button>
-					<button
-						type="button"
-						class="tbtn"
-						title="Next item"
-						aria-label="Next item"
-						disabled={!connected}
-						onclick={() => void playlistNav('next')}
-					>
-						<SkipForward size={20} />
-					</button>
-				</div>
-			{/if}
-
-			<div
-				class="flex flex-wrap items-center gap-x-4 gap-y-3 {playing
-					? 'mt-4 border-t border-border pt-4'
-					: ''}"
-			>
-				<div class="flex min-w-40 flex-1 items-center gap-2">
-					<button
-						type="button"
-						class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
-						title={muted ? 'Unmute' : 'Mute'}
-						aria-label={muted ? 'Unmute' : 'Mute'}
-						onclick={() => void toggleMute()}
-					>
-						<VolumeIcon size={16} />
-					</button>
-					<input
-						type="range"
-						class="min-w-24 flex-1 accent-(--color-accent)"
-						min="0"
-						max="100"
-						bind:value={volume}
-						oninput={() => {
-							volDragging = true;
-							void setVolume(volume);
-						}}
-						onchange={() => (volDragging = false)}
-						aria-label="Volume"
-					/>
-					<span class="w-9 text-right font-mono text-xs text-muted">{volume}%</span>
-				</div>
-
-				{#if playing}
-					<label class="flex items-center gap-1.5 text-xs text-muted" title="Playback speed">
-						<Gauge size={14} class="shrink-0" />
-						<span class="sr-only">Playback speed</span>
-						<select
-							class="speed-select"
-							disabled={!connected}
-							value={String(currentSpeed)}
-							onchange={(e) =>
-								void setSpeed(parseFloat((e.currentTarget as HTMLSelectElement).value))}
+		{#if connected}
+			<section class="panel p-4">
+				<div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+					<div class="flex min-w-40 flex-1 items-center gap-2">
+						<button
+							type="button"
+							class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
+							title={muted ? 'Unmute' : 'Mute'}
+							aria-label={muted ? 'Unmute' : 'Mute'}
+							onclick={() => void toggleMute()}
 						>
-							{#each SPEEDS as speed (speed)}
-								<option value={String(speed)}>{speed}×</option>
-							{/each}
-						</select>
-					</label>
-				{/if}
+							<VolumeIcon size={16} />
+						</button>
+						<input
+							type="range"
+							class="min-w-24 flex-1 accent-(--color-accent)"
+							min="0"
+							max="100"
+							bind:value={volume}
+							oninput={() => {
+								volDragging = true;
+								void setVolume(volume);
+							}}
+							onchange={() => (volDragging = false)}
+							aria-label="Volume"
+						/>
+						<span class="w-9 text-right font-mono text-xs text-muted">{volume}%</span>
+					</div>
 
-				<div class="ml-auto flex items-center gap-2">
-					<Button
-						size="sm"
-						title="Toggle fullscreen"
-						disabled={!connected}
-						onclick={() => void toggleFullscreen()}
-					>
-						<Maximize size={13} />
-					</Button>
-					<Button
-						size="sm"
-						title="Return the screen to the idle ident"
-						disabled={!connected}
-						onclick={() => void returnToIdent()}
-					>
-						<RotateCcw size={13} /> Return to ident
-					</Button>
-					{#if programme}
+					{#if playing}
+						<label class="flex items-center gap-1.5 text-xs text-muted" title="Playback speed">
+							<Gauge size={14} class="shrink-0" />
+							<span class="sr-only">Playback speed</span>
+							<select
+								class="speed-select"
+								value={String(currentSpeed)}
+								onchange={(e) =>
+									void setSpeed(parseFloat((e.currentTarget as HTMLSelectElement).value))}
+							>
+								{#each SPEEDS as speed (speed)}
+									<option value={String(speed)}>{speed}×</option>
+								{/each}
+							</select>
+						</label>
+					{/if}
+
+					<div class="ml-auto flex items-center gap-2">
 						<Button
 							size="sm"
-							variant="danger"
-							title="End the programme - the running order is cleared and the System Ident returns"
-							onclick={() => void stop()}
+							variant={filling ? 'primary' : undefined}
+							title={filling
+								? 'Filling the screen: wide films are cropped at the sides. Click to show the whole picture'
+								: 'Zoom to fill the screen, removing thin bars on wide (DCI) films'}
+							onclick={() => void toggleFill()}
 						>
-							<Square size={12} /> End programme
+							<ScanSearch size={13} /> Fill
 						</Button>
-					{/if}
+						<Button size="sm" title="Toggle fullscreen" onclick={() => void toggleFullscreen()}>
+							<Maximize size={13} />
+						</Button>
+						<Button size="sm" title="Put the player on standby" onclick={() => void goToStandby()}>
+							<RotateCcw size={13} /> Standby
+						</Button>
+					</div>
 				</div>
-			</div>
-		</section>
+			</section>
+		{/if}
 
 		{#if mode === 'manual'}
 			<ManualSearch
@@ -979,7 +810,7 @@
 				onchanged={refreshPlayer}
 			/>
 		</div>
-	{:else}
+	{:else if programme}
 		<details class="panel min-w-0 xl:sticky xl:top-[4.5rem]" bind:open={upNextOpen}>
 			<summary class="phone-summary sm:hidden">
 				<span class="inline-flex items-center gap-1.5"><ListOrdered size={13} /> Rundown</span>
@@ -1000,22 +831,19 @@
 				bind:this={timelineEl}
 				class="max-h-[70vh] overflow-y-auto xl:max-h-[calc(100dvh-10rem)]"
 			>
-				{#if !mpv.loaded && !playlist.data}
-					<Spinner label="Waiting for playlist…" />
-				{:else if !visibleItems.length}
+				{#if !visibleItems.length}
 					<EmptyState icon={Disc3} title="No playlist loaded" compact />
 				{:else}
 					{#each visibleItems as item (item.index)}
-						{@const rowType = item.programme_position == null ? 'ident' : item.type || 'item'}
+						{@const preshow = item.programme_position == null}
+						{@const rowType = preshow ? 'title' : item.type || 'item'}
 						{@const rowTypeInfo = itemTypeDisplay(rowType)}
 						{@const RowIcon = rowTypeInfo.icon}
 						{@const meta = (item.details?.metadata ?? {}) as ItemMeta}
-						{@const rowTitle =
-							item.title ||
-							meta.movie_title ||
-							(rowType === 'ident' ? openingItemLabel(item) : fileName(item.file)) ||
-							'Untitled'}
-						{@const sub = [meta.year, meta.certification].filter(Boolean).join(' · ')}
+						{@const rowTitle = itemTitle(item)}
+						{@const sub = preshow
+							? 'Pre-show'
+							: [meta.year, meta.certification].filter(Boolean).join(' · ')}
 						{@const artUrl =
 							rowType === 'movie' || rowType === 'feature' || rowType === 'trailer'
 								? meta.thumbnail_url || ''
@@ -1027,8 +855,9 @@
 							type="button"
 							data-index={item.index}
 							title={item.file || ''}
-							onclick={() => void jumpTo(item.index)}
-							class="relative flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 hover:bg-surface-2
+							disabled={!can(status, 'jump')}
+							onclick={() => void act({ action: 'jump', index: item.index }, 'Jump failed')}
+							class="relative flex w-full items-center gap-2.5 border-b border-border px-3 py-2 text-left transition-colors last:border-b-0 enabled:hover:bg-surface-2
 							{rowTypeInfo.classes.edge}
 							{isCurrent ? 'bg-surface-2' : ''}
 							{played ? 'opacity-45' : ''}"

@@ -14,5 +14,5 @@ test('remote renders the agent-down state honestly', async ({ page }) => {
 	await page.goto('/app/remote');
 	// No playout host is configured in the smoke environment — the console
 	// must say so rather than pretend or wedge.
-	await expect(page.getByText(/not connected/i).first()).toBeVisible();
+	await expect(page.getByText(/No player is set up|is offline/).first()).toBeVisible();
 });

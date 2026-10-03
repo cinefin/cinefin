@@ -14,7 +14,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
-	import Field from './Field.svelte';
+	import Field from '$lib/settings/Field.svelte';
 
 	interface Props {
 		store: SettingsStore;
