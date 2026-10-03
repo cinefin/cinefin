@@ -10,34 +10,25 @@
 	interface Props {
 		template: TemplateSummary;
 		selected: boolean;
-		/** Its feature count doesn't match the chosen films — not buildable. */
-		disabled?: boolean;
 		note?: string;
 		onselect: () => void;
 	}
 
-	let { template, selected, disabled = false, note, onselect }: Props = $props();
+	let { template, selected, note, onselect }: Props = $props();
 
 	const breakdown = $derived(templateBreakdown(template));
 </script>
 
 <button
 	type="button"
-	{disabled}
 	class="flex min-w-0 flex-col gap-1.5 border bg-surface-2 p-3 text-left transition-colors
-		{selected
-		? 'border-accent'
-		: disabled
-			? 'border-border opacity-45'
-			: 'border-border hover:border-border-strong'}"
+		{selected ? 'border-accent' : 'border-border hover:border-border-strong'}"
 	aria-pressed={selected}
 	onclick={onselect}
 >
 	<span class="flex w-full items-start gap-2">
 		<span class="min-w-0 flex-1 truncate text-sm font-semibold">{template.name}</span>
-		{#if selected}
-			<Badge variant="accent"><Check size={11} /> Selected</Badge>
-		{/if}
+		{#if selected}<Check size={14} class="mt-0.5 shrink-0 text-accent" />{/if}
 		<Badge variant="outline">{movieCount(template.number_of_features)}</Badge>
 	</span>
 	{#if template.description}
@@ -45,6 +36,6 @@
 	{/if}
 	<span class="text-xs text-faint">{breakdown}</span>
 	{#if note}
-		<span class="text-xs {disabled ? 'text-warning' : 'text-muted'}">{note}</span>
+		<span class="text-xs text-warning">{note}</span>
 	{/if}
 </button>

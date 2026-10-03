@@ -1,6 +1,7 @@
 <script lang="ts">
 	// Every loaded command-provider plugin, any that failed to load, and the provider-wide settings
-	// of those that declare some (each saves on its own, outside the page's Save bar).
+	// of those that declare some. A plugin's settings save themselves once they are complete.
+	import { onDestroy } from 'svelte';
 	import { Plug, Power, Search, TriangleAlert } from '@lucide/svelte';
 	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
@@ -23,6 +24,8 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import CheckResult from './CheckResult.svelte';
+	import { AutoSave } from '$lib/settings/autosave.svelte';
+	import SaveState from '$lib/settings/SaveState.svelte';
 
 	type Candidate = components['schemas']['DiscoveredSchema'];
 
@@ -49,22 +52,46 @@
 	let checks = $state<Record<string, CheckState>>({});
 	let candidates = $state<Record<string, Candidate[] | null>>({});
 
-	async function save(p: ProviderInfo) {
-		const result = fromFormValues(p.settings, values[p.id] ?? {});
-		if ('error' in result) return showToast(result.error, 'error');
-		const config = result.config;
-		busy = `${p.id}:save`;
-		await attempt(async () => {
+	// One saver per plugin; the values last saved, so only a real change saves.
+	const savers: Record<string, AutoSave> = {};
+	const savedValues: Record<string, string> = {};
+	let incomplete = $state<Record<string, string | null>>({});
+
+	function saverFor(p: ProviderInfo): AutoSave {
+		return (savers[p.id] ??= new AutoSave(async () => {
+			const draft = JSON.stringify(values[p.id] ?? {});
+			if (draft === savedValues[p.id]) return;
+			const result = fromFormValues(p.settings, values[p.id] ?? {});
+			if ('error' in result) return;
 			await unwrap(
 				api.PUT('/api/v2/commands/providers/{provider_id}/settings', {
 					params: { path: { provider_id: p.id } },
-					body: { values: config }
+					body: { values: result.config }
 				})
 			);
-			showToast(`${p.label} settings saved`, 'success');
-		}, 'Failed to save settings');
-		busy = null;
+			savedValues[p.id] = draft;
+		}, 800));
 	}
+
+	// A change saves itself; one with a required field still empty waits and says why.
+	$effect(() => {
+		for (const p of pluginsQ.data?.providers ?? []) {
+			const v = values[p.id];
+			if (!v) continue;
+			const draft = JSON.stringify(v);
+			if (savedValues[p.id] === undefined) {
+				savedValues[p.id] = draft;
+				continue;
+			}
+			if (draft === savedValues[p.id]) continue;
+			const result = fromFormValues(p.settings, v);
+			incomplete[p.id] = 'error' in result ? result.error : null;
+			if (!('error' in result)) saverFor(p).schedule();
+		}
+	});
+	onDestroy(() => {
+		for (const s of Object.values(savers)) if (s.waiting) void s.flush();
+	});
 
 	async function test(p: ProviderInfo) {
 		// Test what's in the form, saved or not; required-field gaps are the plugin's to report.
@@ -197,10 +224,12 @@
 							</div>
 						{/if}
 						<CheckResult result={checks[p.id] ?? null} />
+						{#if incomplete[p.id]}
+							<p class="text-xs text-warning">Not saved yet: {incomplete[p.id]}</p>
+						{:else}
+							<SaveState saver={saverFor(p)} />
+						{/if}
 						<div class="flex flex-wrap items-center gap-2">
-							<Button variant="primary" disabled={busy !== null} onclick={() => void save(p)}>
-								{busy === `${p.id}:save` ? 'Saving…' : 'Save'}
-							</Button>
 							{#if p.has_settings_test}
 								<Button disabled={busy !== null} onclick={() => void test(p)}>
 									<Plug size={14} /> Test connection

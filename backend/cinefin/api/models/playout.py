@@ -139,6 +139,9 @@ class PlayoutHost(models.Model):
     protocol = models.PositiveSmallIntegerField(
         default=0, help_text="The agent's protocol version, from pairing and refresh (0 = unknown)"
     )
+    min_protocol = models.PositiveSmallIntegerField(
+        default=0, help_text="The oldest Cinefin protocol the agent still serves, from pairing and refresh (0 = any)"
+    )
     is_active = models.BooleanField(
         default=False, help_text="The single host used for playout (exactly one row is active)"
     )
@@ -181,6 +184,8 @@ class PlayoutSession(models.Model):
     programme_cursor = models.IntegerField(default=-1)
     # PlaylistItem ids whose credits command already fired (avoid re-firing after re-attach)
     credits_executed = models.JSONField(default=list, blank=True)
+    # The manual queue ({"title", "kind"} per entry), so a restart keeps manual play
+    manual_items = models.JSONField(default=list, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     @classmethod

@@ -3,19 +3,22 @@
 	interface Props {
 		checked: boolean;
 		label: string;
+		/** The switch's name when it shows no label (a settings row names it). */
+		ariaLabel?: string;
 		disabled?: boolean;
 		/** Called with the new value; the parent saves it and passes `checked` back. */
 		onchange: (checked: boolean) => void;
 		class?: string;
 	}
 
-	let { checked, label, disabled = false, onchange, class: cls = '' }: Props = $props();
+	let { checked, label, ariaLabel, disabled = false, onchange, class: cls = '' }: Props = $props();
 </script>
 
 <button
 	type="button"
 	role="switch"
 	aria-checked={checked}
+	aria-label={ariaLabel}
 	{disabled}
 	onclick={() => onchange(!checked)}
 	class="inline-flex items-center gap-2 text-left disabled:opacity-45 {cls}"
@@ -31,5 +34,5 @@
 				: 'left-0.5'}"
 		></span>
 	</span>
-	<span>{label}</span>
+	{#if label}<span>{label}</span>{/if}
 </button>

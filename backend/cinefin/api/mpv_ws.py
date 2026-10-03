@@ -65,10 +65,12 @@ class WSMPV:
     # subclass turns it off: a Unix socket has no pings.
     keepalive = True
 
-    def __init__(self, url, token=None, quit_callback=None, connect_timeout=5.0):
+    def __init__(self, url, token=None, quit_callback=None, connect_timeout=5.0, reconnect_callback=None):
         self.url = url
         self.token = token
         self.quit_callback = quit_callback
+        # Queued after a redial, ahead of the re-subscribed observers' first values.
+        self.reconnect_callback = reconnect_callback
         self.connect_timeout = connect_timeout
         self._stop = threading.Event()  # set by terminate(); wakes the backoff and keepalive waits
         self._reconnect_delay = RECONNECT_DELAY
@@ -143,9 +145,10 @@ class WSMPV:
                 logger.error("WSMPV callback raised: %s", e)
 
     def _open_connection(self):
-        header = []
-        if self.token:
-            header.append(f"Authorization: Bearer {self.token}")
+        # Imported here: the agent client pulls in the models, which this low-level module must not.
+        from cinefin.api.services.playout_agent_service import headers as agent_headers
+
+        header = [f"{k}: {v}" for k, v in agent_headers(self.token).items()]
         try:
             ws = websocket.create_connection(self.url, timeout=self.connect_timeout, header=header)
             ws.settimeout(None)  # persistent reader loop
@@ -294,6 +297,9 @@ class WSMPV:
         # Fresh link = possibly-restarted mpv: allow quit_callback to fire again, re-register observers.
         self._quit_fired = False
         self._resubscribe()
+        if self.reconnect_callback:
+            # Queued, not run: this is the reader thread, which a callback's replies need.
+            self._callbacks.put(self.reconnect_callback)
         return True
 
     def command(self, command, *args, timeout=None):
@@ -397,6 +403,7 @@ _INTERNAL_ATTRS = frozenset(
         "url",
         "token",
         "quit_callback",
+        "reconnect_callback",
         "connect_timeout",
         "_stop",
         "_reconnect_delay",

@@ -13,7 +13,7 @@
 	import CheckResult from './CheckResult.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
-	let { confirm }: { confirm: ConfirmDialog['confirm'] } = $props();
+	let { confirm, onreset }: { confirm: ConfirmDialog['confirm']; onreset: () => void } = $props();
 
 	const info = query(() => unwrap(api.GET('/api/v2/backup/info')));
 	const facts = (d: NonNullable<typeof info.data>) => [
@@ -161,6 +161,17 @@
 					</div>
 				</div>
 			{/if}
+		</div>
+	</Card>
+
+	<Card title="Reset settings">
+		<div class="flex flex-wrap items-center gap-3">
+			<p class="mr-auto text-sm text-muted">
+				Put every setting on this page back to its default. Players, films and programmes are kept.
+			</p>
+			<Button variant="danger" onclick={onreset}>
+				<RotateCcw size={14} /> Reset to defaults
+			</Button>
 		</div>
 	</Card>
 </div>

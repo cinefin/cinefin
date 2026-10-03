@@ -2,7 +2,6 @@
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
 	import {
-		Captions,
 		Cpu,
 		Disc3,
 		Gauge,
@@ -29,19 +28,18 @@
 	import { showToast as toast, toastFailure } from '$lib/toast.svelte';
 	import { formatClock, formatTime } from '$lib/format';
 	import { itemTypeDisplay } from '$lib/item-types';
+	import NowPlaying from '$lib/playout/NowPlaying.svelte';
 	import RunningOrder from '$lib/playout/RunningOrder.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import { can, primaryAction, started } from '$lib/playout/phase';
 	import { playout, type ControlBody } from '$lib/stores/playout.svelte';
 	import { mpv, playlist, type PlayoutPlaylistItem } from '$lib/stores/player.svelte';
 	import { playoutReach } from '$lib/stores/playoutReach.svelte';
 	import type { components } from '$lib/api/types.gen';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
-	import Cued from '$lib/remote/Cued.svelte';
 	import ComingUp from '$lib/remote/ComingUp.svelte';
 	import CueDialog, { skippedText } from '$lib/playout/CueDialog.svelte';
 	import { Upcoming } from '$lib/remote/upcoming.svelte';
-	import NowPlaying from '$lib/remote/NowPlaying.svelte';
-	import Standby from '$lib/remote/Standby.svelte';
 	import ManualQueue from '$lib/remote/ManualQueue.svelte';
 	import ManualSearch from '$lib/remote/ManualSearch.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
@@ -94,7 +92,7 @@
 
 	const status = $derived(playout.status);
 	const phase = $derived(status?.phase);
-	const connected = $derived(!!status && phase !== 'offline');
+	const connected = $derived(!!status && phase !== 'offline' && !playout.stale);
 	const programme = $derived(status?.programme ?? null);
 	const primary = $derived(primaryAction(status));
 	const holding = $derived(phase === 'hold');
@@ -103,7 +101,6 @@
 	const mpvPos = $derived(status?.playlist?.mpv_position ?? null);
 
 	const manual = $derived(status?.manual ?? null);
-	const manualCurrent = $derived(manual?.items[manual.position ?? -1] ?? null);
 	/** Something plays under the operator's hand: the transport and tracks apply. */
 	const playing = $derived(started(status) || !!manual);
 	let mode = $state<'programme' | 'manual'>('programme');
@@ -164,27 +161,8 @@
 		);
 	}
 
-	const npMeta = $derived((current?.details?.metadata ?? {}) as ItemMeta);
-	const npType = $derived(status?.current_item?.type || current?.type || 'item');
-	const npTitle = $derived(status?.current_item?.title || status?.screen || '');
-	// Cued: the first feature's poster for the banner.
-	const cuedArt = $derived(
-		items
-			.map((it) => (it.details?.metadata ?? {}) as ItemMeta)
-			.find((m, i) => ['movie', 'feature'].includes(items[i].type ?? '') && m.thumbnail_url)
-			?.thumbnail_url ?? null
-	);
 	const artOf = (type: string, meta: ItemMeta) =>
 		['movie', 'feature', 'trailer'].includes(type) ? meta.thumbnail_url || '' : '';
-	const npArt = $derived(artOf(npType, npMeta) || null);
-	const facts = $derived(
-		[
-			npMeta.year,
-			npMeta.certification,
-			current?.duration ? formatTime(current.duration) : null,
-			npMeta.resolution
-		].filter((fact): fact is string | number => !!fact)
-	);
 
 	const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 	let volume = $state(100);
@@ -250,6 +228,14 @@
 		await act({ action: 'end' }, 'Failed to end');
 	}
 
+	async function statusLine(show: boolean): Promise<void> {
+		try {
+			await playout.setStatusLine(show);
+		} catch (err) {
+			toastFailure('Could not change the status line', err);
+		}
+	}
+
 	// A recovery for a stale screen; confirms only when it would clear a programme.
 	async function goToStandby(): Promise<void> {
 		const question = `"${programme?.name}" is on the player. Go to standby and clear it?`;
@@ -264,31 +250,6 @@
 		}
 	}
 
-	let itemTrackEl = $state<HTMLDivElement>();
-	let dragPct = $state<number | null>(null);
-
-	function trackPct(e: PointerEvent, el: HTMLElement): number {
-		const rect = el.getBoundingClientRect();
-		return Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
-	}
-
-	function onItemTrackDown(e: PointerEvent) {
-		if (!itemTrackEl || !can(status, 'seek')) return;
-		itemTrackEl.setPointerCapture(e.pointerId);
-		dragPct = trackPct(e, itemTrackEl);
-	}
-
-	function onItemTrackMove(e: PointerEvent) {
-		if (dragPct != null && itemTrackEl) dragPct = trackPct(e, itemTrackEl);
-	}
-
-	async function onItemTrackUp(e: PointerEvent) {
-		if (dragPct == null || !itemTrackEl) return;
-		dragPct = trackPct(e, itemTrackEl);
-		await act({ action: 'seek', seconds: (dragPct / 100) * itemDuration }, 'Seek failed');
-		dragPct = null;
-	}
-
 	// Seeded once from the breakpoint, then bind:open: a reactive `open={...}` would snap
 	// shut a panel the operator just opened on every status re-render.
 	const startCollapsed =
@@ -300,6 +261,20 @@
 	const audioTracks = $derived((st?.tracks?.audio_tracks ?? []) as Track[]);
 	const subTracks = $derived((st?.tracks?.sub_tracks ?? []) as Track[]);
 	const subOffActive = $derived(!subTracks.some((t) => t.selected));
+	let trackTab = $state<'audio' | 'sub'>('audio');
+	const selected = (tracks: Track[]) => {
+		const i = tracks.findIndex((t) => t.selected);
+		return i < 0 ? null : { track: tracks[i], i };
+	};
+	const audioOn = $derived(selected(audioTracks));
+	const subOn = $derived(selected(subTracks));
+
+	/** "ENG · TRUEHD": what the title often leaves out. */
+	const trackMeta = (t: Track) =>
+		[t.language, t.codec]
+			.filter(Boolean)
+			.map((v) => v!.toUpperCase())
+			.join(' · ');
 
 	function trackLabel(t: Track, i: number, kind: 'Audio' | 'Subtitle'): string {
 		return t.title || (t.language ? t.language.toUpperCase() : '') || `${kind} ${i + 1}`;
@@ -365,53 +340,14 @@
 
 	// Panels and controls drawn only on this page.
 	const panel = 'border border-border bg-surface-1';
-	const lifted = 'border border-border bg-surface-2';
 	const panelLabel = 'inline-flex items-center gap-[0.4rem] text-[0.8rem] font-medium text-muted';
 	const tbtnBase =
 		'flex h-14 flex-col items-center justify-center gap-[0.1rem] rounded-md border transition-[background-color] duration-150 ease-[ease] active:brightness-90 disabled:pointer-events-none disabled:opacity-40';
 	const tbtnCls = `${tbtnBase} border-border-strong bg-surface-2 text-text hover:bg-surface-3`;
 	const tbtnPrimary = `${tbtnBase} border-transparent bg-accent text-on-accent hover:bg-accent-hover`;
-	const seg =
-		'w-full truncate rounded-sm border px-[0.6rem] py-1 text-left text-[0.75rem] transition-[color,border-color,background-color] duration-150 ease-[ease] hover:text-text disabled:pointer-events-none disabled:opacity-45';
-	const segOff = 'border-border-strong bg-surface-2 text-muted';
-	const trackCol = 'flex max-h-48 flex-col gap-1 overflow-y-auto';
-	const segOn =
-		'border-accent bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-accent';
 </script>
 
 <PageHeader title="Remote" />
-
-{#snippet itemBar()}
-	<div>
-		<div
-			bind:this={itemTrackEl}
-			class="group relative h-2.5 touch-none {can(status, 'seek') ? 'cursor-pointer' : ''}"
-			role="slider"
-			aria-label="Seek within the current item"
-			aria-valuemin={0}
-			aria-valuemax={100}
-			aria-valuenow={Math.round(dragPct ?? itemPct)}
-			tabindex="-1"
-			onpointerdown={onItemTrackDown}
-			onpointermove={onItemTrackMove}
-			onpointerup={(e) => void onItemTrackUp(e)}
-		>
-			<div class="absolute inset-0 bg-surface-3">
-				<div
-					class="h-full {holding ? 'bg-live' : itemTypeDisplay(npType).classes.bar} {dragPct == null
-						? 'transition-[width] duration-[260ms] ease-linear motion-reduce:transition-none'
-						: ''}"
-					style="width: {(dragPct ?? itemPct).toFixed(2)}%"
-				></div>
-			</div>
-		</div>
-		<div class="mt-1.5 flex items-baseline justify-between font-mono text-xs text-muted">
-			<span>{formatTime(itemTime)}</span>
-			<span class="text-faint">{holding ? 'Command hold' : ''}</span>
-			<span>-{formatTime(Math.max(0, itemDuration - itemTime))}</span>
-		</div>
-	</div>
-{/snippet}
 
 {#snippet tbtn(label: string, body: ControlBody, Icon: typeof SkipBack)}
 	{@const seek = body.action === 'seek'}
@@ -459,22 +395,34 @@
 	</div>
 {/snippet}
 
-{#snippet trackButton(type: 'audio' | 'sub', id: number | 'no', on: unknown, label: string)}
+{#snippet trackRow(
+	type: 'audio' | 'sub',
+	id: number | 'no',
+	on: unknown,
+	title: string,
+	meta: string
+)}
 	<button
 		type="button"
-		class="{seg} {on ? segOn : segOff}"
+		role="radio"
+		aria-checked={!!on}
+		class="flex w-full shrink-0 items-start gap-2.5 rounded-sm border px-2.5 py-2 text-left transition-[color,border-color,background-color] duration-150 ease-[ease] disabled:pointer-events-none disabled:opacity-45 {on
+			? 'border-accent bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-text'
+			: 'border-border bg-surface-2 text-muted hover:text-text'}"
 		disabled={!connected}
 		onclick={() => void selectTrack(type, id)}
-		title={id === 'no' ? undefined : label}
 	>
-		{label}
+		<span
+			class="mt-1 size-2.5 shrink-0 rounded-full border {on
+				? 'border-accent bg-accent'
+				: 'border-border-strong'}"
+			aria-hidden="true"
+		></span>
+		<span class="min-w-0 flex-1">
+			<span class="line-clamp-2 text-[0.8125rem] leading-snug">{title}</span>
+			{#if meta}<span class="mt-0.5 block font-mono text-[0.6875rem] text-faint">{meta}</span>{/if}
+		</span>
 	</button>
-{/snippet}
-
-{#snippet trackList(type: 'audio' | 'sub', tracks: Track[], kind: 'Audio' | 'Subtitle')}
-	{#each tracks as track, i (track.id)}
-		{@render trackButton(type, track.id, track.selected, trackLabel(track, i, kind))}
-	{/each}
 {/snippet}
 
 {#snippet phoneSummary(Icon: typeof Cpu, label: string, count = '')}
@@ -514,88 +462,87 @@
 
 		{#if !status}
 			<Spinner label="Connecting to the player…" />
-		{:else if phase === 'offline'}
-			<section class="{panel} max-w-xl space-y-3 p-4">
-				<p class="font-mono text-xs text-faint">{status.player?.name ?? 'Player'}</p>
-				<p class="text-lg font-semibold">{status.label}</p>
-				<p class="text-sm text-muted">
-					{status.player
-						? `Can't reach the player${playoutReach.hostUrl ? ` at ${playoutReach.hostUrl}` : ''}. Retrying every few seconds${status.player.kind === 'agent' ? '; the player shows its own standby meanwhile' : ''}.`
-						: 'Add a player to put programmes on screen.'}
-				</p>
-				<Button href="{base}/settings?tab=playout" size="sm">
-					<Settings size={13} /> Player settings
-				</Button>
-			</section>
-		{:else if mode === 'manual'}
-			{#if manual}
-				<section class="{lifted} space-y-4 p-4">
-					<div>
-						<p class="font-mono text-xs text-faint">
-							Manual{manual.position != null
-								? ` · ${manual.position + 1} of ${manual.items.length}`
-								: ''}
-						</p>
-						<h2 class="mt-1 text-xl leading-tight font-semibold sm:text-2xl">
-							{manualCurrent?.title ?? 'Starting…'}
-						</h2>
-					</div>
-					{@render itemBar()}
-					{@render transport()}
-					{@render endButton()}
-				</section>
-			{/if}
-		{:else if phase === 'standby'}
-			<Standby {status} {upcoming} oncue={cue} />
-		{:else if phase === 'cued'}
-			<Cued
+		{:else if mode === 'programme' || manual || phase === 'offline'}
+			<NowPlaying
 				{status}
-				art={cuedArt}
-				{starting}
-				onstart={() => void runProgramme()}
-				onend={() => void end()}
-			/>
-		{:else if programme}
-			<section class={lifted}>
-				<NowPlaying
-					art={npArt}
-					type={npType}
-					title={npTitle}
-					kicker="{programme.name} · {status.current_item && status.current_item.position >= 0
-						? `${status.current_item.position + 1} of ${status.playlist?.total_items ?? 0}`
-						: 'Pre-show'}"
-					{facts}
-					{holding}
-				/>
-				<div class="space-y-5 p-4">
-					{@render itemBar()}
-					{@render transport()}
-
-					<div class="space-y-2 border border-border bg-surface-1 p-3">
-						<p class="font-mono text-xs text-faint">Whole programme</p>
-						<RunningOrder
-							{status}
-							items={playlist.data?.playlist ?? []}
-							onjump={(index) => void act({ action: 'jump', index }, 'Jump failed')}
-						/>
-						<p class="flex justify-between text-sm text-muted">
-							<span>
-								{#if phase === 'preshow'}
-									Programme starts in <span class="font-mono"
-										>{formatTime(live?.remaining ?? 0)}</span
-									>
-								{:else if programmeTotal > 0}
-									Ends <span class="font-mono"
-										>{formatClock(new Date(Date.now() + programmeRemaining * 1000))}</span
-									>
-								{/if}
-							</span>
-							<span>Then standby</span>
-						</p>
+				address={playoutReach.hostUrl}
+				onseek={(seconds) => void act({ action: 'seek', seconds }, 'Seek failed')}
+			>
+				{#if phase === 'offline'}
+					<Button href="{base}/settings?tab=playout" size="sm">
+						<Settings size={13} /> Player settings
+					</Button>
+				{:else if phase === 'standby'}
+					{@const next = status.next_screening}
+					<div class="flex flex-wrap items-center gap-2">
+						{#if next}
+							<Button
+								variant="primary"
+								size="lg"
+								disabled={!can(status, 'cue')}
+								onclick={() => cue(next.programme_id)}>Cue it now</Button
+							>
+						{/if}
+						<Button
+							variant={next ? undefined : 'primary'}
+							size="lg"
+							disabled={!can(status, 'cue')}
+							onclick={() => cue()}>{next ? 'Cue another programme' : 'Cue a programme'}</Button
+						>
+						{#if status.player}
+							<Switch
+								class="ml-auto text-sm"
+								label="Status line"
+								checked={status.player.show_status}
+								onchange={(show) => void statusLine(show)}
+							/>
+						{/if}
 					</div>
-					{@render endButton()}
-				</div>
-			</section>
+				{:else if phase === 'cued'}
+					<div class="space-y-3">
+						<Button
+							variant="primary"
+							size="lg"
+							class="w-full"
+							disabled={starting || !can(status, 'start')}
+							onclick={() => void runProgramme()}
+						>
+							<Play size={16} />
+							{starting ? 'Starting…' : 'Start'}
+						</Button>
+						{@render endButton()}
+					</div>
+				{:else}
+					<div class="space-y-5">
+						{@render transport()}
+						{#if programme && !manual}
+							<div class="space-y-2 border border-border bg-surface-1 p-3">
+								<p class="font-mono text-xs text-faint">Whole programme</p>
+								<RunningOrder
+									{status}
+									items={playlist.data?.playlist ?? []}
+									onjump={(index) => void act({ action: 'jump', index }, 'Jump failed')}
+								/>
+								<p class="flex justify-between text-sm text-muted">
+									<span>
+										{#if phase === 'preshow'}
+											Programme starts in <span class="font-mono"
+												>{formatTime(live?.remaining ?? 0)}</span
+											>
+										{:else if programmeTotal > 0}
+											Ends <span class="font-mono"
+												>{formatClock(new Date(Date.now() + programmeRemaining * 1000))}</span
+											>
+										{/if}
+									</span>
+									<span>Then standby</span>
+								</p>
+							</div>
+						{/if}
+						{@render endButton()}
+					</div>
+				{/if}
+			</NowPlaying>
 		{/if}
 
 		{#if mode === 'manual'}
@@ -696,21 +643,56 @@
 		{#if playing}
 			<details class={panel} bind:open={tracksOpen}>
 				{@render phoneSummary(Headphones, 'Tracks')}
-				<div class="grid grid-cols-2 gap-3 p-4">
-					<div class="min-w-0">
-						<p class={panelLabel}><Headphones size={12} /> Audio</p>
-						<div class="{trackCol} mt-1.5">
-							{#if !audioTracks.length}
-								<span class="text-xs text-faint">No audio tracks</span>
+				<div class="p-4">
+					<Tabs
+						tabs={[
+							{ id: 'audio', label: `Audio · ${audioTracks.length}` },
+							{ id: 'sub', label: `Subtitles · ${subTracks.length}` }
+						]}
+						value={trackTab}
+						onselect={(id) => (trackTab = id as typeof trackTab)}
+						label="Tracks"
+						panelId={(id) => `tracks-${id}`}
+					/>
+					<p class="mt-2.5 text-xs text-muted">
+						Playing <span class="text-text"
+							>{audioOn ? trackLabel(audioOn.track, audioOn.i, 'Audio') : 'no audio'}</span
+						>
+						· subtitles
+						<span class="text-text"
+							>{subOn ? trackLabel(subOn.track, subOn.i, 'Subtitle') : 'off'}</span
+						>
+					</p>
+					<div id="tracks-{trackTab}" role="tabpanel" class="mt-2">
+						<div
+							role="radiogroup"
+							aria-label={trackTab === 'audio' ? 'Audio track' : 'Subtitle track'}
+							class="flex max-h-80 flex-col gap-1 overflow-y-auto pr-1"
+						>
+							{#if trackTab === 'audio'}
+								{#each audioTracks as track, i (track.id)}
+									{@render trackRow(
+										'audio',
+										track.id,
+										track.selected,
+										trackLabel(track, i, 'Audio'),
+										trackMeta(track)
+									)}
+								{:else}
+									<span class="text-xs text-faint">No audio tracks</span>
+								{/each}
+							{:else}
+								{@render trackRow('sub', 'no', subOffActive, 'Off', '')}
+								{#each subTracks as track, i (track.id)}
+									{@render trackRow(
+										'sub',
+										track.id,
+										track.selected,
+										trackLabel(track, i, 'Subtitle'),
+										trackMeta(track)
+									)}
+								{/each}
 							{/if}
-							{@render trackList('audio', audioTracks, 'Audio')}
-						</div>
-					</div>
-					<div class="min-w-0">
-						<p class={panelLabel}><Captions size={12} /> Subtitles</p>
-						<div class="{trackCol} mt-1.5">
-							{@render trackButton('sub', 'no', subOffActive, 'Off')}
-							{@render trackList('sub', subTracks, 'Subtitle')}
 						</div>
 					</div>
 				</div>
@@ -863,7 +845,7 @@
 							{#if isCurrent}
 								<span
 									class="absolute bottom-0 left-0 h-0.5 bg-accent"
-									style="width: {(dragPct ?? itemPct).toFixed(1)}%"
+									style="width: {itemPct.toFixed(1)}%"
 								></span>
 							{/if}
 						</button>

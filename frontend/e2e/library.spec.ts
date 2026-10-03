@@ -34,7 +34,11 @@ test('library: search narrows, the film drawer opens, swaps and closes, Sync goe
 	// The demo source is disabled, so the header links to Settings instead of syncing in place.
 	await page.getByRole('link', { name: 'Sync', exact: true }).click();
 	await expect(page).toHaveURL(/\/app\/settings\?tab=library/);
-	await expect(page.getByRole('heading', { name: 'Library source' })).toBeVisible();
+	await expect(
+		page
+			.getByRole('navigation', { name: 'Settings sections' })
+			.getByRole('link', { name: 'Library' })
+	).toHaveAttribute('aria-current', 'page');
 
 	// The old sync path still lands there (bookmarks keep working).
 	await page.goto('/app/sync');

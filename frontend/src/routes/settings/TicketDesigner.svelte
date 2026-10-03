@@ -1,6 +1,6 @@
 <script lang="ts">
-	// Pick a design, click a line on the receipt to edit it beside it (drag to reorder), and set the
-	// design's own fields below. Everything saves as you go, with undo.
+	// One design's page: click a line on the receipt to edit it beside it (drag to reorder), and set
+	// the design's own settings below. Everything saves as you go, with undo.
 	import {
 		ChevronDown,
 		ChevronUp,
@@ -9,19 +9,23 @@
 		Plus,
 		Printer,
 		Redo2,
-		Star,
 		Trash2,
 		Undo2
 	} from '@lucide/svelte';
+	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
 	import { attempt, raw } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import Field from '$lib/settings/Field.svelte';
+	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import ColumnsFields from '$lib/tickets/ColumnsFields.svelte';
 	import IconButton from '$lib/tickets/IconButton.svelte';
@@ -32,7 +36,6 @@
 		DATE_FORMATS,
 		FONTS,
 		KINDS,
-		STARTERS,
 		TIME_FORMATS,
 		kindOf,
 		setField,
@@ -43,15 +46,20 @@
 		type Selection,
 		type TicketElement
 	} from '$lib/tickets/kinds';
-	import Disclosure from './Disclosure.svelte';
+	import SettingList from './SettingList.svelte';
+	import SettingRow from './SettingRow.svelte';
 
-	let { confirm }: { confirm: ConfirmDialog['confirm'] } = $props();
+	let { id, confirm }: { id: number; confirm: ConfirmDialog['confirm'] } = $props();
 	type Summary = Pick<Design, 'id' | 'name' | 'is_default'>;
+
+	const TICKETS = `${base}/settings?tab=tickets`;
 
 	let designs = $state<Summary[]>([]);
 	let current = $state<Design | null>(null);
 	let selection = $state<Selection | null>(null);
 	let loading = $state(true);
+	// An edit not yet sent: flushed when the page switches design or is left.
+	let dirty = false;
 
 	const history = new History<DesignDraft>();
 	let canUndo = $state(false);
@@ -69,33 +77,44 @@
 	const scheduleSave = debounced(() => save(), 500);
 	const schedulePreview = debounced(() => preview(), 300);
 
+	function flush() {
+		scheduleSave.cancel();
+		if (dirty) void save();
+	}
+
 	$effect(() => {
-		void loadDesigns().then(() => (loading = false));
+		void loadDesigns();
 		return () => {
-			scheduleSave.cancel();
 			schedulePreview.cancel();
+			flush();
 		};
+	});
+	// The route reuses this page for another design (after Duplicate): open it.
+	$effect(() => {
+		const want = id;
+		untrack(() => {
+			flush();
+			void openDesign(want).then(() => (loading = false));
+		});
 	});
 
 	async function loadDesigns() {
 		try {
 			designs = await raw(api.GET('/api/v2/tickets/designs'));
 		} catch {
-			showToast('Failed to load ticket designs', 'error');
-			return;
+			// Supplementary: only Delete's guard and the default's name read it.
 		}
-		const keep = current && designs.some((d) => d.id === current!.id) ? current.id : null;
-		const pick = keep ?? (designs.find((d) => d.is_default) ?? designs[0])?.id;
-		if (pick) await openDesign(pick);
 	}
 
-	async function openDesign(id: number) {
+	async function openDesign(designId: number) {
 		try {
 			current = (await raw(
-				api.GET('/api/v2/tickets/designs/{design_id}', { params: { path: { design_id: id } } })
+				api.GET('/api/v2/tickets/designs/{design_id}', {
+					params: { path: { design_id: designId } }
+				})
 			)) as Design;
 		} catch {
-			showToast('Failed to load design', 'error');
+			current = null;
 			return;
 		}
 		selection = current.elements.length ? { index: 0 } : null;
@@ -121,6 +140,7 @@
 	}
 
 	function changed() {
+		dirty = true;
 		syncHistory();
 		scheduleSave();
 		schedulePreview();
@@ -185,17 +205,17 @@
 
 	async function save() {
 		if (!current) return;
+		dirty = false;
 		const name = current.name;
 		const design_id = current.id;
+		const fields = apiFields();
 		await attempt(async () => {
-			const updated = (await raw(
+			await raw(
 				api.PUT('/api/v2/tickets/designs/{design_id}', {
 					params: { path: { design_id } },
-					body: { name: name.trim() || 'Untitled', ...apiFields() }
+					body: { name: name.trim() || 'Untitled', ...fields }
 				})
-			)) as Design;
-			const summary = designs.find((d) => d.id === updated.id);
-			if (summary) summary.name = updated.name;
+			);
 		}, 'Failed to save design');
 	}
 
@@ -226,33 +246,18 @@
 		printing = false;
 	}
 
-	/** Make a design (new or a copy), then open it. */
-	function create(make: () => Promise<{ id: number }>, fail: string) {
-		return attempt(async () => {
-			const d = await make();
-			await loadDesigns();
-			await openDesign(d.id);
-		}, fail);
-	}
-
-	const newDesign = (starter: (typeof STARTERS)[number]['id']) =>
-		create(
-			() => raw(api.POST('/api/v2/tickets/designs', { body: { name: 'New design', starter } })),
-			'Could not create design'
-		);
-
 	function duplicate() {
 		if (!current) return;
 		const design_id = current.id;
-		void create(
-			() =>
-				raw(
-					api.POST('/api/v2/tickets/designs/{design_id}/duplicate', {
-						params: { path: { design_id } }
-					})
-				),
-			'Could not duplicate'
-		);
+		void attempt(async () => {
+			const copy = await raw(
+				api.POST('/api/v2/tickets/designs/{design_id}/duplicate', {
+					params: { path: { design_id } }
+				})
+			);
+			await loadDesigns();
+			await goto(`${base}/settings/tickets/${copy.id}`);
+		}, 'Could not duplicate');
 	}
 
 	async function setDefault() {
@@ -267,7 +272,6 @@
 			);
 			design.is_default = true;
 			await loadDesigns();
-			showToast('Default design set', 'success');
 		}, 'Could not set default');
 	}
 
@@ -279,24 +283,20 @@
 			await raw(
 				api.DELETE('/api/v2/tickets/designs/{design_id}', { params: { path: { design_id } } })
 			);
+			dirty = false;
 			current = null;
-			await loadDesigns();
+			await goto(TICKETS);
 		}, 'Could not delete');
 	}
 
-	const starterItems: MenuItem[] = STARTERS.map((s) => ({
-		label: s.label,
-		onclick: () => void newDesign(s.id)
-	}));
 	const addItems: MenuItem[] = Object.values(KINDS).map((k) => ({
 		label: k.label,
 		icon: k.icon,
 		onclick: () => add(k.make())
 	}));
 	const designItems = $derived<MenuItem[]>([
-		{ label: 'Set as default', icon: Star, disabled: !!current?.is_default, onclick: setDefault },
 		{
-			label: 'Delete',
+			label: 'Delete design',
 			icon: Trash2,
 			danger: true,
 			disabled: designs.length <= 1,
@@ -305,57 +305,45 @@
 	]);
 
 	const val = (e: Event) => (e.currentTarget as HTMLInputElement).value;
-	const DESIGN_SELECTS = [
-		{ id: 'td-font', label: 'Columns font', key: 'font', options: FONTS },
-		{ id: 'td-date', label: 'Date', key: 'date_format', options: DATE_FORMATS },
-		{ id: 'td-time', label: 'Time', key: 'time_format', options: TIME_FORMATS }
-	] as const;
+	const labelOf = (choices: { id: string; label: string }[], value: string) =>
+		choices.find((c) => c.id === value)?.label ?? value;
 	const linkLines = (text: string) =>
 		text
 			.split('\n')
 			.map((l) => l.trim())
 			.filter(Boolean);
+	const defaultName = $derived(designs.find((d) => d.is_default)?.name ?? 'the default');
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
+<PageHeader
+	title={current?.name || 'Ticket design'}
+	count={current?.is_default ? 'Default' : undefined}
+	back={{ href: TICKETS, label: 'Settings' }}
+	actions={current ? headerActions : undefined}
+/>
+{#snippet headerActions()}
+	<Button size="sm" onclick={duplicate}><Copy size={13} /> Duplicate</Button>
+	<Menu items={designItems} icon={Ellipsis} size="sm" ariaLabel="More design actions" />
+{/snippet}
+
 {#if loading}
-	<Spinner label="Loading ticket designs…" />
+	<Spinner label="Loading the design…" />
 {:else if !current}
-	<p class="text-sm text-muted">No ticket designs could be loaded.</p>
+	<p class="text-sm text-muted">
+		This design could not be loaded. <a class="text-accent hover:underline" href={TICKETS}
+			>Back to ticket settings</a
+		>.
+	</p>
 {:else}
 	{@const line = selection ? current.elements[selection.index] : undefined}
-	<div class="mb-5 flex flex-wrap items-center gap-2">
-		{#each designs as d (d.id)}
-			<button
-				type="button"
-				aria-pressed={d.id === current.id}
-				class="flex h-8 items-center gap-2 border px-3 text-sm font-medium
-					{d.id === current.id
-					? 'border-accent bg-surface-2 text-text'
-					: 'border-border text-muted hover:text-text'}"
-				onclick={() => void openDesign(d.id)}
-			>
-				{d.name}
-				{#if d.is_default}<span class="text-[0.7rem] text-warning">Default</span>{/if}
-			</button>
-		{/each}
-		<Menu items={starterItems} label="New design" icon={Plus} size="sm" variant="ghost" />
-		<div class="ml-auto flex items-center gap-1.5">
-			<IconButton icon={Undo2} label="Undo" title="Undo" disabled={!canUndo} onclick={undo} />
-			<IconButton icon={Redo2} label="Redo" title="Redo" disabled={!canRedo} onclick={redo} />
-			<Button size="sm" onclick={duplicate}><Copy size={13} /> Duplicate</Button>
-			<Menu items={designItems} icon={Ellipsis} size="sm" ariaLabel="More design actions" />
-		</div>
-	</div>
-
-	<div class="grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)]">
-		<div class="flex flex-col gap-2.5 self-start">
-			<div class="flex items-center gap-1.5">
+	<div class="space-y-6 pb-8">
+		<section class="border border-border bg-surface-1">
+			<div class="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2">
 				<Menu items={addItems} label="Add a line" icon={Plus} size="sm" />
 				<Button
 					size="sm"
-					class="ml-auto"
 					disabled={printing}
 					title="Print this design with the sample details shown"
 					onclick={() => void testPrint()}
@@ -363,69 +351,86 @@
 					<Printer size={13} />
 					{printing ? 'Printing…' : 'Test print'}
 				</Button>
+				<span class="ml-auto"></span>
+				<IconButton icon={Undo2} label="Undo" title="Undo" disabled={!canUndo} onclick={undo} />
+				<IconButton icon={Redo2} label="Redo" title="Redo" disabled={!canRedo} onclick={redo} />
 			</div>
-			{#if !previewImage}
-				<Spinner size="sm" label="Rendering preview…" />
-			{:else}
-				<Receipt
-					preview={previewImage}
-					{selection}
-					onselect={(s) => (selection = s)}
-					onmove={move}
-				/>
-			{/if}
-			<p class="text-center text-xs text-muted">Click a line to edit it, drag it to move it.</p>
-		</div>
 
-		<div class="min-w-0 space-y-4">
-			{#if line && selection}
-				{@const index = selection.index}
-				<section class="space-y-4 border border-border bg-surface-1 p-4">
-					<div class="flex items-center gap-1">
-						<h3 class="mr-auto text-sm font-medium">{kindOf(line).label}</h3>
-						<span class="mr-1 text-xs text-muted"
-							>Line {index + 1} of {current.elements.length}</span
-						>
-						<IconButton
-							icon={ChevronUp}
-							label="Move up"
-							disabled={index === 0}
-							onclick={() => move(index, index - 1)}
-						/>
-						<IconButton
-							icon={ChevronDown}
-							label="Move down"
-							disabled={index === current.elements.length - 1}
-							onclick={() => move(index, index + 1)}
-						/>
-						<IconButton icon={Trash2} label="Remove line" danger onclick={() => remove(index)} />
-					</div>
-
-					{#if line.type === 'columns'}
-						<ColumnsFields
-							el={line}
-							cell={selection.cell}
-							item={selection.item}
-							onselect={(cell, item) => (selection = { index, cell, item })}
-							onedit={(mutate, key) => edit((d) => mutate(lineAt(d)), key && `${index}-${key}`)}
-						/>
+			<div class="grid gap-6 p-4 lg:grid-cols-[auto_minmax(0,1fr)]">
+				<div class="flex flex-col gap-2.5 self-start">
+					{#if !previewImage}
+						<Spinner size="sm" label="Rendering preview…" />
 					{:else}
-						<ItemFields
-							el={line}
-							onpatch={(key, value) =>
-								edit((d) => setField(lineAt(d), key, value), `${index}-${key}`)}
+						<Receipt
+							preview={previewImage}
+							{selection}
+							onselect={(s) => (selection = s)}
+							onmove={move}
 						/>
 					{/if}
-				</section>
-			{:else}
-				<p class="border border-border bg-surface-1 p-4 text-sm text-muted">
-					This design has no lines yet. Add one under the ticket.
-				</p>
-			{/if}
+					<p class="text-center text-xs text-muted">Click a line to edit it, drag it to move it.</p>
+				</div>
 
-			<section class="space-y-4 border border-border bg-surface-1 p-4">
-				<h3 class="text-sm font-medium">This design</h3>
-				<div class="grid gap-4 sm:grid-cols-2">
+				<div class="min-w-0">
+					{#if line && selection}
+						{@const index = selection.index}
+						<section class="space-y-4 border border-border bg-surface-2/40 p-4">
+							<div class="flex items-center gap-1">
+								<h3 class="mr-auto text-sm font-medium">{kindOf(line).label}</h3>
+								<span class="mr-1 text-xs text-muted"
+									>Line {index + 1} of {current.elements.length}</span
+								>
+								<IconButton
+									icon={ChevronUp}
+									label="Move up"
+									disabled={index === 0}
+									onclick={() => move(index, index - 1)}
+								/>
+								<IconButton
+									icon={ChevronDown}
+									label="Move down"
+									disabled={index === current.elements.length - 1}
+									onclick={() => move(index, index + 1)}
+								/>
+								<IconButton
+									icon={Trash2}
+									label="Remove line"
+									danger
+									onclick={() => remove(index)}
+								/>
+							</div>
+
+							{#if line.type === 'columns'}
+								<ColumnsFields
+									el={line}
+									cell={selection.cell}
+									item={selection.item}
+									onselect={(cell, item) => (selection = { index, cell, item })}
+									onedit={(mutate, key) => edit((d) => mutate(lineAt(d)), key && `${index}-${key}`)}
+								/>
+							{:else}
+								<ItemFields
+									el={line}
+									onpatch={(key, value) =>
+										edit((d) => setField(lineAt(d), key, value), `${index}-${key}`)}
+								/>
+							{/if}
+						</section>
+					{:else}
+						<p class="border border-border bg-surface-2/40 p-4 text-sm text-muted">
+							This design has no lines yet. Add one from the toolbar.
+						</p>
+					{/if}
+				</div>
+			</div>
+		</section>
+
+		<SettingList
+			title="This design"
+			text="Saved as you go. A programme picks its design in its box-office panel"
+		>
+			<SettingRow label="Name" summary={current.name}>
+				<div class="max-w-sm">
 					<Field label="Name" forId="td-name">
 						<Input
 							id="td-name"
@@ -434,25 +439,65 @@
 							placeholder="Design name"
 						/>
 					</Field>
-					{#each DESIGN_SELECTS as s (s.id)}
-						<Field label={s.label} forId={s.id}>
-							<Select
-								id={s.id}
-								value={current[s.key]}
-								onchange={(e) => edit((d) => (d[s.key] = val(e)))}
-							>
-								{#each s.options as o (o.id)}
-									<option value={o.id}>{o.label}{o.hint ? ` (${o.hint.toLowerCase()})` : ''}</option
-									>
-								{/each}
-							</Select>
-						</Field>
-					{/each}
 				</div>
-				<Disclosure
-					title="Surprise links"
-					note={current.qr_links.length ? `${current.qr_links.length}` : undefined}
-				>
+			</SettingRow>
+			<SettingRow
+				label="Date and time"
+				hint="How {'{date}'} and {'{time}'} print"
+				mono
+				summary="{labelOf(DATE_FORMATS, current.date_format)} · {labelOf(
+					TIME_FORMATS,
+					current.time_format
+				)}"
+			>
+				<div class="grid max-w-md gap-4 sm:grid-cols-2">
+					<Field label="Date" forId="td-date">
+						<Select
+							id="td-date"
+							value={current.date_format}
+							onchange={(e) => edit((d) => (d.date_format = val(e)))}
+						>
+							{#each DATE_FORMATS as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+						</Select>
+					</Field>
+					<Field label="Time" forId="td-time">
+						<Select
+							id="td-time"
+							value={current.time_format}
+							onchange={(e) => edit((d) => (d.time_format = val(e)))}
+						>
+							{#each TIME_FORMATS as o (o.id)}<option value={o.id}>{o.label}</option>{/each}
+						</Select>
+					</Field>
+				</div>
+			</SettingRow>
+			<SettingRow
+				label="Columns font"
+				hint="For lines set side by side"
+				summary={labelOf(FONTS, current.font)}
+			>
+				<div class="max-w-sm">
+					<Field label="Columns font" forId="td-font">
+						<Select
+							id="td-font"
+							value={current.font}
+							onchange={(e) => edit((d) => (d.font = val(e)))}
+						>
+							{#each FONTS as o (o.id)}
+								<option value={o.id}>{o.label}{o.hint ? ` (${o.hint.toLowerCase()})` : ''}</option>
+							{/each}
+						</Select>
+					</Field>
+				</div>
+			</SettingRow>
+			<SettingRow
+				label="Surprise links"
+				hint="For a QR code set to a surprise"
+				summary={current.qr_links.length
+					? `${current.qr_links.length} link${current.qr_links.length === 1 ? '' : 's'}, one picked at random`
+					: 'None: a surprise QR code prints nothing'}
+			>
+				<div class="max-w-xl">
 					<Field label="One link per line" forId="td-links">
 						<textarea
 							id="td-links"
@@ -464,14 +509,27 @@
 					</Field>
 					<p class="mt-1.5 text-xs text-muted">
 						A QR code set to "A surprise link" prints one of these at random. Up to 50 http(s)
-						links; with none, it prints nothing.
+						links.
 					</p>
-				</Disclosure>
-			</section>
-
-			<p class="text-xs text-muted">
-				Saved as you go. A programme picks its design in its box-office panel.
-			</p>
-		</div>
+				</div>
+			</SettingRow>
+			<SettingRow
+				label="Default design"
+				hint="For programmes without their own"
+				summary={current.is_default
+					? 'This is the default'
+					: `Programmes without their own use ${defaultName}`}
+			>
+				{#snippet control()}
+					<Switch
+						label=""
+						ariaLabel="Default design"
+						checked={current?.is_default ?? false}
+						disabled={current?.is_default}
+						onchange={(on) => on && void setDefault()}
+					/>
+				{/snippet}
+			</SettingRow>
+		</SettingList>
 	</div>
 {/if}

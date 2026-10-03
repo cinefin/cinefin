@@ -45,7 +45,11 @@ class Command(BaseCommand):
         host.token = answer["token"]
         host.agent_id = agent_id
         host.enabled = True
+        host.agent_version = str(answer.get("agent_version") or "")
+        host.os = str(answer.get("os") or "")
+        host.arch = str(answer.get("arch") or "")
         host.protocol = int(answer.get("protocol") or 0)
+        host.min_protocol = int(answer.get("min_protocol") or 0)
         host.last_seen_at = timezone.now()
         host.is_active = True  # save() clears is_active on every other row
         host.save()

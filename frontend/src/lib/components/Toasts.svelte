@@ -18,7 +18,7 @@
 </script>
 
 {#if toasts.list.length}
-	<!-- Top-centre below the topbar, clear of the Settings save bar (bottom-right). -->
+	<!-- Top-centre below the topbar. -->
 	<div
 		class="pointer-events-none fixed top-16 left-1/2 z-50 flex w-96 max-w-[calc(100vw-2rem)]
 			-translate-x-1/2 flex-col gap-2"

@@ -39,6 +39,7 @@ const LEGACY_PREFS_KEY = 'cinefin.kiosk.prefs';
 const BOOT_RETRY_MS = 15000; // fast retry until the first display fetch lands
 const START_GRACE_MS = 90000; // "Starting now" dwell before a missed start gives up
 const AUTO_SPLIT_MS = 2 * 3600000; // auto layout: split when a showing is this close
+const EXTRAPOLATE_S = 30; // the playout clock runs on without news this long, then holds
 
 const DEFAULT_PREFS: KioskPrefs = {
 	layout: 'wall',
@@ -488,11 +489,10 @@ export class KioskController {
 		return screening ? this.screeningFeatures(screening) : [];
 	}
 
-	/** Programme elapsed corrected for poll staleness (frozen while paused). */
+	/** Programme elapsed corrected for poll staleness (frozen while paused, and once nothing
+	 *  has been heard for a while: Cinefin may be gone, and the film with it). */
 	programmeElapsedNow(p: KioskPlayout): number {
-		const elapsed = p.paused
-			? p.programmeElapsed
-			: p.programmeElapsed + (this.now - p.fetchedAt) / 1000;
+		const elapsed = p.paused ? p.programmeElapsed : p.programmeElapsed + this.#sinceFetch(p);
 		return p.programmeDuration > 0 ? Math.min(elapsed, p.programmeDuration) : elapsed;
 	}
 
@@ -503,9 +503,14 @@ export class KioskController {
 		const left =
 			p.programmeDuration > 0
 				? Math.max(0, p.programmeDuration - this.programmeElapsedNow(p))
-				: Math.max(0, p.programmeRemaining - (this.now - p.fetchedAt) / 1000);
+				: Math.max(0, p.programmeRemaining - this.#sinceFetch(p));
 		if (left <= 0) return '';
 		return `Ends ~${fmtClock(new Date(this.now + left * 1000))}`;
+	}
+
+	/** Seconds since the playout status arrived, counting no further than EXTRAPOLATE_S. */
+	#sinceFetch(p: KioskPlayout): number {
+		return Math.min(this.now - p.fetchedAt, EXTRAPOLATE_S * 1000) / 1000;
 	}
 
 	countdownClock(screening: KioskScreening): string {

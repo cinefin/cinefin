@@ -25,6 +25,7 @@ from cinefin.api.ninja_views.media.utils import (
     validate_video_file,
     validate_youtube_url,
 )
+from cinefin.api.utils import ytdlp
 from cinefin.api.utils.media_paths import to_usermedia_relative, usermedia_abs_path
 from cinefin.api.utils.paths import contained_in
 
@@ -213,8 +214,9 @@ class MediaService:
             ydl_opts = {
                 # Prefer merged bestvideo+bestaudio: YouTube mostly serves separate streams, so a pre-muxed
                 # "best[ext=mp4]" often fails. Cap at 1080p, fall back to any single file. Merging needs ffmpeg
-                # (the file finder below accepts whatever container results).
+                # (the file finder below accepts whatever container results). H.264 where there is one.
                 "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/bestvideo+bestaudio/best",
+                "format_sort": ytdlp.FORMAT_SORT,
                 "merge_output_format": "mp4",
                 "outtmpl": os.path.join(cls.get_media_directory(), "%(title)s.%(ext)s"),
                 "progress_hooks": [progress_hook],

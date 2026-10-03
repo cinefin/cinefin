@@ -21,7 +21,14 @@
 	import { formatTime } from '$lib/format';
 	import { itemTypeClasses, itemTypeLabel } from '$lib/item-types';
 	import CueDialog from '$lib/playout/CueDialog.svelte';
-	import { barLines, can, lamp, primaryAction, screeningLine } from '$lib/playout/phase';
+	import {
+		barLines,
+		can,
+		lamp,
+		primaryAction,
+		screeningLine,
+		UNREACHABLE
+	} from '$lib/playout/phase';
 	import RunningOrder from '$lib/playout/RunningOrder.svelte';
 	import { playlist } from '$lib/stores/player.svelte';
 	import { playout, type ControlBody } from '$lib/stores/playout.svelte';
@@ -34,7 +41,7 @@
 
 	const status = $derived(playout.status);
 	const phase = $derived(status?.phase);
-	const light = $derived(lamp(status));
+	const light = $derived(playout.stale ? UNREACHABLE : lamp(status));
 	const lines = $derived(status ? barLines(status, playoutReach.hostUrl) : null);
 	const primary = $derived(primaryAction(status));
 	const loaded = $derived(!!status?.programme);
@@ -94,7 +101,7 @@
 				<PhaseLamp lamp={light} />
 			</div>
 
-			<div class="min-w-0 flex-1 sm:w-40 sm:flex-none md:w-64">
+			<div class="min-w-0 flex-1 sm:w-40 sm:flex-none md:w-64 {playout.stale ? 'opacity-50' : ''}">
 				{#if loaded}
 					<a
 						href="{base}/programmes/{status.programme?.id}"
@@ -179,7 +186,11 @@
 						{status.manual.items.length} in the manual queue
 					</p>
 				{:else}
-					<div class="hidden min-w-0 flex-1 items-center gap-2.5 sm:flex">
+					<div
+						class="hidden min-w-0 flex-1 items-center gap-2.5 sm:flex {playout.stale
+							? 'opacity-50'
+							: ''}"
+					>
 						<span class="shrink-0 font-mono text-xs text-muted">
 							{formatTime(
 								phase === 'preshow'

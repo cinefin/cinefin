@@ -7,7 +7,7 @@ import time
 
 from . import playout_timing
 from .exceptions import UnprocessableEntityError
-from .models import Playlist, PlayoutHost, PlayoutSession
+from .models import Playlist, PlayoutHost, PlayoutSession, Programme
 from .mpv_controller import MPVController
 from .services import standby as standby_spec
 from .utils.assets import system_black_stream_url
@@ -140,6 +140,12 @@ class MPVService:
         self._programme_cursor = -1
 
         self._executing_command = False  # a hold-black command item is on screen
+        # A programme the player lost (it restarted) while on air, for the operator to resume
+        # or dismiss: {"programme_id", "order", "seconds", "credits", "schedule_id"}.
+        self.interrupted = None
+        # The mpv position whose hold is running: the link coming back re-sends the position,
+        # which must not start the same hold (and fire its command) a second time.
+        self._hold_position = None
         self._hold_progress = None  # {'duration','elapsed'} while a hold-black command runs
         # Cued title card: its mpv index, when to pause into it (0 = first frame, else after the
         # fade-in) and whether it has started (armed by its file-start, so standby's clock can't trip it).
@@ -181,29 +187,40 @@ class MPVService:
             session.playlist_offset = self.playlist_offset
             session.programme_cursor = self._programme_cursor
             session.credits_executed = sorted(self.credits_executed.keys())
+            session.manual_items = list(self.manual_items)
             session.save()
         except Exception:
             logger.exception("Failed to persist playout session")
 
     def _restore_session(self):
-        """Re-attach to a screening after a process restart: MPV keeps playing
-        across Django restarts, so a persisted loaded/running session whose
-        playlist MPV still has is restored."""
+        """Re-attach after a process restart: MPV keeps playing across Django restarts, so
+        a persisted programme or manual queue the player still holds is taken back."""
         if self._session_restored:
             return
         self._session_restored = True
         try:
             session = PlayoutSession.load()
+            entries = self.controller.get_playlist() if self.controller else None
+            if session.manual_items:
+                if entries is not None and len(entries) == len(session.manual_items) + 1:
+                    self.manual_items = list(session.manual_items)
+                    logger.info(f"Re-attached to manual play ({len(self.manual_items)} items)")
+                else:
+                    logger.info("Persisted manual queue is stale; clearing")
+                    self._forget_session(session)
+                return
             if session.state not in (ProgrammeState.LOADED, ProgrammeState.RUNNING) or not session.programme_id:
                 return
 
-            mpv_playlist = self.controller.get_playlist() if self.controller else []
             playlist = Playlist.objects.filter(programme_id=session.programme_id).first()
-            if not mpv_playlist or len(mpv_playlist) <= session.playlist_offset or playlist is None:
-                logger.info("Persisted playout session is stale (no matching MPV playlist or playlist); clearing")
-                session.state = ProgrammeState.NOT_LOADED
-                session.programme = None
-                session.save()
+            if playlist is None or not self._holds_programme(playlist, session.playlist_offset, entries):
+                logger.info("Persisted playout session is stale (the player no longer holds it); clearing")
+                programme_id, was_running = session.programme_id, session.state == ProgrammeState.RUNNING
+                order, credits = session.programme_cursor, list(session.credits_executed)
+                self._forget_session(session)
+                schedule_id = self._abandon_screening(programme_id, "The player no longer had it after a restart")
+                if was_running:
+                    self._remember_interrupted(programme_id, order, None, credits, schedule_id)
                 return
 
             self.current_programme = session.programme
@@ -221,8 +238,145 @@ class MPVService:
                 f"Re-attached to playout session: '{session.programme.name}' "
                 f"({session.state}, offset {session.playlist_offset})"
             )
+            self._catch_up()
         except Exception:
             logger.exception("Failed to restore playout session")
+
+    @staticmethod
+    def _forget_session(session):
+        session.state, session.programme, session.manual_items = ProgrammeState.NOT_LOADED, None, []
+        session.save()
+
+    @staticmethod
+    def _holds_programme(playlist, offset, entries):
+        """Whether MPV's playlist ``entries`` still holds ``playlist``'s items after ``offset``.
+        A restarted player comes back holding only its standby; an exact match also keeps a
+        manual queue or another programme from being taken for this one."""
+        if not entries:
+            return False
+        files = list(playlist.items.order_by("order").values_list("file", flat=True))
+        names = [entry.get("filename", "") for entry in entries[offset:]]
+
+        def bare(url):  # stream URLs carry a ?t= token
+            return (url or "").split("?")[0]
+
+        return len(names) == len(files) and all(bare(a) == bare(b) for a, b in zip(names, files, strict=True))
+
+    @staticmethod
+    def _abandon_screening(programme_id, reason):
+        from .services import schedule_runner
+
+        return schedule_runner.abandon_running(programme_id, reason)
+
+    def _remember_interrupted(self, programme_id, order, seconds, credits, schedule_id):
+        self.interrupted = {
+            "programme_id": programme_id,
+            "order": max(order, 0),
+            "seconds": seconds if order >= 0 else None,
+            "credits": credits,
+            "schedule_id": schedule_id,
+        }
+        logger.info(f"Interrupted at item {max(order, 0)} ({seconds or 0:.0f}s): the operator may resume it")
+        self._notify_live()
+
+    def resume_interrupted(self):
+        """Cue the interrupted programme again and play on from the item and second where the
+        player lost it. The cues before that item already fired, and are not fired again."""
+        lost = self.interrupted
+        programme = Programme.objects.filter(id=(lost or {}).get("programme_id")).first()
+        if programme is None:
+            self.interrupted = None
+            return False
+        with self._playout_lock:
+            if not self.load_programme(programme):
+                self.interrupted = lost
+                return False
+            index = self.playlist_offset + lost["order"]
+            self._title_pause_at, self._title_armed = None, False
+            self._programme_cursor = lost["order"]
+            self.credits_executed = dict.fromkeys(lost["credits"], True)
+            self._set_state(ProgrammeState.RUNNING)
+            self._leave_standby(index, reveal=COVER_REVEAL_SECONDS)
+            if not self.controller.play():
+                self._set_state(ProgrammeState.LOADED)
+                return False
+        if lost["seconds"]:
+            threading.Thread(target=self._seek_once_loaded, args=(index, lost["seconds"]), daemon=True).start()
+        from .services import schedule_runner
+
+        schedule_runner.resume_abandoned(lost["schedule_id"])
+        logger.info(f"Resumed '{programme.name}' at item {lost['order']}")
+        return True
+
+    def _seek_once_loaded(self, index, seconds, wait=10.0):
+        """Seek to ``seconds`` once the player has entry ``index`` loaded (it can't seek before)."""
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            c = self.controller
+            if c and c.get_property("playlist_pos", quiet=True) == index and c.get_property("duration", quiet=True):
+                c.seek(seconds)
+                return
+            time.sleep(0.2)
+        logger.warning(f"Resumed at the start of the item: it did not load within {wait:.0f}s")
+
+    def dismiss_interrupted(self):
+        self.interrupted = None
+        self._notify_live()
+        return True
+
+    def _catch_up(self):
+        """After re-attaching, act on where the player got to meanwhile: the observers'
+        first values arrive before the session is restored, so they were ignored."""
+        if not self.running:
+            return
+        c = self.controller
+        if self._is_black_clip(c.get_property("path")) and self._is_end_sentinel_position():
+            logger.info("The programme ended while Cinefin was away; going to standby")
+            self.standby()
+            return
+        pos = c.get_property("playlist_pos")
+        if pos is None or pos < self.playlist_offset:
+            return
+        order = pos - self.playlist_offset
+        window = playout_timing.cue_window(self._programme_cursor, order)
+        self._programme_cursor = order
+        self._persist_session()
+        if window:
+            self._fire_cues_between(*window)
+
+    def _reconcile(self):
+        """The player link came back. A player that restarted meanwhile is on standby with
+        our programme or manual queue gone: stop reporting it as cued or on air, which would
+        show a phase that isn't true and hold back every later screening."""
+        if self.idle() or not self._playout_lock.acquire(blocking=False):
+            return  # nothing to check, or a load or start is setting the state itself
+        try:
+            entries = self.controller.get_playlist() if self.controller else None
+            if entries is None:
+                return  # can't tell
+            if self.manual_items:
+                gone, what = len(entries) != len(self.manual_items) + 1, "the manual queue"
+            else:
+                gone = not self._holds_programme(self.current_playlist, self.playlist_offset, entries)
+                what = f"'{self.current_programme.name}'"
+            if not gone:
+                return
+            logger.warning(f"The player no longer holds {what} (it restarted?); going to standby")
+            programme_id = self.current_programme.id if self.current_programme else None
+            lost = (
+                (self._programme_cursor, self._live.get("time"), sorted(self.credits_executed))
+                if self.running
+                else None
+            )
+            # An agent is on standby already; a restarted local mpv sits idle on black.
+            if not self.standby():
+                self._clear()
+            if programme_id:
+                schedule_id = self._abandon_screening(programme_id, "The player restarted while it was on")
+                if lost:
+                    self._remember_interrupted(programme_id, *lost, schedule_id)
+        finally:
+            self._playout_lock.release()
 
     def _drop_controller(self):
         if self.controller is not None:
@@ -273,6 +427,7 @@ class MPVService:
             c.add_event_handler("pause", self._handle_pause)
             # A dropped link: push the status so every surface shows the player offline.
             c.add_event_handler("quit", lambda _value: self._notify_live())
+            c.add_event_handler("reconnect", lambda _value: self._reconcile())
 
             self._check_mpv_version()
             self.apply_subtitle_style()
@@ -370,6 +525,13 @@ class MPVService:
         with self._playout_lock:
             self._clear()
             host = self._host
+            if host is not None:
+                # The row was read when the link connected; its name and show_status may have
+                # changed since, and a stale copy would send the player an old spec.
+                try:
+                    host.refresh_from_db()
+                except PlayoutHost.DoesNotExist:
+                    return False
             if host is None or host.kind != PlayoutHost.KIND_AGENT:
                 url, _path, options, label = standby_spec.resolve_ident()
                 ok = bool(
@@ -435,6 +597,7 @@ class MPVService:
         logger.info(f"Loading programme: {programme.name}")
         if not self._ensure_connected():
             return False
+        self.interrupted = None
 
         with self._playout_lock:
             try:
@@ -508,7 +671,12 @@ class MPVService:
             self._set_state(ProgrammeState.RUNNING)
             if self.controller.get_property("playlist_pos") in (None, 0):
                 self._leave_standby(1, reveal=COVER_REVEAL_SECONDS)
-            return self.controller.play()
+            if self.controller.play():
+                return True
+            # Still cued: a programme stuck "running" would hold back every later screening.
+            logger.error("The player did not start; the programme stays cued")
+            self._set_state(ProgrammeState.LOADED)
+            return False
 
     def _leave_standby(self, index, reveal):
         """Move from standby (entry 0) to entry ``index`` through black: fade a
@@ -633,15 +801,17 @@ class MPVService:
         Hold-black command items play the same clip, so the path alone can't tell."""
         try:
             pos = self.controller.get_property("playlist_pos") if self.controller else None
-            if pos is None or not self.current_playlist:
-                return True  # can't tell: treat the black clip as the end
+            if pos is None:
+                return False  # can't tell (the link is down): never end a programme on a guess
+            if not self.current_playlist:
+                return True
             if pos < self.playlist_offset:
                 return False  # still in pre-show
             item = self._current_item(pos)
             return item is None or item.content_type == "system"
         except Exception:
             logger.exception("Failed to resolve playlist position for black.mp4 disambiguation")
-            return True
+            return False
 
     def _handle_file_start(self, filepath):
         logger.info(f"File started: {filepath}")
@@ -690,9 +860,10 @@ class MPVService:
             item = self._current_item(position)
             if item is None:
                 logger.warning(f"Playlist item not found for programme order {order}")
-            elif item.content_type == "command":
+            elif item.content_type == "command" and position != self._hold_position:
+                self._hold_position = position
                 # Never block the event handler.
-                threading.Thread(target=self._run_hold_item, args=(item, position), daemon=True).start()
+                threading.Thread(target=self._hold, args=(item, position), daemon=True).start()
         except Exception as e:
             logger.error(f"Error handling playlist position change: {e}")
 
@@ -711,6 +882,13 @@ class MPVService:
         if commands:
             logger.info(f"Firing {len(commands)} command cue(s) for items {previous_order + 1}..{new_order}")
             command_runner.execute_many_sequential(commands, trigger="block")
+
+    def _hold(self, item, mpv_position):
+        try:
+            self._run_hold_item(item, mpv_position)
+        finally:
+            if self._hold_position == mpv_position:
+                self._hold_position = None
 
     def _run_hold_item(self, item, mpv_position):
         """Run a hold-black command item: fire the command, keep the black clip
@@ -754,11 +932,14 @@ class MPVService:
         try:
             while not dwell.satisfied(done.is_set()):
                 time.sleep(0.25)
+                pos = self.controller.get_property("playlist_pos", quiet=True)
+                if pos is None and self.running:
+                    continue  # the link is down: wait it out, the dwell standing still
                 verdict = dwell.tick(
                     0.25,
                     running=self.running,
-                    on_item=self.controller.get_property("playlist_pos") == mpv_position,
-                    paused=bool(self.controller.get_property("pause")),
+                    on_item=pos == mpv_position,
+                    paused=bool(self.controller.get_property("pause", quiet=True)),
                     command_done=done.is_set(),
                 )
                 self._hold_progress = dwell.progress
@@ -918,6 +1099,7 @@ class MPVService:
         the rest of the queue; the first item starts the queue (and its sentinel)."""
         if not self._ensure_connected():
             return False
+        self.interrupted = None
         with self._playout_lock:
             entry = {"title": title, "kind": kind}
             c = self.controller
@@ -928,6 +1110,7 @@ class MPVService:
                     and c.pause(False)
                 )
                 self.manual_items = [entry] if ok else []
+                self._persist_session()
                 self._notify_live()
                 return ok
             end = len(c.get_playlist() or [])  # the sentinel is the last entry
@@ -935,6 +1118,7 @@ class MPVService:
             ok = c.enqueue_file(url, title=manual_title(kind, title)) and c._mpv_command("playlist-move", end, to)
             if ok:
                 self.manual_items.insert(to, entry)
+                self._persist_session()
                 if now:
                     ok = c._mpv_command("playlist-play-index", to) and c.pause(False)
             self._notify_live()
@@ -950,6 +1134,7 @@ class MPVService:
             ok = self.controller._mpv_command("playlist-remove", index)
             if ok:
                 self.manual_items.pop(index)
+                self._persist_session()
             self._notify_live()
             return ok
 
@@ -963,6 +1148,7 @@ class MPVService:
             ok = self.controller._mpv_command("playlist-move", index, to + 1 if to > index else to)
             if ok:
                 self.manual_items.insert(to, self.manual_items.pop(index))
+                self._persist_session()
             self._notify_live()
             return ok
 

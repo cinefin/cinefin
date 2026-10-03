@@ -20,6 +20,10 @@
 		class?: string;
 	}
 
+	/** What an options field is set to, as its option's label (the value when it is not listed). */
+	export const optionLabel = (spec: StoreFieldSpec, value: string) =>
+		spec.options?.find(([v]) => v === value)?.[1] ?? value;
+
 	/** A spec on one line: the field, its label and control id, then the rest. */
 	export const storeField = (
 		field: TextKey,

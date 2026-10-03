@@ -9,7 +9,6 @@
 		Clock,
 		FilePlus2,
 		FileMinus2,
-		Pencil,
 		Plug,
 		Plus,
 		RefreshCw,
@@ -38,10 +37,12 @@
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import CheckResult from './CheckResult.svelte';
 	import Field from '$lib/settings/Field.svelte';
-	import Disclosure from './Disclosure.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import SectionTabs from './SectionTabs.svelte';
-	import TabPanel from './TabPanel.svelte';
+	import SettingList from './SettingList.svelte';
+	import SettingLists from './SettingLists.svelte';
+	import SettingRow from './SettingRow.svelte';
+	import StatusLamp from '$lib/components/StatusLamp.svelte';
+	import { untrack } from 'svelte';
 
 	interface Props {
 		store: SettingsStore;
@@ -49,13 +50,7 @@
 	}
 	let { store, confirm }: Props = $props();
 
-	const TABS = [
-		{ id: 'source', label: 'Source' },
-		{ id: 'metadata', label: 'Metadata' }
-	];
-	let tab = $state('source');
-
-	// The TMDB key rides the page's Save bar (trailers.tmdb_api_key).
+	// The TMDB key is part of the page's settings draft (trailers.tmdb_api_key) and saves itself.
 	let tmdbTesting = $state(false);
 	let tmdbResult = $state<CheckState>(null);
 
@@ -289,24 +284,32 @@
 		}
 	]);
 	const moreItems = $derived<MenuItem[]>([
-		{ label: 'Test connection', icon: Plug, onclick: () => void testConnection(), disabled: !idle },
 		{
-			label: 'Find certificates',
+			label: 'Find missing certificates',
 			icon: BadgeCheck,
 			onclick: () => void findCertificates(),
 			disabled: !idle
-		},
-		{ separator: true },
-		{ label: 'Edit source', icon: Pencil, onclick: openEdit, disabled: running },
-		{
-			label: 'Clear library…',
-			icon: Trash2,
-			danger: true,
-			onclick: () => void clearLibrary(),
-			disabled: running || !idle
-		},
-		{ label: 'Remove source', icon: Trash2, danger: true, onclick: removeSource, disabled: running }
+		}
 	]);
+
+	const QUALITY = [
+		['720', 'Up to 720p'],
+		['1080', 'Up to 1080p'],
+		['1440', 'Up to 1440p'],
+		['2160', 'Up to 2160p (4K)'],
+		['best', 'Best available']
+	] as const;
+
+	const typeLabel = $derived(
+		types.find((t) => t.type_id === source?.sync_type)?.label ?? source?.sync_type ?? ''
+	);
+
+	// The "Server and libraries" row opens the edit form in place, filled from the source.
+	let editOpen = $state(false);
+	$effect(() => {
+		if (editOpen) untrack(openEdit);
+		else untrack(() => (formOpen = false));
+	});
 
 	let formOpen = $state(false);
 	let fType = $state('');
@@ -441,6 +444,7 @@
 			}
 			showToast('Library source saved', 'success');
 			formOpen = false;
+			editOpen = false;
 			void sourceQ.load();
 			invalidate('sync');
 		}, 'Could not save the source');
@@ -448,19 +452,130 @@
 	}
 </script>
 
-<SectionTabs tabs={TABS} bind:value={tab} label="Library settings" prefix="lt" />
+{#snippet sourceForm()}
+	<div class="max-w-2xl space-y-4">
+		<h3 class="text-sm font-semibold">
+			{source
+				? `Edit ${source.name}`
+				: `Add ${types.find((t) => t.type_id === fType)?.label ?? ''}`}
+		</h3>
+		<Field label="Name" forId="src-name">
+			<Input id="src-name" bind:value={fName} />
+		</Field>
+		<Field label="Server URL" forId="src-url">
+			<Input id="src-url" bind:value={fUrl} placeholder="http://192.0.2.10:32400" />
+		</Field>
+		<Field label="API token" forId="src-token">
+			<Input id="src-token" type="password" bind:value={fToken} />
+			{#snippet hintSnippet()}
+				{source
+					? 'Leave blank to keep the token you already have.'
+					: 'Plex: X-Plex-Token. Jellyfin: an API key from its dashboard.'}
+			{/snippet}
+		</Field>
+		<Field label="Libraries">
+			{#if manual}
+				<Input bind:value={manualText} placeholder="Films, Documentaries" />
+			{:else}
+				<div class="space-y-2">
+					<Button size="sm" disabled={probing} onclick={() => void fetchLibraries()}>
+						<RefreshCw size={14} />
+						{probing ? 'Fetching…' : available ? 'Refresh list' : 'Fetch available libraries'}
+					</Button>
+					{#if available}
+						{#if libOptions.length}
+							<div class="space-y-1">
+								{#each libOptions as name (name)}
+									<label class="flex items-center gap-2 text-sm">
+										<input
+											type="checkbox"
+											class="accent-accent"
+											checked={fLibs.includes(name)}
+											onchange={() => toggleLib(name)}
+										/>
+										{name}
+										{#if !(available ?? []).includes(name)}
+											<span class="text-xs text-faint">(not on server)</span>
+										{/if}
+									</label>
+								{/each}
+							</div>
+						{/if}
+					{/if}
+					{#if probeMsg}
+						<p class="text-sm text-danger">{probeMsg}</p>
+					{/if}
+				</div>
+			{/if}
+			{#snippet hintSnippet()}
+				The movie libraries to read.
+				<button
+					type="button"
+					class="text-accent hover:underline"
+					onclick={() => {
+						if (manual) fLibs = splitLibs(manualText);
+						else manualText = fLibs.join(', ');
+						manual = !manual;
+					}}
+				>
+					{manual ? 'Pick from the server instead' : 'Enter names manually'}
+				</button>
+			{/snippet}
+		</Field>
+		<div class="flex gap-2">
+			<Button variant="primary" disabled={saving} onclick={() => void save()}>
+				{saving ? 'Saving…' : 'Save'}
+			</Button>
+			<Button
+				onclick={() => {
+					formOpen = false;
+					editOpen = false;
+				}}>Cancel</Button
+			>
+		</div>
+	</div>
+{/snippet}
 
-{#if tab === 'source'}
-	<TabPanel prefix="lt" tab="source" class="mt-4">
+<SettingLists>
+	<SettingList
+		title="Media server"
+		text={source
+			? `${films(source.movie_count)} · one server; to switch, remove it and add the other`
+			: 'Where your films come from'}
+	>
+		{#snippet actions()}
+			{#if source}
+				<div class="inline-flex items-stretch">
+					<Button
+						size="sm"
+						variant="primary"
+						class="rounded-r-none"
+						disabled={running || busy !== ''}
+						onclick={() => void syncNow(false)}
+					>
+						<RefreshCw size={13} /> Sync now
+					</Button>
+					<Menu
+						size="sm"
+						variant="primary"
+						caretOnly
+						ariaLabel="More sync options"
+						class="rounded-l-none border-l border-on-accent/25"
+						items={syncMenuItems}
+					/>
+				</div>
+			{/if}
+		{/snippet}
 		{#if sourceQ.loading}
-			<Spinner label="Loading the library source…" />
+			<div class="p-4"><Spinner label="Loading the library source…" /></div>
 		{:else if sourceQ.error}
-			<ErrorState error={sourceQ.error} retry={() => void sourceQ.load()} />
+			<div class="p-4"><ErrorState error={sourceQ.error} retry={() => void sourceQ.load()} /></div>
 		{:else if !source && !formOpen}
 			<EmptyState
 				icon={Server}
 				title="No library source yet"
 				message="Cinefin reads your films from one media server. Pick the one you run."
+				compact
 			>
 				{#snippet action()}
 					<div class="flex gap-2">
@@ -473,235 +588,161 @@
 					</div>
 				{/snippet}
 			</EmptyState>
-		{:else if formOpen}
-			<section class="max-w-2xl space-y-4 border border-border bg-surface-1 p-4">
-				<h3 class="text-sm font-semibold">
-					{source
-						? `Edit ${source.name}`
-						: `Add ${types.find((t) => t.type_id === fType)?.label ?? ''}`}
-				</h3>
-				<Field label="Name" forId="src-name">
-					<Input id="src-name" bind:value={fName} />
-				</Field>
-				<Field label="Server URL" forId="src-url">
-					<Input id="src-url" bind:value={fUrl} placeholder="http://192.0.2.10:32400" />
-				</Field>
-				<Field label="API token" forId="src-token">
-					<Input id="src-token" type="password" bind:value={fToken} />
-					{#snippet hintSnippet()}
-						{source
-							? 'Leave blank to keep the token you already have.'
-							: 'Plex: X-Plex-Token. Jellyfin: an API key from its dashboard.'}
-					{/snippet}
-				</Field>
-				<Field label="Libraries">
-					{#if manual}
-						<Input bind:value={manualText} placeholder="Films, Documentaries" />
-					{:else}
-						<div class="space-y-2">
-							<Button size="sm" disabled={probing} onclick={() => void fetchLibraries()}>
-								<RefreshCw size={14} />
-								{probing ? 'Fetching…' : available ? 'Refresh list' : 'Fetch available libraries'}
-							</Button>
-							{#if available}
-								{#if libOptions.length}
-									<div class="space-y-1">
-										{#each libOptions as name (name)}
-											<label class="flex items-center gap-2 text-sm">
-												<input
-													type="checkbox"
-													class="accent-accent"
-													checked={fLibs.includes(name)}
-													onchange={() => toggleLib(name)}
-												/>
-												{name}
-												{#if !(available ?? []).includes(name)}
-													<span class="text-xs text-faint">(not on server)</span>
-												{/if}
-											</label>
-										{/each}
-									</div>
-								{/if}
-							{/if}
-							{#if probeMsg}
-								<p class="text-sm text-danger">{probeMsg}</p>
-							{/if}
-						</div>
-					{/if}
-					{#snippet hintSnippet()}
-						The movie libraries to read.
-						<button
-							type="button"
-							class="text-accent hover:underline"
-							onclick={() => {
-								if (manual) fLibs = splitLibs(manualText);
-								else manualText = fLibs.join(', ');
-								manual = !manual;
-							}}
-						>
-							{manual ? 'Pick from the server instead' : 'Enter names manually'}
-						</button>
-					{/snippet}
-				</Field>
-				<div class="flex gap-2">
-					<Button variant="primary" disabled={saving} onclick={() => void save()}>
-						{saving ? 'Saving…' : 'Save'}
+		{:else if !source}
+			<div class="p-4">{@render sourceForm()}</div>
+		{:else}
+			<SettingRow label={source.name} summary="{typeLabel} · {source.url}">
+				{#snippet labelSnippet()}
+					<StatusLamp colour={source.enabled ? 'green' : 'neutral'}>
+						<span class="sr-only">{source.enabled ? 'Syncing' : 'Not syncing'}</span>
+					</StatusLamp>
+					<span class="font-medium">{source.name}</span>
+				{/snippet}
+				{#snippet control()}
+					{#if !source.enabled}<Badge variant="outline">Disabled</Badge>{/if}
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={busy !== ''}
+						onclick={() => void testConnection()}
+					>
+						<Plug size={13} /> Test
 					</Button>
-					<Button onclick={() => (formOpen = false)}>Cancel</Button>
-				</div>
-			</section>
-		{:else if source}
-			<section class="max-w-2xl border border-border bg-surface-1">
-				<div class="space-y-2.5 p-4">
-					<div class="flex flex-wrap items-center gap-2">
-						<Server size={15} class="text-muted" />
-						<span class="font-medium">{source.name}</span>
-						<code class="font-mono text-xs text-muted">{source.url}</code>
-						<Badge variant={source.enabled ? 'default' : 'outline'}>
-							{source.enabled ? 'Enabled' : 'Disabled'}
-						</Badge>
-					</div>
+				{/snippet}
+			</SettingRow>
 
-					<p class="text-sm text-muted">
-						<span class="text-faint">Libraries</span>
-						{source.libraries || '-'}
-					</p>
-
+			<SettingRow label="Last sync" hint="Reads only what changed">
+				{#snippet summarySnippet()}
 					{#if running}
-						<div class="space-y-2">
-							<div class="flex items-center gap-2 text-sm">
-								<ChaseMark height={14} />
-								<span
-									>{job?.phase || 'Scanning'}{job?.percentage ? ` - ${job.percentage}%` : ''}</span
-								>
-								{#if job?.current_item}
-									<span class="min-w-0 truncate text-muted">{job.current_item}</span>
-								{/if}
-								<Button size="sm" class="ml-auto shrink-0" onclick={() => void cancelRun()}
-									>Stop</Button
-								>
-							</div>
-							{#if job?.total}
-								<div
-									class="h-1.5 overflow-hidden rounded-xs bg-surface-3"
-									role="progressbar"
-									aria-valuenow={Math.round(job.percentage)}
-									aria-valuemin={0}
-									aria-valuemax={100}
-								>
-									<div
-										class="h-full bg-accent transition-[width]"
-										style="width: {Math.max(0, Math.min(100, job.percentage))}%"
-									></div>
-								</div>
-							{/if}
-						</div>
+						<span class="inline-flex items-center gap-2">
+							<ChaseMark height={12} />
+							{job?.phase || 'Scanning'}{job?.percentage ? ` · ${Math.round(job.percentage)}%` : ''}
+							{#if job?.current_item}<span class="truncate text-faint">{job.current_item}</span
+								>{/if}
+						</span>
 					{:else if job}
-						<p class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
-							{#if job.state === 'success'}
-								<CheckCircle2 size={14} class="text-success" />
-							{:else}
-								<CircleAlert size={14} class="text-danger" />
-							{/if}
-							<span class="text-muted">Last sync</span>
-							<span>{source.last_sync ? relativeTime(source.last_sync) : 'never'}</span>
-							<span class="text-faint">·</span>
-							<span class="font-mono text-xs">{receipt}</span>
-							{#if changeGroups.length}
-								<button
-									type="button"
-									class="ml-1 inline-flex items-center gap-1 text-xs text-accent hover:underline"
-									onclick={() => (changesOpen = true)}
-								>
-									View changes <ArrowRight size={12} />
-								</button>
-							{/if}
-						</p>
+						<span class="inline-flex items-center gap-1.5">
+							{#if job.state === 'success'}<CheckCircle2 size={13} class="text-success" />
+							{:else}<CircleAlert size={13} class="text-danger" />{/if}
+							{source.last_sync ? relativeTime(source.last_sync) : 'never'} · {receipt}
+						</span>
 					{:else}
-						<p class="flex items-center gap-1.5 text-sm text-muted">
-							<Clock size={14} /> Never synced
-						</p>
+						<span class="inline-flex items-center gap-1.5"><Clock size={13} /> Never synced</span>
 					{/if}
-				</div>
-
-				<div class="flex flex-wrap items-center gap-2 border-t border-border p-3">
-					<div class="inline-flex items-stretch">
-						<Button
-							variant="primary"
-							class="rounded-r-none"
-							disabled={running || busy !== ''}
-							onclick={() => void syncNow(false)}
-						>
-							<RefreshCw size={14} /> Sync now
+				{/snippet}
+				{#snippet control()}
+					{#if running}
+						<Button size="sm" onclick={() => void cancelRun()}>Stop</Button>
+					{:else if changeGroups.length}
+						<Button size="sm" variant="ghost" onclick={() => (changesOpen = true)}>
+							Changes <ArrowRight size={12} />
 						</Button>
-						<Menu
-							variant="primary"
-							caretOnly
-							ariaLabel="More sync options"
-							class="rounded-l-none border-l border-on-accent/25"
-							items={syncMenuItems}
-						/>
-					</div>
-					<Menu label="More" items={moreItems} />
-				</div>
+					{/if}
+					<Menu size="sm" variant="ghost" label="More" align="right" items={moreItems} />
+				{/snippet}
+			</SettingRow>
 
-				{#if job?.log?.length}
-					<div class="border-t border-border px-3 py-2">
-						<Disclosure title="Show the log">
-							<pre
-								class="max-h-72 overflow-auto bg-surface-2 p-2 font-mono text-xs whitespace-pre-wrap text-muted">{job.log
-									.map((entry) => `${entry.level}  ${entry.message}`)
-									.join('\n')}</pre>
-						</Disclosure>
-					</div>
-				{/if}
-			</section>
+			{#if job?.log?.length}
+				<SettingRow label="Log" hint="The last run" summary="{job.log.length} lines">
+					<pre
+						class="max-h-72 overflow-auto bg-surface-2 p-2 font-mono text-xs whitespace-pre-wrap text-muted">{job.log
+							.map((entry) => `${entry.level}  ${entry.message}`)
+							.join('\n')}</pre>
+				</SettingRow>
+			{/if}
+
+			<SettingRow
+				label="Server and libraries"
+				hint="Its address, token and libraries"
+				summary={source.libraries || '-'}
+				bind:open={editOpen}
+			>
+				{#if editOpen}{@render sourceForm()}{/if}
+			</SettingRow>
+
+			<SettingRow
+				label="Remove"
+				danger
+				hint={source.name}
+				summary="Stop using this server, or empty the library"
+			>
+				{#snippet control()}
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={running || busy !== ''}
+						onclick={() => void clearLibrary()}
+					>
+						Clear library…
+					</Button>
+					<Button size="sm" variant="danger" disabled={running} onclick={removeSource}>
+						<Trash2 size={13} /> Remove
+					</Button>
+				{/snippet}
+			</SettingRow>
 		{/if}
-	</TabPanel>
-{:else if tab === 'metadata'}
-	<TabPanel prefix="lt" tab="metadata" class="mt-4 max-w-xl">
-		<Field label="TMDB API key" forId="set-tmdb-key" dirty={store.isDirty('trailers.tmdb_api_key')}>
-			<div class="flex gap-2">
-				<Input
-					id="set-tmdb-key"
-					bind:value={store.trailers.tmdb_api_key}
-					placeholder="TMDB API key (v3)"
-				/>
-				<Button disabled={tmdbTesting} onclick={testTmdb}><Plug size={14} /> Test</Button>
-			</div>
-			{#snippet hintSnippet()}
-				Matches your films and fills in missing metadata during a sync, and powers trailer
-				discovery. Get a free key from
-				<a
-					href="https://www.themoviedb.org/settings/api"
-					target="_blank"
-					rel="noopener"
-					class="text-accent hover:underline">themoviedb.org → Settings → API</a
-				>.
-			{/snippet}
-		</Field>
-		<CheckResult result={tmdbResult} class="mt-2" />
+	</SettingList>
 
-		<Field
-			label="Trailer download quality"
-			forId="set-trailer-quality"
-			dirty={store.isDirty('trailers.download_quality')}
-			class="mt-5"
+	<SettingList title="Metadata and trailers" text="From TMDB">
+		<SettingRow
+			label="TMDB API key"
+			hint="Matches films and finds trailers"
+			summary={store.trailers.tmdb_api_key.trim() ? (tmdbResult?.message ?? 'Set') : 'Not set'}
 		>
-			<Select id="set-trailer-quality" bind:value={store.trailers.download_quality} class="w-full">
-				<option value="720">720p</option>
-				<option value="1080">1080p</option>
-				<option value="1440">1440p</option>
-				<option value="2160">2160p (4K)</option>
-				<option value="best">Best available</option>
-			</Select>
-			{#snippet hintSnippet()}
-				The maximum resolution trailers download at. YouTube trailers often top out at 1080p; a
-				higher setting is only used when a better source exists.
-			{/snippet}
-		</Field>
-	</TabPanel>
-{/if}
+			<div class="max-w-xl">
+				<Field label="API key" forId="set-tmdb-key" {store} field="trailers.tmdb_api_key">
+					<div class="flex gap-2">
+						<Input
+							id="set-tmdb-key"
+							bind:value={store.trailers.tmdb_api_key}
+							placeholder="TMDB API key (v3)"
+						/>
+						<Button disabled={tmdbTesting} onclick={testTmdb}><Plug size={14} /> Test</Button>
+					</div>
+					{#snippet hintSnippet()}
+						Matches your films and fills in missing metadata during a sync, and powers trailer
+						discovery. Get a free key from
+						<a
+							href="https://www.themoviedb.org/settings/api"
+							target="_blank"
+							rel="noopener"
+							class="text-accent hover:underline">themoviedb.org → Settings → API</a
+						>.
+					{/snippet}
+				</Field>
+				<CheckResult result={tmdbResult} class="mt-2" />
+			</div>
+		</SettingRow>
+		<SettingRow
+			label="Trailer quality"
+			hint="The most a trailer downloads at"
+			summary={QUALITY.find(([v]) => v === store.trailers.download_quality)?.[1] ??
+				store.trailers.download_quality}
+		>
+			<div class="max-w-sm">
+				<Field
+					label="Download quality"
+					forId="set-trailer-quality"
+					{store}
+					field="trailers.download_quality"
+				>
+					<Select
+						id="set-trailer-quality"
+						bind:value={store.trailers.download_quality}
+						class="w-full"
+					>
+						{#each QUALITY as [v, l] (v)}<option value={v}>{l}</option>{/each}
+					</Select>
+					{#snippet hintSnippet()}
+						YouTube trailers often top out at 1080p; a higher setting is only used when a better
+						source exists. Up to 1080p trailers come as H.264, which every player can show; above
+						that they are VP9 or AV1, which some players cannot.
+					{/snippet}
+				</Field>
+			</div>
+		</SettingRow>
+	</SettingList>
+</SettingLists>
 
 <Dialog bind:open={changesOpen} title="Changes since last sync" size="lg">
 	{#if source}

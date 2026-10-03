@@ -10,6 +10,7 @@ Message envelope (JSON text frames):
     {"channel": "playout", "data": {...status...}}
     {"channel": "job", "event": "state|progress|log|complete", "data": {...}}
     {"channel": "invalidate", "keys": ["schedules", "movies", ...]}
+    {"channel": "ping"}  (every 15 s, so a client can tell a dead link from a quiet one)
 
 "invalidate" is a change signal: the producer watches cheap DB fingerprints (COUNT/MAX
 aggregates) plus probe-style timers and names the resources that changed, so clients refetch
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 TICK_SECONDS = 0.25  # playout position cadence (also the bus wait timeout)
 JOB_POLL_SECONDS = 1.0  # job-row poll cadence
 INVALIDATE_TICK_SECONDS = 2.0  # how often cheap resource fingerprints are recomputed
+PING_SECONDS = 15.0  # a heartbeat, so a browser can tell a silent link from a quiet one
 # Probe-style feeds with no cheap change signal: emit their key on this cadence.
 CADENCE_INVALIDATIONS = {"health": 60.0, "agent": 15.0, "setup": 4.0}
 # Initial log backlog sent the first time a job is seen, so a reconnecting
@@ -140,6 +142,7 @@ def _produce(put, stop: threading.Event, authorized: bool) -> None:
     last_sig: dict[str, str] | None = None  # None until the baseline is seeded
     last_invalidate_poll = 0.0
     cadence_emitted: dict[str, float] = {}
+    last_ping = time.monotonic()
 
     try:
         while not stop.is_set():
@@ -159,6 +162,10 @@ def _produce(put, stop: threading.Event, authorized: bool) -> None:
                 logger.debug("WS playout build failed", exc_info=True)
 
             now = time.monotonic()
+            if now - last_ping >= PING_SECONDS:
+                last_ping = now
+                put({"channel": "ping"})
+
             if authorized and now - last_job_poll >= JOB_POLL_SECONDS:
                 last_job_poll = now
                 try:

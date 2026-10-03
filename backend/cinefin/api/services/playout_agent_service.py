@@ -17,27 +17,70 @@ from cinefin.api.models import PlayoutHost
 logger = logging.getLogger(__name__)
 
 STATUS_TIMEOUT = 5
-# start/restart block until mpv's IPC socket is up (the agent waits internally)
-ACTION_TIMEOUT = 25
+# start/restart block until mpv's IPC socket is up (the agent waits internally). A restart
+# can take the agent up to 28 s when mpv is slow to quit, so leave room over that.
+ACTION_TIMEOUT = 35
 
-# The agent protocol this Cinefin needs: 2 = the player owns standby (PUT/POST /standby).
+# The agent protocol this Cinefin speaks: 2 = pairing by code, the player owns standby.
+# The player serves a range (min_protocol..protocol, from /health and /pair) and refuses a
+# Cinefin outside it with 426; Cinefin sends PROTOCOL in PROTOCOL_HEADER on every request.
+# Raise it when Cinefin starts to rely on something new in the player (which raises its own).
 PROTOCOL = 2
+PROTOCOL_HEADER = "Cinefin-Protocol"
 OUTDATED_MESSAGE = "This player needs updating to the latest cinefin-playout release"
+CINEFIN_OUTDATED_MESSAGE = "This player needs a newer Cinefin. Update Cinefin to the latest release"
+
+COMPATIBLE = "ok"
+UPDATE_PLAYER = "update_player"
+UPDATE_CINEFIN = "update_cinefin"
 
 
-def is_current(answer: dict) -> bool:
-    """Whether an agent's /pair or /health answer speaks the protocol this Cinefin needs."""
-    protocol = answer.get("protocol")
-    return isinstance(protocol, int) and not isinstance(protocol, bool) and protocol >= PROTOCOL
+def _int(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def compatibility(answer: dict) -> str:
+    """Whether an agent's /pair or /health answer serves PROTOCOL: ``COMPATIBLE``, or which side to update."""
+    protocol = _int(answer.get("protocol"))
+    if protocol is None or protocol < PROTOCOL:
+        return UPDATE_PLAYER
+    # A player from before the range reports no min_protocol: it serves anything up to protocol.
+    if (_int(answer.get("min_protocol")) or 0) > PROTOCOL:
+        return UPDATE_CINEFIN
+    return COMPATIBLE
+
+
+def headers(token: str = "") -> dict:
+    """The headers for every request to an agent: the protocol, and the bearer token once paired."""
+    out = {PROTOCOL_HEADER: str(PROTOCOL)}
+    if token:
+        out["Authorization"] = f"Bearer {token}"
+    return out
 
 
 def _agent_error(response) -> str:
-    """The agent's own ``{"error": ...}`` message, else its body."""
+    """The agent's own ``{"error": ...}`` (or an action's ``{"message": ...}``), else its body."""
     try:
-        detail = (response.json() or {}).get("error") or response.text
+        body = response.json() or {}
+        detail = (
+            (body.get("error") or body.get("message") or response.text) if isinstance(body, dict) else response.text
+        )
     except ValueError:
         detail = response.text
     return str(detail)[:300]
+
+
+def _protocol_refusal(response) -> UnprocessableEntityError:
+    """The error for an agent's 426: which side to update, in the agent's own words."""
+    try:
+        body = response.json() or {}
+    except ValueError:
+        body = {}
+    if (_int(body.get("min_protocol")) or 0) > PROTOCOL:
+        return UnprocessableEntityError(
+            _agent_error(response) or CINEFIN_OUTDATED_MESSAGE, error_code="AGENT_NEEDS_NEWER_CINEFIN"
+        )
+    return UnprocessableEntityError(OUTDATED_MESSAGE, error_code="AGENT_OUTDATED")
 
 
 class PlayoutAgentService:
@@ -65,13 +108,16 @@ class PlayoutAgentService:
                 "No playout host is configured — add one on the Playout settings page",
                 error_code="AGENT_NOT_CONFIGURED",
             )
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
         try:
-            response = requests.request(method, f"{base}{path}", json=json_body, headers=headers, timeout=timeout)
+            response = requests.request(
+                method, f"{base}{path}", json=json_body, headers=headers(token), timeout=timeout
+            )
         except requests.RequestException as e:
             raise UnprocessableEntityError(
                 f"Playout agent unreachable at {base}: {e}", error_code="AGENT_UNREACHABLE"
             ) from e
+        if response.status_code == 426:
+            raise _protocol_refusal(response)
         if response.status_code == 401:
             raise UnprocessableEntityError(
                 "The player no longer accepts this Cinefin — remove it and pair it again",
@@ -86,7 +132,7 @@ class PlayoutAgentService:
             raise UnprocessableEntityError(_agent_error(response), error_code="AGENT_REJECTED")
         if not response.ok:
             raise UnprocessableEntityError(
-                f"Playout agent error ({response.status_code}): {response.text[:200]}", error_code="AGENT_ERROR"
+                f"Playout agent error ({response.status_code}): {_agent_error(response)}", error_code="AGENT_ERROR"
             )
         try:
             return response.json()
@@ -103,7 +149,7 @@ class PlayoutAgentService:
         """
         base = base_url.strip().rstrip("/")
         try:
-            response = requests.post(f"{base}/pair", json={"code": code}, timeout=STATUS_TIMEOUT)
+            response = requests.post(f"{base}/pair", json={"code": code}, headers=headers(), timeout=STATUS_TIMEOUT)
         except requests.RequestException as e:
             raise UnprocessableEntityError(f"No player answered at {base}: {e}", error_code="AGENT_UNREACHABLE") from e
         if response.status_code == 403:
@@ -124,6 +170,8 @@ class PlayoutAgentService:
                 "tray or run `cinefin-playout reset`, then try again.",
                 error_code="PAIR_ALREADY_PAIRED",
             )
+        if response.status_code == 426:
+            raise _protocol_refusal(response)
         if response.status_code == 404:
             raise UnprocessableEntityError(OUTDATED_MESSAGE, error_code="AGENT_OUTDATED")
         if not response.ok:
@@ -136,8 +184,11 @@ class PlayoutAgentService:
             answer = {}
         if not answer.get("token"):
             raise UnprocessableEntityError("The player did not return a token", error_code="AGENT_ERROR")
-        if not is_current(answer):
+        verdict = compatibility(answer)
+        if verdict == UPDATE_PLAYER:
             raise UnprocessableEntityError(OUTDATED_MESSAGE, error_code="AGENT_OUTDATED")
+        if verdict == UPDATE_CINEFIN:
+            raise UnprocessableEntityError(CINEFIN_OUTDATED_MESSAGE, error_code="AGENT_NEEDS_NEWER_CINEFIN")
         return answer
 
     @classmethod

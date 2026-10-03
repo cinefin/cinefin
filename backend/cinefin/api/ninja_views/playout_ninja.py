@@ -61,9 +61,9 @@ class PlayoutStatusResponseSchema(SuccessResponseSchema):
 
 
 class ControlPlayoutSchema(Schema):
-    action: Literal["start", "pause", "resume", "previous", "next", "seek", "jump", "end_hold", "end"] = Field(
-        ..., description="A transport action; it must be in the status's actions (else 409)"
-    )
+    action: Literal[
+        "start", "pause", "resume", "previous", "next", "seek", "jump", "end_hold", "end", "recover", "dismiss"
+    ] = Field(..., description="A transport action; it must be in the status's actions (else 409)")
     seconds: float | None = Field(None, description="seek: to this many seconds into the item on screen")
     offset: float | None = Field(None, description="seek: by this many seconds (negative is back)")
     index: int | None = Field(None, description="jump: to this player playlist index")
@@ -304,8 +304,6 @@ class AgentStatusDataSchema(Schema):
     uptime_seconds: float | None = None
     restarts: int = Field(default=0, description="Crash-restarts performed by the agent")
     socket_responding: bool = False
-    autostart: bool | None = None
-    config_pushed_at: float | None = None
     error: str | None = Field(default=None, description="Why the agent is unreachable, if it is")
     warning: str | None = Field(
         default=None, description="A player problem to show: a local mpv too old, or a standby ident download failure"
@@ -368,6 +366,7 @@ def get_agent_status(request: HttpRequest):
                 data=AgentStatusDataSchema(enabled=True, reachable=False, error=e.message),
             ),
         )
+    _note_agent_version(status.get("agent_version"))
     mpv = status.get("mpv", {})
     standby_error = (status.get("standby") or {}).get("error")
     return Status(
@@ -384,12 +383,19 @@ def get_agent_status(request: HttpRequest):
                 uptime_seconds=mpv.get("uptime_seconds"),
                 restarts=mpv.get("restarts", 0),
                 socket_responding=bool(mpv.get("socket_responding")),
-                autostart=status.get("autostart"),
-                config_pushed_at=status.get("config_pushed_at"),
                 warning=f"The standby ident did not download: {standby_error}" if standby_error else None,
             ),
         ),
     )
+
+
+def _note_agent_version(version) -> None:
+    """When the active player reports a version other than the one on record (it was updated),
+    refresh its row, so its protocol and any "Update" badge follow without a manual refresh."""
+    host = PlayoutHost.get_active()
+    if host is None or host.kind != PlayoutHost.KIND_AGENT or not version or version == host.agent_version:
+        return
+    playout_host_service.refresh(host)
 
 
 def _agent_action(action: str) -> AgentActionResponseSchema:
@@ -449,6 +455,9 @@ class PlayoutHostSchema(Schema):
     needs_update: bool = Field(
         False, description="The agent is older than this Cinefin needs (recorded on pairing and refresh)"
     )
+    needs_cinefin_update: bool = Field(
+        False, description="The agent no longer serves this Cinefin's protocol: update Cinefin (or use an older player)"
+    )
     show_status: bool = True
     enabled: bool
     is_active: bool
@@ -467,7 +476,10 @@ class PlayoutHostResponse(SuccessResponseSchema):
 
 
 class HostGraphicsSchema(Schema):
-    mode: str = Field("desktop", description='"desktop" (X/Wayland session) or "drm" (headless KMS)')
+    mode: str = Field(
+        "desktop",
+        description='"desktop" (X/Wayland session), "drm" (headless KMS) or "android" (an Android TV player)',
+    )
     vo: str = "gpu-next"
     gpu_api: str = Field("", description='"" = mpv default; e.g. "d3d11", "vulkan"')
     gpu_context: str = Field("", description='"" = auto; e.g. "displayvk", "drm"')
@@ -479,6 +491,16 @@ class HostGraphicsSchema(Schema):
     hdr_passthrough: bool = Field(True, description="send HDR to the display instead of tone-mapping to SDR")
     osc: bool = Field(False, description="mpv's own on-screen controller")
     display: str = Field("", description='desktop mode: X display, e.g. ":0"; empty for drm')
+    display_mode: str = Field(
+        "",
+        description='android: the display mode, e.g. "3840x2160@23.976"; "" = the box\'s own (ignored by the desktop agent)',
+    )
+    keep_awake: bool = Field(
+        True, description="android: keep the screen on so the box never goes to standby (ignored by the desktop agent)"
+    )
+    tunneling: bool = Field(
+        False, description="android: tunnelled playback, A/V sync in the decoder (ignored by the desktop agent)"
+    )
 
 
 class HostAudioSchema(Schema):
@@ -527,12 +549,33 @@ class HostMPVInfoSchema(Schema):
     gpu_apis: list[str] = Field(default_factory=list)
 
 
+class HostDisplayModeSchema(Schema):
+    id: int
+    w: int = 0
+    h: int = 0
+    hz: float = 0.0
+
+
+class HostAndroidSchema(Schema):
+    """What an Android TV player's output path can do."""
+
+    device: str = Field("", description='e.g. "NVIDIA SHIELD Android TV"')
+    sdk: int = Field(0, description="Android API level")
+    passthrough: list[str] = Field(
+        default_factory=list, description='encodings the receiver takes as a bitstream, e.g. ["ac3", "truehd"]'
+    )
+    max_channels: int = 0
+    hdr: list[str] = Field(default_factory=list, description='HDR formats the display shows, e.g. ["HDR10", "HLG"]')
+    modes: list[HostDisplayModeSchema] = Field(default_factory=list, description="the display's modes")
+
+
 class HostHardwareSchema(Schema):
     audio_devices: list[HostAudioDeviceSchema] = Field(default_factory=list)
     drm_connectors: list[str] = Field(default_factory=list)
     screens: list[HostScreenSchema] = Field(default_factory=list)
     mpv: HostMPVInfoSchema = Field(default_factory=HostMPVInfoSchema)
     note: str = Field("", description="why a list is empty, e.g. no mpv binary found")
+    android: HostAndroidSchema | None = Field(None, description="an Android TV player only")
 
 
 class HostHardwareResponse(SuccessResponseSchema):
@@ -607,6 +650,7 @@ def _host_schema(host: PlayoutHost) -> PlayoutHostSchema:
         agent_id=host.agent_id or "",
         needs_pairing_again=agent and bool(host.token) and not host.agent_id,
         needs_update=agent and bool(host.token) and host.protocol < PROTOCOL,
+        needs_cinefin_update=agent and bool(host.token) and host.min_protocol > PROTOCOL,
         show_status=host.show_status,
         enabled=host.enabled,
         is_active=host.is_active,
@@ -667,6 +711,7 @@ def pair_playout_host(request: HttpRequest, data: PairHostInput):
     host.os = str(answer.get("os") or "")
     host.arch = str(answer.get("arch") or "")
     host.protocol = int(answer.get("protocol") or 0)
+    host.min_protocol = int(answer.get("min_protocol") or 0)
     host.last_seen_at = timezone.now()
     # The first player (or a re-paired active one) becomes the active host.
     activate = host.is_active or PlayoutHost.get_active() is None

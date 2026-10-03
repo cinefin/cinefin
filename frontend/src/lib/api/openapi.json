@@ -137,28 +137,6 @@
             ],
             "title": "Agent Version"
           },
-          "autostart": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Autostart"
-          },
-          "config_pushed_at": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Config Pushed At"
-          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -1554,7 +1532,9 @@
               "seek",
               "jump",
               "end_hold",
-              "end"
+              "end",
+              "recover",
+              "dismiss"
             ],
             "title": "Action",
             "type": "string"
@@ -2344,15 +2324,27 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "lines": {
+            "description": "How many elements (lines) it has",
+            "title": "Lines",
+            "type": "integer"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "programmes": {
+            "description": "Programmes that pick it as their own design",
+            "title": "Programmes",
+            "type": "integer"
           }
         },
         "required": [
           "id",
           "name",
-          "is_default"
+          "is_default",
+          "lines",
+          "programmes"
         ],
         "title": "DesignSummarySchema",
         "type": "object"
@@ -3242,6 +3234,54 @@
         "title": "HealthResponseSchema",
         "type": "object"
       },
+      "HostAndroidSchema": {
+        "description": "What an Android TV player's output path can do.",
+        "properties": {
+          "device": {
+            "default": "",
+            "description": "e.g. \"NVIDIA SHIELD Android TV\"",
+            "title": "Device",
+            "type": "string"
+          },
+          "hdr": {
+            "description": "HDR formats the display shows, e.g. [\"HDR10\", \"HLG\"]",
+            "items": {
+              "type": "string"
+            },
+            "title": "Hdr",
+            "type": "array"
+          },
+          "max_channels": {
+            "default": 0,
+            "title": "Max Channels",
+            "type": "integer"
+          },
+          "modes": {
+            "description": "the display's modes",
+            "items": {
+              "$ref": "#/components/schemas/HostDisplayModeSchema"
+            },
+            "title": "Modes",
+            "type": "array"
+          },
+          "passthrough": {
+            "description": "encodings the receiver takes as a bitstream, e.g. [\"ac3\", \"truehd\"]",
+            "items": {
+              "type": "string"
+            },
+            "title": "Passthrough",
+            "type": "array"
+          },
+          "sdk": {
+            "default": 0,
+            "description": "Android API level",
+            "title": "Sdk",
+            "type": "integer"
+          }
+        },
+        "title": "HostAndroidSchema",
+        "type": "object"
+      },
       "HostAudioDeviceSchema": {
         "properties": {
           "description": {
@@ -3332,12 +3372,46 @@
         "title": "HostConfigSavedSchema",
         "type": "object"
       },
+      "HostDisplayModeSchema": {
+        "properties": {
+          "h": {
+            "default": 0,
+            "title": "H",
+            "type": "integer"
+          },
+          "hz": {
+            "default": 0.0,
+            "title": "Hz",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "w": {
+            "default": 0,
+            "title": "W",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "HostDisplayModeSchema",
+        "type": "object"
+      },
       "HostGraphicsSchema": {
         "properties": {
           "display": {
             "default": "",
             "description": "desktop mode: X display, e.g. \":0\"; empty for drm",
             "title": "Display",
+            "type": "string"
+          },
+          "display_mode": {
+            "default": "",
+            "description": "android: the display mode, e.g. \"3840x2160@23.976\"; \"\" = the box's own (ignored by the desktop agent)",
+            "title": "Display Mode",
             "type": "string"
           },
           "drm_connector": {
@@ -3381,9 +3455,15 @@
             "title": "Hwdec",
             "type": "string"
           },
+          "keep_awake": {
+            "default": true,
+            "description": "android: keep the screen on so the box never goes to standby (ignored by the desktop agent)",
+            "title": "Keep Awake",
+            "type": "boolean"
+          },
           "mode": {
             "default": "desktop",
-            "description": "\"desktop\" (X/Wayland session) or \"drm\" (headless KMS)",
+            "description": "\"desktop\" (X/Wayland session), \"drm\" (headless KMS) or \"android\" (an Android TV player)",
             "title": "Mode",
             "type": "string"
           },
@@ -3398,6 +3478,12 @@
             "description": "desktop mode: which display index to fullscreen on",
             "title": "Screen",
             "type": "integer"
+          },
+          "tunneling": {
+            "default": false,
+            "description": "android: tunnelled playback, A/V sync in the decoder (ignored by the desktop agent)",
+            "title": "Tunneling",
+            "type": "boolean"
           },
           "vo": {
             "default": "gpu-next",
@@ -3438,6 +3524,17 @@
       },
       "HostHardwareSchema": {
         "properties": {
+          "android": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HostAndroidSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "an Android TV player only"
+          },
           "audio_devices": {
             "items": {
               "$ref": "#/components/schemas/HostAudioDeviceSchema"
@@ -3732,6 +3829,54 @@
           "url"
         ],
         "title": "ImageSchema",
+        "type": "object"
+      },
+      "InterruptedSchema": {
+        "description": "A programme the player lost while on air (it restarted), for the operator to resume.",
+        "properties": {
+          "item_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Title"
+          },
+          "position": {
+            "description": "Programme position of the item it was on",
+            "title": "Position",
+            "type": "integer"
+          },
+          "programme_id": {
+            "title": "Programme Id",
+            "type": "integer"
+          },
+          "programme_name": {
+            "title": "Programme Name",
+            "type": "string"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How far into that item, when known",
+            "title": "Seconds"
+          }
+        },
+        "required": [
+          "programme_id",
+          "programme_name",
+          "position"
+        ],
+        "title": "InterruptedSchema",
         "type": "object"
       },
       "ItemSchema": {
@@ -6717,6 +6862,12 @@
             "title": "Name",
             "type": "string"
           },
+          "needs_cinefin_update": {
+            "default": false,
+            "description": "The agent no longer serves this Cinefin's protocol: update Cinefin (or use an older player)",
+            "title": "Needs Cinefin Update",
+            "type": "boolean"
+          },
           "needs_pairing_again": {
             "default": false,
             "description": "An agent paired before pairing codes (a token but no agent id): remove it and pair again",
@@ -6798,7 +6949,9 @@
                 "seek",
                 "jump",
                 "end_hold",
-                "end"
+                "end",
+                "recover",
+                "dismiss"
               ],
               "type": "string"
             },
@@ -6815,6 +6968,17 @@
               }
             ],
             "description": "The item on screen (the title card in the pre-show)"
+          },
+          "interrupted": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterruptedSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A programme the player lost, to resume"
           },
           "label": {
             "default": "",

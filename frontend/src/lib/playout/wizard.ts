@@ -57,6 +57,8 @@ export function pairError(e: unknown): string {
 			return 'That code did not match, or it has run out. The code changes every 5 minutes and after each wrong try: enter the one on the screen now.';
 		case 'AGENT_OUTDATED':
 			return 'This player is too old for this Cinefin. Update cinefin-playout on it to the latest release, then pair again.';
+		case 'AGENT_NEEDS_NEWER_CINEFIN':
+			return 'This player is newer than this Cinefin. Update Cinefin to the latest release, then pair again.';
 		case 'AGENT_UNREACHABLE':
 			return 'No player answered at that address. Check that cinefin-playout is running and the address is right.';
 		default:

@@ -1,5 +1,6 @@
-// SettingsStore: the Settings page's draft behind its one Save bar (main settings, then trailer
-// settings). Everything else on the page applies at once. Numeric inputs are held as strings.
+// SettingsStore: the Settings page's draft of the main and trailer settings. The page saves it a
+// moment after each change (AutoSave); a save sends only what changed since the last one, and
+// can be undone. Numeric inputs are held as strings.
 import { api, unwrap, ApiError, toApiError } from '$lib/api/client';
 import { mutate } from '$lib/api/mutate';
 import { unwrapLoose } from '$lib/jobs';
@@ -114,13 +115,39 @@ export class SettingsStore {
 	fieldError = $state<{ field: string; message: string } | null>(null);
 
 	#baseline = $state<string | null>(null);
+	/** The draft before the last save, for Undo; dropped by the next edit's save. */
+	#undo = $state<string | null>(null);
+	/** The next save puts back an undone change: it is not itself undoable. */
+	#undoing = false;
+	/** Fields the last save wrote, for their "Saved" mark. */
+	savedKeys = $state<string[]>([]);
+
+	/** The whole draft as one string: an effect reading it reruns on any change. */
+	get signature(): string {
+		return JSON.stringify({ m: this.main, t: this.trailers, a: this.accentCleared });
+	}
 
 	snapshot(): void {
-		this.#baseline = JSON.stringify({
-			m: this.main,
-			t: this.trailers,
-			a: this.accentCleared
-		});
+		this.#baseline = this.signature;
+	}
+
+	get canUndo(): boolean {
+		return this.#undo !== null && !this.dirtyCount;
+	}
+
+	/** Put back what the last save changed; the page's autosave then saves that. */
+	undo(): void {
+		if (!this.#undo) return;
+		const was = JSON.parse(this.#undo);
+		this.#undo = null;
+		this.#undoing = true;
+		this.main = was.m;
+		this.trailers = was.t;
+		this.accentCleared = was.a;
+	}
+
+	isSaved(key: string): boolean {
+		return this.savedKeys.includes(key) && !this.isDirty(key);
 	}
 
 	get dirtyKeys(): string[] {
@@ -166,6 +193,8 @@ export class SettingsStore {
 			this.main = mainDraft(s);
 			if (trailerData) this.trailers = trailerDraft(trailerData.settings ?? {});
 			this.fieldError = null;
+			this.#undo = null;
+			this.savedKeys = [];
 			this.snapshot();
 		} catch (e) {
 			this.error = toApiError(e);
@@ -175,72 +204,89 @@ export class SettingsStore {
 	}
 
 	async save(): Promise<SaveResult> {
+		const keys = this.dirtyKeys;
+		if (!keys.length) return { ok: true };
 		this.saving = true;
 		this.fieldError = null;
+		// What this save sends: edits made while it runs stay dirty and save next.
+		const sent = this.signature;
+		const before = this.#baseline;
+		const mainChanged = keys.some((k) => !k.startsWith('trailers.'));
+		const trailersChanged = keys.some((k) => k.startsWith('trailers.'));
 		const m = this.main;
 		const int = (v: string, fallback: number) => parseInt(v, 10) || fallback;
 		const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 		try {
-			await mutate(
-				api.POST('/api/v2/settings/', {
-					body: {
-						cinema_name: m.cinema_name.trim(),
-						ratings_system: m.ratings_system,
-						// null (sent, not omitted) = the System Ident; the server clears its saved id.
-						default_cinema_ident: m.default_cinema_ident
-							? parseInt(m.default_cinema_ident, 10)
-							: null,
-						ticket_total_rows: int(m.ticket_total_rows, 1),
-						ticket_seats_per_row: int(m.ticket_seats_per_row, 1),
-						ticket_printer_type: m.ticket_printer_type,
-						ticket_printer_device: m.ticket_printer_device.trim(),
-						ticket_printer_host: m.ticket_printer_host.trim(),
-						ticket_printer_port: int(m.ticket_printer_port, 9100),
-						ticket_printer_timeout: int(m.ticket_printer_timeout, 30),
-						ticket_feed_lines: clamp(int(m.ticket_feed_lines, 0), 0, 20),
-						ticket_cut: m.ticket_cut,
-						ticket_image_mode: m.ticket_image_mode,
-						ticket_paper_width: int(m.ticket_paper_width, 384),
-						subtitle_font_size: int(m.subtitle_font_size, 55),
-						subtitle_color: m.subtitle_color,
-						subtitle_border_style: m.subtitle_border_style,
-						subtitle_back_color: m.subtitle_back_color,
-						subtitle_position: int(m.subtitle_position, 100),
-						subtitle_margin_y: int(m.subtitle_margin_y, 22),
-						subtitle_use_margins: m.subtitle_use_margins,
-						subtitle_bold: m.subtitle_bold,
-						playout_server_url: m.playout_server_url.trim(),
-						// Empty string = reset to the built-in theme (server stores None).
-						accent_color: this.accentCleared ? '' : m.accent_color,
-						display_time_format: m.display_time_format,
-						kiosk_layout: m.kiosk_layout,
-						kiosk_rotate_minutes: int(m.kiosk_rotate_minutes, 0),
-						kiosk_header: m.kiosk_header,
-						kiosk_clock: m.kiosk_clock,
-						kiosk_takeover: m.kiosk_takeover,
-						kiosk_countdown_minutes: clamp(int(m.kiosk_countdown_minutes, 0), 0, 480),
-						kiosk_night: m.kiosk_night,
-						kiosk_night_start: m.kiosk_night_start || '01:00',
-						kiosk_night_end: m.kiosk_night_end || '08:00',
-						kiosk_content_source: m.kiosk_content_source,
-						kiosk_show_showtimes: m.kiosk_show_showtimes
-					}
-				})
-			);
+			if (mainChanged)
+				await mutate(
+					api.POST('/api/v2/settings/', {
+						body: {
+							cinema_name: m.cinema_name.trim(),
+							ratings_system: m.ratings_system,
+							// null (sent, not omitted) = the System Ident; the server clears its saved id.
+							default_cinema_ident: m.default_cinema_ident
+								? parseInt(m.default_cinema_ident, 10)
+								: null,
+							ticket_total_rows: int(m.ticket_total_rows, 1),
+							ticket_seats_per_row: int(m.ticket_seats_per_row, 1),
+							ticket_printer_type: m.ticket_printer_type,
+							ticket_printer_device: m.ticket_printer_device.trim(),
+							ticket_printer_host: m.ticket_printer_host.trim(),
+							ticket_printer_port: int(m.ticket_printer_port, 9100),
+							ticket_printer_timeout: int(m.ticket_printer_timeout, 30),
+							ticket_feed_lines: clamp(int(m.ticket_feed_lines, 0), 0, 20),
+							ticket_cut: m.ticket_cut,
+							ticket_image_mode: m.ticket_image_mode,
+							ticket_paper_width: int(m.ticket_paper_width, 384),
+							subtitle_font_size: int(m.subtitle_font_size, 55),
+							subtitle_color: m.subtitle_color,
+							subtitle_border_style: m.subtitle_border_style,
+							subtitle_back_color: m.subtitle_back_color,
+							subtitle_position: int(m.subtitle_position, 100),
+							subtitle_margin_y: int(m.subtitle_margin_y, 22),
+							subtitle_use_margins: m.subtitle_use_margins,
+							subtitle_bold: m.subtitle_bold,
+							playout_server_url: m.playout_server_url.trim(),
+							// Empty string = reset to the built-in theme (server stores None).
+							accent_color: this.accentCleared ? '' : m.accent_color,
+							display_time_format: m.display_time_format,
+							kiosk_layout: m.kiosk_layout,
+							kiosk_rotate_minutes: int(m.kiosk_rotate_minutes, 0),
+							kiosk_header: m.kiosk_header,
+							kiosk_clock: m.kiosk_clock,
+							kiosk_takeover: m.kiosk_takeover,
+							kiosk_countdown_minutes: clamp(int(m.kiosk_countdown_minutes, 0), 0, 480),
+							kiosk_night: m.kiosk_night,
+							kiosk_night_start: m.kiosk_night_start || '01:00',
+							kiosk_night_end: m.kiosk_night_end || '08:00',
+							kiosk_content_source: m.kiosk_content_source,
+							kiosk_show_showtimes: m.kiosk_show_showtimes
+						}
+					})
+				);
 
 			const t = this.trailers;
-			await api.POST('/api/v2/trailers/settings', {
-				body: {
-					tmdb_api_key: t.tmdb_api_key.trim() || null,
-					download_quality: t.download_quality,
-					rating_lookup_enabled: t.rating_lookup_enabled,
-					upcoming_months_ahead: int(t.upcoming_months_ahead, 6),
-					filename_template: t.filename_template.trim() || null,
-					folder_template: t.folder_template.trim() || null
-				}
-			});
+			if (trailersChanged)
+				await mutate(
+					api.POST('/api/v2/trailers/settings', {
+						body: {
+							tmdb_api_key: t.tmdb_api_key.trim() || null,
+							download_quality: t.download_quality,
+							rating_lookup_enabled: t.rating_lookup_enabled,
+							upcoming_months_ahead: int(t.upcoming_months_ahead, 6),
+							filename_template: t.filename_template.trim() || null,
+							folder_template: t.folder_template.trim() || null
+						}
+					})
+				);
 
-			this.snapshot();
+			this.#baseline = sent;
+			this.#undo = this.#undoing ? null : before;
+			this.#undoing = false;
+			this.savedKeys = keys;
+			setTimeout(() => {
+				if (this.savedKeys === keys) this.savedKeys = [];
+			}, 3000);
 			this.updatedAt = new Date().toISOString();
 			return { ok: true };
 		} catch (e) {

@@ -5,20 +5,23 @@ import logging
 import requests
 from django.utils import timezone
 
-from cinefin.api.services.playout_agent_service import is_current
+from cinefin.api.services.playout_agent_service import COMPATIBLE, UPDATE_CINEFIN, compatibility, headers
 
 logger = logging.getLogger(__name__)
 
 STATUS_TIMEOUT = 5
 
 
+def _int(value) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
 class PlayoutHostService:
     @classmethod
     def _get(cls, host, path: str) -> dict | None:
         url = (host.base_url or "").rstrip("/") + path
-        headers = {"Authorization": f"Bearer {host.token}"} if host.token else {}
         try:
-            response = requests.get(url, headers=headers, timeout=STATUS_TIMEOUT)
+            response = requests.get(url, headers=headers(host.token), timeout=STATUS_TIMEOUT)
         except requests.RequestException as e:
             logger.warning("PlayoutHost %s unreachable at %s: %s", host.name, url, e)
             return None
@@ -49,11 +52,17 @@ class PlayoutHostService:
         host.os = os_name or host.os
         host.arch = arch or host.arch
         if health is not None:
-            protocol = health.get("protocol")
-            host.protocol = protocol if isinstance(protocol, int) and not isinstance(protocol, bool) else 0
-            if not is_current(health):
+            host.protocol = _int(health.get("protocol"))
+            host.min_protocol = _int(health.get("min_protocol"))
+            verdict = compatibility(health)
+            if verdict == UPDATE_CINEFIN:
+                logger.warning("PlayoutHost %s needs a newer Cinefin", host.name)
+            elif verdict != COMPATIBLE:
                 logger.warning("PlayoutHost %s needs updating to the latest cinefin-playout release", host.name)
-        host.save()
+        # Only what this poll measured: a full save would undo an edit made during the two requests.
+        host.save(
+            update_fields=["last_seen_at", "agent_version", "os", "arch", "protocol", "min_protocol", "updated_at"]
+        )
         return True
 
 

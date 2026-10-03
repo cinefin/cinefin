@@ -26,11 +26,6 @@ export class Upcoming {
 		return this.#byId.get(programmeId)?.movies ?? [];
 	}
 
-	/** The programme's first feature's poster, for a banner. */
-	art(programmeId: number): string | null {
-		return this.features(programmeId).find((f) => f.thumbnail_url)?.thumbnail_url ?? null;
-	}
-
 	runtime(programmeId: number): number {
 		return Math.round(this.#byId.get(programmeId)?.total_runtime ?? 0);
 	}

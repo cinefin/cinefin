@@ -1,6 +1,7 @@
 import { itemTypeCount } from '$lib/item-types';
 import { runtimeRange, yearRange } from '$lib/editor/types';
 import type { components } from '$lib/api/types.gen';
+import type { ProgrammeItemIn } from '$lib/editor/programme-adapter';
 
 export type AudioTrack = components['schemas']['AudioTrackSchema'];
 export type SubtitleTrack = components['schemas']['SubtitleTrackSchema'];
@@ -152,25 +153,36 @@ export function subtitleTrackLabel(track: SubtitleTrack, idx: number): string {
 	return flags.length ? `${name} (${flags.join(', ')})` : name;
 }
 
-export function hasSubtitleChoice(film: SelectedFilm): boolean {
-	return film.subtitle_tracks.length > 0;
-}
-
-export function canChooseTracks(film: SelectedFilm): boolean {
-	return film.audio_tracks.length > 1 || hasSubtitleChoice(film);
-}
-
-export function trackSummary(film: SelectedFilm): string {
-	const audioTrack = film.audio_tracks[film.audio_track_index] ?? film.audio_tracks[0];
-	const audio = audioTrack ? audioTrackLabel(audioTrack, film.audio_track_index) : 'Default audio';
-
-	let subtitles: string;
-	if (!film.subtitle_tracks.length) subtitles = 'no subtitles';
-	else if (film.subtitle_track_index === null) subtitles = 'Subtitles off';
-	else {
-		const idx = film.subtitle_track_index;
-		const track = film.subtitle_tracks[idx];
-		subtitles = track ? `Subtitles: ${subtitleTrackLabel(track, idx)}` : 'Subtitles off';
-	}
-	return `${audio} · ${subtitles}`;
+/** The chosen features as editor blocks, for a running order laid out by hand. */
+export function featureBlocks(items: SelectedItem[]): ProgrammeItemIn[] {
+	return items.map((item, index) => {
+		const base = { id: -(index + 1), order: index }; // negative: not yet saved
+		if (item.kind === 'movie') {
+			return {
+				...base,
+				type: 'movie',
+				title: item.title,
+				runtime: item.runtime ?? 0,
+				details: {
+					movie_id: item.id,
+					audio_track: item.audio_track_index,
+					subtitle_track: item.subtitle_track_index
+				}
+			};
+		}
+		return {
+			...base,
+			type: 'random_movie',
+			title: item.label || 'Random movie',
+			runtime: 0,
+			details: {
+				genre_ids: item.genre_ids,
+				certification: item.certification,
+				year_from: item.year_from,
+				year_to: item.year_to,
+				runtime_from: item.runtime_from,
+				runtime_to: item.runtime_to
+			}
+		};
+	});
 }

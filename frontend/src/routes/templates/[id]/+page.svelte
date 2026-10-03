@@ -165,7 +165,7 @@
 					<Button
 						variant="primary"
 						class="mt-4 w-full"
-						href="{base}/programmes/create"
+						href="{base}/programmes/new"
 						title="Build a programme from a template"
 					>
 						<ListVideo size={14} /> Create a programme

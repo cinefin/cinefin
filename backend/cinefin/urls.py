@@ -36,7 +36,7 @@ _SPA_REDIRECTS = {
     "kiosk/": "/app/kiosk",  # stays auth-exempt via AuthGateMiddleware.KIOSK_PREFIXES
     "media/": "/app/media",
     "programmes/": "/app/programmes",
-    "create-programme/": "/app/programmes/create",
+    "create-programme/": "/app/programmes/new",
     "programme-editor/": "/app/programmes",
     "template-editor/": "/app/templates",
     "title-template-editor/": "/app/titles",

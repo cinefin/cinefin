@@ -6,6 +6,9 @@
 	import PlayoutBar from '$lib/components/shell/PlayoutBar.svelte';
 	import Sidebar from '$lib/components/shell/Sidebar.svelte';
 	import Toasts from '$lib/components/Toasts.svelte';
+	import Banner from '$lib/components/ui/Banner.svelte';
+	import { formatClock } from '$lib/format';
+	import { realtime } from '$lib/realtime.svelte';
 	import Topbar from '$lib/components/shell/Topbar.svelte';
 	import { display } from '$lib/display.svelte';
 	import { startInvalidateBridge } from '$lib/realtime-invalidate';
@@ -37,6 +40,13 @@
 	<div class="flex min-w-0 flex-1 flex-col">
 		<Topbar onmenu={() => (navOpen = true)} />
 		<main class="w-full flex-1 p-4 md:p-6">
+			{#if realtime.down}
+				<Banner severity="warning" title="Can't reach Cinefin." class="mb-4">
+					Reconnecting… What's shown is from {realtime.lastSeen
+						? formatClock(new Date(realtime.lastSeen))
+						: 'before it went away'}, and the controls are off until it's back.
+				</Banner>
+			{/if}
 			{@render children()}
 		</main>
 		<!-- The remote is the player; its own page doesn't repeat it in the bar. -->

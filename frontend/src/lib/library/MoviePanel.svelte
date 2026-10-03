@@ -273,7 +273,7 @@
 
 	const createHref = $derived.by(() => {
 		const list = selectedIds.includes(movieId) ? selectedIds : [...selectedIds, movieId];
-		return `${base}/programmes/create?movies=${list.join(',')}`;
+		return `${base}/programmes/new?movies=${list.join(',')}`;
 	});
 
 	function formatBitrate(bps: number): string {

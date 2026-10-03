@@ -416,10 +416,10 @@
 	function createProgramme() {
 		const ids = [...selected];
 		if (!ids.length) return;
-		void goto(`${base}/programmes/create?movies=${ids.join(',')}`);
+		void goto(`${base}/programmes/new?movies=${ids.join(',')}`);
 	}
 
-	// A filtered browse IS a random-movie query, handed to the wizard as a random slot
+	// A filtered browse IS a random-movie query, handed to the new programme as a random slot
 	// (picked films ride along in front of it).
 	let randomOpen = $state(false);
 
@@ -437,7 +437,7 @@
 		const ids = [...selected];
 		if (ids.length) params.set('movies', ids.join(','));
 		params.set('random_movies', JSON.stringify([slot]));
-		void goto(`${base}/programmes/create?${params.toString()}`);
+		void goto(`${base}/programmes/new?${params.toString()}`);
 	}
 
 	const films = (n: number) => `${n} movie${n === 1 ? '' : 's'}`;

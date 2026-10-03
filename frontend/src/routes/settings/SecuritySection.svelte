@@ -13,19 +13,12 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import SectionTabs from './SectionTabs.svelte';
-	import TabPanel from './TabPanel.svelte';
+	import Group from './Group.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	let { confirm }: { confirm: ConfirmDialog['confirm'] } = $props();
-
-	const TABS = [
-		{ id: 'account', label: 'Account' },
-		{ id: 'keys', label: 'API keys' }
-	];
-	let tab = $state('account');
 
 	const security = query(() => unwrap(api.GET('/api/v2/security/')));
 
@@ -167,7 +160,7 @@
 	const usedAt = (iso: string | null | undefined) => (iso ? formatDateTime(iso) : 'never');
 </script>
 
-<div class="space-y-4">
+<div class="space-y-6">
 	{#if security.data && !security.data.auth_active}
 		<div
 			class="flex items-start gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm"
@@ -182,16 +175,14 @@
 		</div>
 	{/if}
 
-	<SectionTabs tabs={TABS} bind:value={tab} label="Security settings" prefix="st" />
-
-	{#if tab === 'account'}
-		<TabPanel prefix="st" tab="account" class="max-w-xl">
+	<Group title="Sign-in">
+		<div class="max-w-xl">
 			{#if security.loading}
 				<Spinner label="Loading security state…" />
 			{:else if security.error}
 				<ErrorState compact error={security.error} retry={() => void security.load()} />
 			{:else}
-				<div class="space-y-4">
+				<div class="space-y-6">
 					<Field
 						label="Username"
 						forId="set-auth-username"
@@ -245,14 +236,15 @@
 					/>
 				</div>
 				<p class="mt-3 text-xs text-faint">
-					These apply immediately when toggled (not part of "Save changes"). If you lose access, run
+					If you lose access, run
 					<code class="font-mono">manage.py set_admin_password</code> or
 					<code class="font-mono">manage.py disable_auth</code> on the server.
 				</p>
 			</div>
-		</TabPanel>
-	{:else if tab === 'keys'}
-		<TabPanel prefix="st" tab="keys" class="max-w-2xl">
+		</div>
+	</Group>
+	<Group title="API keys">
+		<div class="max-w-2xl">
 			<p class="mb-3 text-xs text-faint">
 				Bearer tokens for programmatic access to the Cinefin API - send
 				<code class="font-mono">Authorization: Bearer &lt;key&gt;</code>. A key has the same reach
@@ -293,8 +285,8 @@
 					</div>
 				</Field>
 			</div>
-		</TabPanel>
-	{/if}
+		</div>
+	</Group>
 </div>
 
 <Dialog bind:open={createdKeyOpen} title="API key created">

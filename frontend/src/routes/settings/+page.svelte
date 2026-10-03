@@ -1,22 +1,13 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	import { display } from '$lib/display.svelte';
-	import {
-		Check,
-		Database,
-		Film,
-		Lock,
-		Palette,
-		Play,
-		Puzzle,
-		RotateCcw,
-		Server,
-		Ticket,
-		Tv
-	} from '@lucide/svelte';
-	import type { LucideIcon } from '@lucide/svelte';
+	import { Check, RotateCcw } from '@lucide/svelte';
 	import { page } from '$app/state';
-	import { replaceState } from '$app/navigation';
+	import { beforeNavigate } from '$app/navigation';
+	import { onDestroy, untrack } from 'svelte';
+	import { AutoSave } from '$lib/settings/autosave.svelte';
+	import SaveState from '$lib/settings/SaveState.svelte';
+	import { SETTINGS_SECTIONS, settingsSectionOf } from '$lib/settings/sections';
+	import SettingsToolbar from './SettingsToolbar.svelte';
 	import { api } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { showToast } from '$lib/toast.svelte';
@@ -42,83 +33,31 @@
 	const confirm = (text: string, opts?: { confirmLabel?: string }) =>
 		confirmDialog.confirm(text, opts);
 
-	const BLURBS = {
-		playout: 'The machine at the screen, its picture and sound, and what plays around a programme.',
-		cinema:
-			"Your theater's identity and seating, and the certification cards shown before features.",
-		tickets: 'Ticket designs and the thermal printer they print on.',
-		kiosk: 'Defaults for every kiosk screen; each display can still override them.',
-		library: 'The one media server your films come from, and the TMDB key that enriches them.',
-		appearance: 'How the web app looks - the navbar logo, accent colour and clock format.',
-		plugins: 'The kinds of action your commands can run, and the connection settings they need.',
-		security: 'Require a login to reach Cinefin, and mint API keys for programmatic access.',
-		backup: 'Save a complete copy of your Cinefin database, and restore it if something goes wrong.'
-	};
-	type Section = keyof typeof BLURBS;
+	// The toolbar's sections are ?tab= links; the page follows the URL, so a link to another
+	// section while already here (the health menu) just switches it.
+	const section = $derived(settingsSectionOf(page.url));
+	// Sections laid out as SettingLists (they go side by side when there is room).
+	const FULL_WIDTH = new Set(['playout', 'library', 'cinema', 'tickets', 'kiosk']);
+	const current = $derived(SETTINGS_SECTIONS.find((s) => s.id === section)!);
 
-	const NAV: { group: string; items: { id: Section; label: string; icon: LucideIcon }[] }[] = [
-		{
-			group: 'Core',
-			items: [
-				{ id: 'playout', label: 'Playout', icon: Play },
-				{ id: 'cinema', label: 'Theater', icon: Film },
-				{ id: 'tickets', label: 'Tickets', icon: Ticket }
-			]
-		},
-		{
-			group: 'Content',
-			items: [
-				{ id: 'kiosk', label: 'Kiosk display', icon: Tv },
-				{ id: 'library', label: 'Library source', icon: Server }
-			]
-		},
-		{
-			group: 'System',
-			items: [
-				{ id: 'appearance', label: 'Appearance', icon: Palette },
-				{ id: 'plugins', label: 'Plugins', icon: Puzzle },
-				{ id: 'security', label: 'Security', icon: Lock },
-				{ id: 'backup', label: 'Backup & restore', icon: Database }
-			]
-		}
-	];
-	const ITEMS = NAV.flatMap((g) => g.items);
-
-	let ticketsTab = $state<'designs' | 'printer'>('designs');
-	let section = $state<Section>('playout');
-
-	// Follow the URL, not just the first one: a link to another tab while
-	// already here (the health menu) navigates without remounting the page.
-	$effect.pre(() => {
-		const tab = page.url.searchParams.get('tab') as Section;
-		if (ITEMS.some((i) => i.id === tab)) section = tab;
-		if (page.url.searchParams.get('view') === 'printer') ticketsTab = 'printer';
-	});
-
-	function goSection(id: Section) {
-		section = id;
-		const url = new URL(page.url);
-		url.searchParams.set('tab', id);
-		url.searchParams.delete('view');
-		replaceState(url, {});
-	}
-
-	const current = $derived(ITEMS.find((i) => i.id === section)!);
-
-	async function save() {
+	// Every change saves itself a moment later; leaving the page saves what is waiting.
+	const saver = new AutoSave(async () => {
 		const result = await store.save();
-		if (result.ok) {
-			showToast('Settings saved', 'success');
-		} else {
-			if (result.section) goSection(result.section as Section);
+		if (!result.ok) {
 			showToast(result.message || 'Failed to save settings', 'error');
+			throw new Error(result.message);
 		}
-	}
-
-	async function discard() {
-		await store.load();
-		showToast('Changes discarded', 'info');
-	}
+	});
+	$effect(() => {
+		void store.signature;
+		if (untrack(() => store.dirtyCount)) saver.schedule();
+	});
+	beforeNavigate(() => {
+		if (saver.waiting) void saver.flush();
+	});
+	onDestroy(() => {
+		if (saver.waiting) void saver.flush();
+	});
 
 	async function reset() {
 		const ok = await confirm('Reset all settings to their defaults? This cannot be undone.', {
@@ -127,6 +66,7 @@
 		if (!ok) return;
 		await attempt(async () => {
 			await mutate(api.POST('/api/v2/settings/reset/'));
+			saver.cancel();
 			showToast('Settings reset to defaults', 'success');
 			await store.load();
 		}, 'Failed to reset settings');
@@ -135,57 +75,34 @@
 
 <ConfirmDialog bind:this={confirmDialog} />
 
-<PageHeader title="Settings" />
+<PageHeader title="Settings" {actions} />
+{#snippet actions()}
+	{#if !store.loading && !store.error}
+		<SaveState {saver} idle="Changes save as you make them" />
+		{#if store.canUndo && saver.status === 'saved'}
+			<Button size="sm" variant="ghost" onclick={() => store.undo()}>Undo</Button>
+		{/if}
+	{/if}
+{/snippet}
+
+<SettingsToolbar current={section} />
 
 {#if store.loading}
 	<Spinner label="Loading settings…" />
 {:else if store.error}
 	<ErrorState error={store.error} retry={() => void store.load()} />
 {:else}
-	<div class="flex flex-col gap-6 pb-24 lg:flex-row">
-		<nav class="shrink-0 lg:w-52" aria-label="Settings sections">
-			<div class="flex flex-row flex-wrap gap-1 lg:flex-col lg:gap-4">
-				{#each NAV as group (group.group)}
-					<div class="min-w-0">
-						<div class="mb-1 hidden px-2 text-[0.65rem] font-medium text-faint lg:block">
-							{group.group}
-						</div>
-						<div class="flex flex-row flex-wrap gap-1 lg:flex-col">
-							{#each group.items as item (item.id)}
-								<button
-									type="button"
-									class="flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors
-										{section === item.id
-										? 'bg-surface-2 font-medium text-accent'
-										: 'text-muted hover:bg-surface-1 hover:text-text'}"
-									aria-current={section === item.id ? 'page' : undefined}
-									onclick={() => goSection(item.id)}
-								>
-									<item.icon size={15} class="shrink-0" />
-									{item.label}
-								</button>
-							{/each}
-						</div>
-					</div>
-				{/each}
-			</div>
-			<p class="mt-4 hidden px-2 text-xs text-faint lg:block">
-				Last saved {formatStamp(store.updatedAt)}
-			</p>
-		</nav>
+	<div class="pb-8">
+		<p class="mb-5 max-w-3xl text-sm text-muted">{current.blurb}</p>
 
-		<div class="min-w-0 flex-1">
-			<header class="mb-4">
-				<h2 class="text-base font-medium">{current.label}</h2>
-				<p class="mt-1 max-w-3xl text-sm text-muted">{BLURBS[section]}</p>
-			</header>
-
+		<!-- Sections built from SettingLists fill the page; the older field groups keep a reading width. -->
+		<div class={FULL_WIDTH.has(section) ? '' : 'max-w-5xl'}>
 			{#if section === 'playout'}
 				<PlayoutSection {store} {confirm} />
 			{:else if section === 'cinema'}
 				<CinemaSection {store} />
 			{:else if section === 'tickets'}
-				<TicketsSection {store} {confirm} bind:tab={ticketsTab} />
+				<TicketsSection {store} />
 			{:else if section === 'kiosk'}
 				<KioskSection {store} />
 			{:else if section === 'library'}
@@ -197,36 +114,8 @@
 			{:else if section === 'security'}
 				<SecuritySection {confirm} />
 			{:else if section === 'backup'}
-				<BackupSection {confirm} />
+				<BackupSection {confirm} onreset={reset} />
 			{/if}
 		</div>
 	</div>
-
-	<!-- The ticket designer auto-saves, so there is no Save bar to confuse it with. -->
-	{#if !(section === 'tickets' && ticketsTab === 'designs')}
-		<div
-			class="fixed right-0 bottom-0 left-0 z-20 border-t border-border bg-surface-1 {display.rail
-				? 'md:left-14'
-				: 'md:left-56'}"
-		>
-			<div class="flex items-center gap-2 px-4 py-2.5">
-				<Button variant="danger" onclick={reset}>
-					<RotateCcw size={14} /> Reset to defaults
-				</Button>
-				<span class="flex-1"></span>
-				{#if store.dirtyCount}
-					<span class="text-xs text-warning">
-						{store.dirtyCount} unsaved change{store.dirtyCount === 1 ? '' : 's'}
-					</span>
-				{/if}
-				<Button disabled={!store.dirtyCount || store.saving} onclick={discard}>
-					Discard changes
-				</Button>
-				<Button variant="primary" disabled={store.saving} onclick={save}>
-					<Check size={14} />
-					{store.saving ? 'Saving…' : 'Save changes'}
-				</Button>
-			</div>
-		</div>
-	{/if}
 {/if}

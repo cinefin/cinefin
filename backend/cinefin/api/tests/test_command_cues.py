@@ -58,7 +58,7 @@ def _hold(monkeypatch, duration, run_for=0.0, playlist_pos=1, command=True):
     item.command = CommandFactory(name="Curtains", duration=duration) if command else None
     item.save()
     c = service.controller
-    c.get_property.side_effect = lambda name: {"playlist_pos": playlist_pos, "pause": False}[name]
+    c.get_property.side_effect = lambda name, quiet=False: {"playlist_pos": playlist_pos, "pause": False}[name]
     c.set_property.return_value = True
     service._run_hold_item(item, 1)
     return c, executed
@@ -88,7 +88,7 @@ def test_a_stale_hold_does_not_advance_past_its_successor():
     item = MagicMock(command=CommandFactory(duration=1), id=1)
     reads = {"n": 0}
 
-    def get_property(name):
+    def get_property(name, quiet=False):
         if name == "playlist_pos":
             reads["n"] += 1
             return 1 if reads["n"] <= 3 else 2

@@ -121,16 +121,6 @@ export class DashboardData {
 	}
 }
 
-export function itemProgress(
-	playback: { position?: number; duration?: number; percentage?: number } | null | undefined
-): number {
-	if (!playback) return 0;
-	const clamp = (n: number) => Math.max(0, Math.min(100, n));
-	if (typeof playback.percentage === 'number') return clamp(playback.percentage);
-	if (playback.duration) return clamp(((playback.position ?? 0) / playback.duration) * 100);
-	return 0;
-}
-
 // "in 4 min" / "in 2 h 10" / "in 3 days"; past a day it stops counting hours.
 export function untilLabel(when: Date | string): string {
 	const then = typeof when === 'string' ? new Date(when) : when;

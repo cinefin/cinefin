@@ -5,7 +5,7 @@
 
 	const SHORTCUTS = [
 		{ label: 'Fetch trailers', icon: Clapperboard, href: `${base}/trailers?fetch=open` },
-		{ label: 'New programme', icon: ListPlus, href: `${base}/programmes/create` },
+		{ label: 'New programme', icon: ListPlus, href: `${base}/programmes/new` },
 		{ label: 'Schedule a screening', icon: CalendarPlus, href: `${base}/schedules` }
 	];
 </script>

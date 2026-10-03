@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { Check } from '@lucide/svelte';
 	import type { SettingsStore } from './form.svelte';
 
 	interface Props {
@@ -30,6 +31,7 @@
 
 	const dirty = $derived(own.dirty ?? (!!field && !!store?.isDirty(field)));
 	const error = $derived(own.error ?? (field ? store?.errorFor(field) : null));
+	const saved = $derived(!dirty && !!field && !!store?.isSaved(field));
 </script>
 
 <div class={cls}>
@@ -37,8 +39,12 @@
 		<label class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted" for={forId}>
 			{label}
 			{#if dirty}
-				<span class="h-1.5 w-1.5 bg-warning" title="Unsaved change" aria-label="Unsaved change"
+				<span class="h-1.5 w-1.5 bg-warning" title="Saving shortly" aria-label="Not saved yet"
 				></span>
+			{:else if saved}
+				<span class="inline-flex items-center gap-1 font-normal text-success">
+					<Check size={11} /> Saved
+				</span>
 			{/if}
 		</label>
 	{/if}

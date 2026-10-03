@@ -19,7 +19,7 @@ from tmdbv3api import Discover, Movie, TMDb
 from cinefin.api.exceptions import ConflictError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import Genre, Settings, Trailer, TrailerTag
 from cinefin.api.models import Movie as MovieModel
-from cinefin.api.utils import media_tree
+from cinefin.api.utils import media_tree, ytdlp
 from cinefin.api.utils.media_paths import to_usermedia_relative, usermedia_abs_path
 
 from . import trailer_naming
@@ -725,14 +725,22 @@ class TrailerService:
 
     def _ytdlp_fetch(self, video_key: str, dest_path: str) -> None:
         # YouTube serves mostly separate video+audio streams, so a bare "best" often fails; prefer merged
-        # bestvideo+bestaudio, capped to download_quality. Merging needs ffmpeg.
+        # bestvideo+bestaudio, capped to download_quality, H.264 where there is one (see ytdlp.FORMAT_SORT).
+        # Merging needs ffmpeg.
         quality = str(self.config["download_quality"] or "1080")
         if quality == "best":
             fmt = "bestvideo+bestaudio/best"
         else:
             h = quality if quality.isdigit() else "1080"
             fmt = f"bestvideo[height<={h}]+bestaudio/best[height<={h}]/bestvideo+bestaudio/best"
-        opts = {"outtmpl": dest_path, "format": fmt, "merge_output_format": "mp4", "quiet": True, "no_warnings": True}
+        opts = {
+            "outtmpl": dest_path,
+            "format": fmt,
+            "format_sort": ytdlp.FORMAT_SORT,
+            "merge_output_format": "mp4",
+            "quiet": True,
+            "no_warnings": True,
+        }
         with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([f"https://www.youtube.com/watch?v={video_key}"])
 

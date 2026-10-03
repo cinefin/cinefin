@@ -5,6 +5,7 @@ import os
 from contextlib import contextmanager
 from typing import Literal
 
+from django.db.models import Count
 from django.http import FileResponse, HttpRequest
 from ninja import Field, Router, Schema
 
@@ -320,6 +321,8 @@ class DesignSummarySchema(Schema):
     id: int
     name: str
     is_default: bool
+    lines: int = Field(..., description="How many elements (lines) it has")
+    programmes: int = Field(..., description="Programmes that pick it as their own design")
 
 
 DESIGN_FIELDS = ("elements", "date_format", "time_format", "qr_links", "font")
@@ -358,7 +361,12 @@ class ProgrammeDesignSchema(Schema):
 @ticket_api.get("/designs", response=list[DesignSummarySchema])
 def list_designs(request: HttpRequest):
     TicketDesign.get_default()
-    return TicketDesign.objects.all()
+    return [
+        DesignSummarySchema(
+            id=d.id, name=d.name, is_default=d.is_default, lines=len(d.elements or []), programmes=d.picked_by
+        )
+        for d in TicketDesign.objects.annotate(picked_by=Count("programmes"))
+    ]
 
 
 @ticket_api.get("/designs/{int:design_id}", response={200: DesignSchema, **E404})

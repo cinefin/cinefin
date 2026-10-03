@@ -22,7 +22,7 @@ class SocketMPV(WSMPV):
 
     keepalive = False  # a Unix socket has no pings; a dead mpv closes it
 
-    def __init__(self, socket_path, quit_callback=None, connect_timeout=5.0):
+    def __init__(self, socket_path, quit_callback=None, connect_timeout=5.0, reconnect_callback=None):
         # Must exist before WSMPV.__init__ opens the connection: both are in
         # _INTERNAL_ATTRS so __setattr__ stores them instead of sending set_property.
         self.socket_path = socket_path
@@ -32,6 +32,7 @@ class SocketMPV(WSMPV):
             token=None,
             quit_callback=quit_callback,
             connect_timeout=connect_timeout,
+            reconnect_callback=reconnect_callback,
         )
 
     def _open_connection(self):

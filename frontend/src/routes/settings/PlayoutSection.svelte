@@ -3,14 +3,14 @@
 		Check,
 		CircleCheck,
 		MonitorPlay,
-		Pencil,
 		Play,
 		Plus,
 		RefreshCw,
 		RotateCcw,
 		RotateCw,
-		Square,
-		Trash2
+		Pencil,
+		Trash2,
+		Square
 	} from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
@@ -35,9 +35,10 @@
 	import CheckResult from './CheckResult.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import HostConfigPanel from './HostConfigPanel.svelte';
-	import SectionTabs from './SectionTabs.svelte';
-	import TabPanel from './TabPanel.svelte';
-	import Toggle from '$lib/components/ui/Toggle.svelte';
+	import SettingList from './SettingList.svelte';
+	import SettingLists from './SettingLists.svelte';
+	import SettingRow from './SettingRow.svelte';
+	import Switch from '$lib/components/ui/Switch.svelte';
 	import StoreToggle from '$lib/settings/StoreToggle.svelte';
 	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -47,12 +48,6 @@
 		confirm: ConfirmDialog['confirm'];
 	}
 	let { store, confirm }: Props = $props();
-
-	const TABS = [
-		{ id: 'players', label: 'Players' },
-		{ id: 'presentation', label: 'Presentation' }
-	];
-	let tab = $state('players');
 
 	const hosts = query(() => unwrap(api.GET('/api/v2/playout/hosts')));
 	const activeHost = $derived(hosts.data?.find((h) => h.is_active) ?? null);
@@ -211,6 +206,7 @@
 
 	// The player shown beside the list: by default the active one, else the first.
 	let selectedId = $state<number | null>(null);
+	let configSummary = $state('');
 	const selected = $derived.by(() => {
 		const list = hosts.data ?? [];
 		return list.find((h) => h.id === selectedId) ?? activeHost ?? list[0] ?? null;
@@ -324,7 +320,7 @@
 		}, 'Could not save the hold point');
 	}
 
-	// Standby plays the saved ident (the button is off while the choice is unsaved).
+	// Standby plays the saved ident (the button is off for the moment a new choice takes to save).
 	async function previewStandby() {
 		standbyPreviewing = true;
 		await attempt(async () => {
@@ -354,6 +350,23 @@
 		].join('; ');
 	});
 
+	const subtitleSummary = $derived.by(() => {
+		const m = store.main;
+		const style = {
+			'outline-and-shadow': 'outline and shadow',
+			'opaque-box': 'opaque box',
+			'background-box': 'background box'
+		}[m.subtitle_border_style];
+		return [
+			`${m.subtitle_font_size || 55} px`,
+			(m.subtitle_color || '#FFFFFF').toUpperCase(),
+			style,
+			m.subtitle_bold ? 'bold' : ''
+		]
+			.filter(Boolean)
+			.join(' · ');
+	});
+
 	const SUBTITLE_NUMBERS = [
 		storeField('subtitle_font_size', 'Size', 'set-subtitle-size'),
 		storeField('subtitle_position', 'Position', 'set-subtitle-position'),
@@ -378,267 +391,255 @@
 	];
 </script>
 
-{#snippet heading(title: string, text: string)}
-	<div>
-		<h3 class="text-sm font-medium">{title}</h3>
-		<p class="mt-0.5 text-xs text-muted">{text}</p>
-	</div>
+{#snippet playerItem(h: NonNullable<typeof selected>)}
+	{@const status = h.is_active
+		? activeState.label === 'Running'
+			? nowOnPlayer.label
+			: activeState.label
+		: 'Not in use'}
+	<button
+		type="button"
+		aria-current={h.id === selected?.id ? 'true' : undefined}
+		class="block w-full rounded-sm px-2.5 py-2 text-left text-sm transition-colors
+			{h.id === selected?.id ? 'bg-surface-2' : 'hover:bg-surface-2/50'}"
+		onclick={() => (selectedId = h.id)}
+	>
+		<span class="flex items-center gap-2">
+			<StatusLamp
+				colour={h.is_active ? activeState.colour : 'neutral'}
+				pending={h.is_active && activeState.pending}
+			>
+				<span class="sr-only">{h.is_active ? activeState.label : 'Not in use'}</span>
+			</StatusLamp>
+			<span class="min-w-0 truncate font-medium">{h.name}</span>
+		</span>
+		<span class="mt-0.5 block truncate pl-4 text-xs text-muted">{status}</span>
+		{#if h.needs_pairing_again}<span class="mt-0.5 block pl-4 text-[0.7rem] text-warning"
+				>Pair again</span
+			>{:else if h.needs_update}<span class="mt-0.5 block pl-4 text-[0.7rem] text-warning"
+				>Update</span
+			>{:else if h.needs_cinefin_update}<span class="mt-0.5 block pl-4 text-[0.7rem] text-warning"
+				>Update Cinefin</span
+			>{:else if h.is_active}<span class="mt-0.5 block pl-4 text-[0.7rem] text-success">In use</span
+			>{/if}
+	</button>
 {/snippet}
 
-<div class="space-y-4">
+<SettingLists>
 	{#if hosts.loading}
 		<Spinner label="Loading playout…" />
 	{:else if hosts.error}
 		<ErrorState error={hosts.error} retry={() => void hosts.load()} />
 	{:else}
-		<SectionTabs tabs={TABS} bind:value={tab} label="Playout settings" prefix="pt" />
-
-		{#if tab === 'players'}
-			<TabPanel prefix="pt" tab="players" class="mt-4">
+		<SettingList
+			title={hosts.data?.length ? 'Players' : 'Player'}
+			text="Cinefin plays through one player at a time"
+		>
+			{#snippet actions()}
 				{#if !hosts.data?.length}
-					<section class="max-w-2xl space-y-4">
-						<div>
-							<h3 class="text-base font-medium">Add your first player</h3>
-							<p class="mt-1 text-sm text-muted">
-								Cinefin plays through a player: the machine wired to your screen, running
-								<code class="font-mono text-[0.8rem]">cinefin-playout</code>. Its screen shows a
-								pairing code.
-							</p>
+					<Button size="sm" variant="primary" onclick={() => openWizard()}>
+						<Plus size={13} /> Add a player
+					</Button>
+				{/if}
+			{/snippet}
+			{#if !hosts.data?.length}
+				<div class="space-y-2 px-4 py-5 text-sm">
+					<p class="font-medium">No player yet</p>
+					<p class="text-muted">
+						Cinefin plays through a player: the machine wired to your screen, running
+						<code class="font-mono text-[0.8rem]">cinefin-playout</code>, whose screen shows a
+						pairing code. Running mpv yourself? Add a player and choose a local mpv socket.
+					</p>
+				</div>
+			{:else if selected}
+				{@const isSocket = selected.kind === 'local_socket'}
+				{@const isActive = selected.is_active}
+				<!-- The players down the left; the one picked, and its settings, on the right. -->
+				<div class="grid sm:grid-cols-[13.5rem_minmax(0,1fr)]">
+					<nav
+						aria-label="Players"
+						class="flex flex-col gap-0.5 border-b border-border p-1.5 sm:border-r sm:border-b-0"
+					>
+						{#each [...hosts.data].sort((a, b) => Number(b.is_active) - Number(a.is_active)) as h (h.id)}
+							{@render playerItem(h)}
+						{/each}
+						<button
+							type="button"
+							class="mt-1 flex items-center gap-2 rounded-sm px-2.5 py-2 text-left text-[0.8125rem] text-muted
+								hover:bg-surface-2/50 hover:text-text sm:mt-auto"
+							onclick={() => openWizard()}
+						>
+							<Plus size={13} /> Add a player
+						</button>
+					</nav>
+					<div class="min-w-0">
+						<div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 px-4 py-3.5">
+							<h3 class="text-base font-semibold">{selected.name}</h3>
+							<span class="min-w-0 truncate font-mono text-xs text-faint">
+								{isSocket
+									? `local mpv · ${selected.socket_path || '(no socket path)'}`
+									: `${selected.agent_version ? `agent ${selected.agent_version} · ` : ''}${selected.base_url}`}
+							</span>
 						</div>
-						<Button variant="primary" onclick={() => openWizard()}>
-							<Plus size={14} /> Add a player
-						</Button>
-						<p class="border-t border-border pt-3 text-xs text-muted">
-							Running mpv yourself? Add a player and choose a local mpv socket.
-						</p>
-					</section>
-				{:else}
-					<div class="grid gap-6 md:grid-cols-[13rem_minmax(0,1fr)]">
-						<nav aria-label="Players" class="flex flex-col gap-1">
-							{#each hosts.data as h (h.id)}
-								{@const on = selected?.id === h.id}
-								<button
-									type="button"
-									aria-current={on ? 'true' : undefined}
-									class="flex items-center gap-2.5 px-3 py-2 text-left text-sm font-medium hover:bg-surface-2
-										{on ? 'bg-surface-2 text-text' : 'text-muted'}"
-									onclick={() => (selectedId = h.id)}
-								>
-									<StatusLamp
-										colour={h.is_active ? activeState.colour : 'neutral'}
-										pending={h.is_active && activeState.pending}
-									>
-										<span class="sr-only">{h.is_active ? activeState.label : 'Not in use'}</span>
-									</StatusLamp>
-									<span class="min-w-0 flex-1 truncate">{h.name}</span>
-									{#if h.needs_pairing_again}<span class="text-[0.7rem] text-warning"
-											>Pair again</span
-										>{:else if h.needs_update}<span class="text-[0.7rem] text-warning">Update</span
-										>{:else if h.is_active}<span class="text-[0.7rem] text-success">Active</span
-										>{/if}
-								</button>
-							{/each}
-							<div class="my-2 h-px bg-border"></div>
-							<button
-								type="button"
-								class="flex items-center gap-2 px-3 py-2 text-left text-sm text-muted hover:bg-surface-2"
-								onclick={() => openWizard()}
-							>
-								<Plus size={14} /> Add a player
-							</button>
-						</nav>
-
-						<div class="min-w-0">
-							{#if selected}
-								{@const isSocket = selected.kind === 'local_socket'}
-								{@const isActive = selected.is_active}
-								<div class="space-y-5">
-									<section class="space-y-2">
-										<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-											<h3 class="text-lg font-medium">{selected.name}</h3>
-											{#if isActive}
-												<span title={activeState.detail}>
-													<StatusLamp colour={activeState.colour} pending={activeState.pending}>
-														{activeState.label}
-													</StatusLamp>
-												</span>
-											{:else}
-												<StatusLamp colour="neutral">Not in use</StatusLamp>
-											{/if}
-											{#if isActive && !isSocket}
-												<Button
-													size="sm"
-													variant="ghost"
-													class="ml-auto"
-													disabled={refreshing}
-													title="Ask the player for its status again"
-													onclick={refreshActiveHost}
-												>
-													<RefreshCw size={13} /><span class="sr-only">Refresh status</span>
-												</Button>
-											{/if}
+						{#if selected.needs_pairing_again || selected.needs_update || selected.needs_cinefin_update}
+							<div class="border-t border-border p-3">
+								{#if selected.needs_pairing_again}
+									<Banner severity="warning" title="Needs pairing again.">
+										This player was paired by an older Cinefin. Pair it again with the code on its
+										screen; its name and settings are kept.
+										{#snippet actions()}
 											<Button
 												size="sm"
-												variant="ghost"
-												class={isActive && !isSocket ? '' : 'ml-auto'}
-												onclick={() => openHostDialog(selected)}
+												variant="primary"
+												onclick={() =>
+													openWizard({ base_url: selected.base_url, name: selected.name })}
 											>
-												<Pencil size={13} /> Edit
+												Pair again
 											</Button>
-										</div>
-										<p class="font-mono text-xs break-all text-muted">
-											{#if isSocket}
-												{selected.socket_path || '(no socket path)'} · local mpv
-											{:else}
-												{selected.base_url}{selected.agent_version
-													? ` · agent ${selected.agent_version} · ${selected.os}/${selected.arch}`
-													: ''}{selected.has_token ? '' : ' · not paired: remove it and pair again'}
-											{/if}
-										</p>
+										{/snippet}
+									</Banner>
+								{:else if selected.needs_update}
+									<Banner severity="warning" title="Update needed.">
+										This player runs an older cinefin-playout, so it cannot hold standby or show the
+										test card. Update it to the latest release, then refresh its status.
+									</Banner>
+								{:else}
+									<Banner severity="warning" title="This player is newer than Cinefin.">
+										It runs cinefin-playout {selected.agent_version || ''}, which no longer works
+										with this Cinefin. Update Cinefin to the latest release, or install an older
+										cinefin-playout on the player.
+									</Banner>
+								{/if}
+							</div>
+						{/if}
 
-										{#if selected.needs_pairing_again}
-											<Banner severity="warning" title="Needs pairing again.">
-												This player was paired by an older Cinefin. Pair it again with the code on
-												its screen; its name and settings are kept.
-												{#snippet actions()}
-													<Button
-														size="sm"
-														variant="primary"
-														onclick={() =>
-															openWizard({ base_url: selected.base_url, name: selected.name })}
-													>
-														Pair again
-													</Button>
-												{/snippet}
-											</Banner>
-										{:else if selected.needs_update}
-											<Banner severity="warning" title="Update needed.">
-												This player runs an older cinefin-playout, so it cannot hold standby or show
-												the test card. Update it to the latest release, then refresh its status.
-											</Banner>
-										{/if}
-
-										{#if isActive}
-											<div
-												class="flex flex-wrap items-center gap-1.5 border border-border bg-surface-1 px-3 py-2.5"
-											>
-												<p class="mr-auto text-sm">
-													<span class="text-muted">Now</span>
-													<span class="ml-1 font-medium">{nowOnPlayer.label}</span>
-													{#if nowOnPlayer.detail}<span class="text-muted">
-															· {nowOnPlayer.detail}</span
-														>{/if}
-												</p>
+						{#if isActive}
+							<SettingRow label="Control" hint="What it is doing now" summary={nowOnPlayer.detail}>
+								{#snippet control()}
+									<Button
+										size="sm"
+										disabled={mpvBusy !== null}
+										title="Clear any loaded programme and put the player on standby"
+										onclick={() => void goToStandby()}
+									>
+										<RotateCcw size={13} /> Standby
+									</Button>
+									{#if !isSocket && agentStatus?.reachable}
+										{#if agentStatus.mpv_running}
+											{#each MPV_ACTIONS as b (b.action)}
 												<Button
 													size="sm"
 													disabled={mpvBusy !== null}
-													title="Clear any loaded programme and put the player on standby"
-													onclick={() => void goToStandby()}
+													onclick={() => controlMpv(b.action)}
 												>
-													<RotateCcw size={13} /> Standby
+													<b.Icon size={13} />
+													{b.label}
 												</Button>
-												{#if !isSocket && agentStatus?.reachable}
-													{#if agentStatus.mpv_running}
-														{#each MPV_ACTIONS as b (b.action)}
-															<Button
-																size="sm"
-																disabled={mpvBusy !== null}
-																onclick={() => controlMpv(b.action)}
-															>
-																<b.Icon size={13} />
-																{b.label}
-															</Button>
-														{/each}
-													{:else}
-														<Button
-															size="sm"
-															variant="primary"
-															disabled={mpvBusy !== null}
-															onclick={() => controlMpv('start')}
-														>
-															<Play size={13} /> Start player
-														</Button>
-													{/if}
-												{/if}
-											</div>
+											{/each}
 										{:else}
-											<div
-												class="flex flex-wrap items-center gap-3 border border-border bg-surface-1 px-3 py-2.5"
+											<Button
+												size="sm"
+												variant="primary"
+												disabled={mpvBusy !== null}
+												onclick={() => controlMpv('start')}
 											>
-												<p class="mr-auto text-sm text-muted">
-													Cinefin plays through one player at a time.
-												</p>
-												<Button
-													size="sm"
-													variant="primary"
-													onclick={() => activateHost(selected.id)}
-												>
-													<CircleCheck size={13} /> Use this player
-												</Button>
-											</div>
+												<Play size={13} /> Start player
+											</Button>
 										{/if}
-									</section>
-
-									<section class="border border-border bg-surface-1">
-										<div class="px-4 pt-4">
-											{@render heading(
-												'Screen and sound',
-												isSocket
-													? 'You run this mpv, so set its screen and sound with its own options when you launch it.'
-													: 'Applies when the player restarts.'
-											)}
-										</div>
-										{#if !isSocket}
-											{#key selected.id}
-												<HostConfigPanel hostId={selected.id} />
-											{/key}
-										{:else}
-											<div class="pb-4"></div>
-										{/if}
-									</section>
-
-									{#if !isSocket}
-										<section class="border border-border bg-surface-1 p-4">
-											<Toggle
-												label="Show the status line on standby"
-												checked={selected.show_status ?? true}
-												hint="The cinema name, this player's name and its connection, over the ident."
-												onchange={(e) =>
-													void setShowStatus(selected.id, (e.target as HTMLInputElement).checked)}
-											/>
-										</section>
 									{/if}
-
-									<section class="flex items-center gap-3 border-t border-border pt-4">
-										<div class="mr-auto">
-											{@render heading(
-												'Remove this player',
-												isSocket
-													? 'Cinefin stops using this mpv.'
-													: 'It forgets this Cinefin and shows a pairing code again.'
-											)}
-										</div>
-										<Button variant="danger" onclick={() => removeHost(selected.id, selected.name)}>
-											<Trash2 size={13} /> Remove
+									{#if !isSocket}
+										<Button
+											size="sm"
+											variant="ghost"
+											disabled={refreshing}
+											title="Ask the player for its status again"
+											onclick={refreshActiveHost}
+										>
+											<RefreshCw size={13} /><span class="sr-only">Refresh status</span>
 										</Button>
-									</section>
-								</div>
-							{/if}
-						</div>
-					</div>
-				{/if}
-			</TabPanel>
-		{:else if tab === 'presentation'}
-			<TabPanel prefix="pt" tab="presentation" class="mt-4 space-y-6">
-				<p class="-mt-1 text-sm text-muted">These apply to every player.</p>
+									{/if}
+								{/snippet}
+							</SettingRow>
+						{:else}
+							<SettingRow label="Not in use" summary="Cinefin plays through one player at a time.">
+								{#snippet control()}
+									<Button size="sm" variant="primary" onclick={() => activateHost(selected.id)}>
+										<CircleCheck size={13} /> Use this player
+									</Button>
+								{/snippet}
+							</SettingRow>
+						{/if}
 
-				<section class="space-y-3 border border-border bg-surface-1 p-4">
-					{@render heading(
-						'Idle screen',
-						'Standby: played once, then held on screen whenever no programme is playing.'
-					)}
-					<Field label="Ident" forId="set-default-ident" {store} field="default_cinema_ident">
-						<div class="flex max-w-xl gap-2">
+						{#if isSocket}
+							<SettingRow
+								label="Screen and sound"
+								hint="Your mpv's own options"
+								summary="Set when you launch mpv"
+							/>
+						{:else}
+							{#key selected.id}
+								<SettingRow
+									label="Screen and sound"
+									hint="Applies when it restarts"
+									summary={configSummary}
+								>
+									<HostConfigPanel
+										hostId={selected.id}
+										hostName={selected.name}
+										bind:summary={configSummary}
+									/>
+								</SettingRow>
+							{/key}
+							<SettingRow label="Status line on standby" hint="Name and connection, over the ident">
+								{#snippet control()}
+									<Switch
+										label=""
+										ariaLabel="Status line on standby"
+										checked={selected.show_status ?? true}
+										onchange={(on) => void setShowStatus(selected.id, on)}
+									/>
+								{/snippet}
+							</SettingRow>
+						{/if}
+
+						<SettingRow
+							label="Name and address"
+							summary={!isSocket && !selected.has_token
+								? 'Not paired: remove it and pair again'
+								: 'Rename it, change its address, or remove it'}
+						>
+							{#snippet control()}
+								<Button size="sm" variant="ghost" onclick={() => openHostDialog(selected)}>
+									<Pencil size={13} /> Edit
+								</Button>
+								<Button
+									size="sm"
+									variant="danger"
+									onclick={() => void removeHost(selected.id, selected.name)}
+								>
+									<Trash2 size={13} /> Remove
+								</Button>
+							{/snippet}
+						</SettingRow>
+					</div>
+				</div>
+			{/if}
+		</SettingList>
+
+		<SettingList title="Global" text="Around a programme, on whichever player is active">
+			<SettingRow
+				label="Standby ident"
+				summary={`${ownIdent ? ownIdent.title : 'Built-in System Ident'}${ownIdent?.hold_point != null ? ` · held at ${ownIdent.hold_point}s` : ''}`}
+			>
+				<div class="max-w-xl space-y-4">
+					<Field
+						label="Ident"
+						forId="set-default-ident"
+						{store}
+						field="default_cinema_ident"
+						hint="Played once, then held on screen whenever no programme is playing."
+					>
+						<div class="flex gap-2">
 							<Select
 								id="set-default-ident"
 								bind:value={store.main.default_cinema_ident}
@@ -651,9 +652,7 @@
 							</Select>
 							<Button
 								disabled={standbyPreviewing || store.isDirty('default_cinema_ident')}
-								title={store.isDirty('default_cinema_ident')
-									? 'Save to preview this ident'
-									: undefined}
+								title={store.isDirty('default_cinema_ident') ? 'Saving the new ident…' : undefined}
 								onclick={previewStandby}
 							>
 								<MonitorPlay size={14} /> Preview standby
@@ -680,69 +679,68 @@
 							</Field>
 						{/key}
 					{/if}
-				</section>
+				</div>
+			</SettingRow>
 
-				<section class="space-y-4 border border-border bg-surface-1 p-4">
-					{@render heading('Subtitles', 'Applied live when you save, no restart.')}
-					<div class="grid gap-6 lg:grid-cols-2">
-						<div class="space-y-4">
-							<div class="grid grid-cols-3 gap-3">
-								{#each SUBTITLE_NUMBERS as f (f.id)}
-									<StoreField {store} {...f} type="number" />
-								{/each}
-							</div>
-							<StoreField {store} {...SUBTITLE_BACKGROUND} />
-							<div class="grid grid-cols-2 gap-3">
-								{#each SUBTITLE_COLOURS as f (f.id)}
-									<StoreField
-										{store}
-										{...f}
-										type="color"
-										input="h-9 w-full rounded-md border border-border-strong bg-surface-2 px-1.5 text-sm text-text focus:border-accent-dim"
-									/>
-								{/each}
-							</div>
-							<div class="space-y-2.5">
-								<StoreToggle {store} field="subtitle_use_margins" label="Keep inside the picture" />
-								<StoreToggle {store} field="subtitle_bold" label="Bold" />
-							</div>
+			<SettingRow label="Subtitles" hint="Applied live" summary={subtitleSummary}>
+				<div class="grid gap-6 lg:grid-cols-2">
+					<div class="space-y-4">
+						<div class="grid grid-cols-3 gap-3">
+							{#each SUBTITLE_NUMBERS as f (f.id)}
+								<StoreField {store} {...f} type="number" />
+							{/each}
 						</div>
-						<div>
-							<p class="mb-1.5 text-xs font-medium text-muted">Preview</p>
-							<div
-								class="subtitle-frame relative aspect-video overflow-hidden border border-border bg-[#1a1f24]"
-								aria-hidden="true"
-							>
-								<span
-									class="absolute left-1/2 -translate-x-1/2 -translate-y-full px-[0.3em] leading-snug whitespace-nowrap"
-									style={subtitlePreviewStyle}>Where are you taking me?</span
-								>
-							</div>
+						<StoreField {store} {...SUBTITLE_BACKGROUND} />
+						<div class="grid grid-cols-2 gap-3">
+							{#each SUBTITLE_COLOURS as f (f.id)}
+								<StoreField
+									{store}
+									{...f}
+									type="color"
+									input="h-9 w-full rounded-md border border-border-strong bg-surface-2 px-1.5 text-sm text-text focus:border-accent-dim"
+								/>
+							{/each}
+						</div>
+						<div class="space-y-2.5">
+							<StoreToggle {store} field="subtitle_use_margins" label="Keep inside the picture" />
+							<StoreToggle {store} field="subtitle_bold" label="Bold" />
 						</div>
 					</div>
-				</section>
-
-				<section class="space-y-3 border border-border bg-surface-1 p-4">
 					<div>
-						<h3 class="text-sm font-medium">Streaming address</h3>
-						<p class="mt-0.5 text-xs text-muted">
-							Players stream everything from Cinefin at this address, so every player must reach it.
-							Blank uses the <code class="font-mono">CINEFIN_SERVER_URL</code> default.
-						</p>
+						<p class="mb-1.5 text-xs font-medium text-muted">How they look</p>
+						<div
+							class="subtitle-frame relative aspect-video overflow-hidden border border-border bg-[#1a1f24]"
+							aria-hidden="true"
+						>
+							<span
+								class="absolute left-1/2 -translate-x-1/2 -translate-y-full px-[0.3em] leading-snug whitespace-nowrap"
+								style={subtitlePreviewStyle}>Where are you taking me?</span
+							>
+						</div>
 					</div>
+				</div>
+			</SettingRow>
+
+			<SettingRow
+				label="Streaming address"
+				mono={!!store.main.playout_server_url}
+				summary={store.main.playout_server_url || "Cinefin's own address (CINEFIN_SERVER_URL)"}
+			>
+				<div class="max-w-xl">
 					<StoreField
 						{store}
 						field="playout_server_url"
 						label="Address"
 						id="set-server-url"
 						placeholder="http://cinefin.local:8000"
-						input="max-w-xl font-mono"
+						input="font-mono"
+						hint="Players stream everything from Cinefin at this address, so every player must reach it. Blank uses the CINEFIN_SERVER_URL default."
 					/>
-				</section>
-			</TabPanel>
-		{/if}
+				</div>
+			</SettingRow>
+		</SettingList>
 	{/if}
-</div>
+</SettingLists>
 
 <Dialog bind:open={hostOpen} title={`Edit ${hName || 'host'}`}>
 	<div class="space-y-3">

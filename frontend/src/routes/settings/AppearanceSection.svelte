@@ -82,14 +82,12 @@
 		store.main.accent_color = DEFAULT_ACCENT;
 	}
 
-	// Previews never write the boot cache; leaving the section settles it — a
-	// saved value re-applies with caching, an abandoned edit reverts.
+	// Previews never write the boot cache; leaving the section settles it (the pick saves itself).
 	$effect(() => {
 		display.applyAccent(store.accentCleared ? null : store.main.accent_color, { cache: false });
 	});
 	$effect(() => () => {
-		if (store.isDirty('accent_color')) display.restoreCachedAccent();
-		else display.applyAccent(store.accentCleared ? null : store.main.accent_color);
+		display.applyAccent(store.accentCleared ? null : store.main.accent_color);
 	});
 </script>
 

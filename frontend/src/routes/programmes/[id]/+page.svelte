@@ -1,6 +1,6 @@
 <script lang="ts">
 	// `?edit=1` swaps the Rundown tab for the editor; `/programmes/new` is this route with a
-	// virtual id, written on the first save.
+	// virtual id, showing the Start-from page until the programme is created.
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
@@ -36,7 +36,7 @@
 	import AsideToggle from '$lib/components/AsideToggle.svelte';
 	import FeaturePanel from '$lib/programmes/detail-FeaturePanel.svelte';
 	import ProgrammeEditor from '$lib/programmes/ProgrammeEditor.svelte';
-	import { takeStashedFilms } from '$lib/programmes/blank-handoff';
+	import NewProgramme from '$lib/programmes/NewProgramme.svelte';
 	import Rundown from '$lib/programmes/detail-Rundown.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import TicketsPanel from '$lib/programmes/detail-TicketsPanel.svelte';
@@ -52,8 +52,6 @@
 	type MovieDetail = components['schemas']['MovieDetailSchema'];
 
 	const isNew = $derived(page.params.id === 'new');
-	// Read once: the stash is single-use, so a reload doesn't re-add the films.
-	const handedOverFilms = page.params.id === 'new' ? takeStashedFilms() : [];
 	const programmeId = $derived(Number(page.params.id));
 
 	const prog = new Query<{ programme: ProgrammeDetail }>(() =>
@@ -295,13 +293,7 @@
 <svelte:window bind:innerHeight />
 
 {#if isNew}
-	<div class="border border-border bg-surface-1">
-		<ProgrammeEditor
-			programmeId={null}
-			items={handedOverFilms}
-			onsaved={(id) => void goto(`${base}/programmes/${id}?edit=1`)}
-		/>
-	</div>
+	<NewProgramme />
 {:else if prog.loading}
 	<Spinner label="Loading programme…" />
 {:else if prog.error}

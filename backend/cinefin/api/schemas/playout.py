@@ -10,7 +10,9 @@ from typing import Any, Literal
 from ninja import Field, Schema
 
 Phase = Literal["offline", "standby", "cued", "preshow", "playing", "paused", "hold", "manual"]
-Action = Literal["cue", "start", "pause", "resume", "previous", "next", "seek", "jump", "end_hold", "end"]
+Action = Literal[
+    "cue", "start", "pause", "resume", "previous", "next", "seek", "jump", "end_hold", "end", "recover", "dismiss"
+]
 
 
 class ProgrammeFeatureSchema(Schema):
@@ -88,6 +90,16 @@ class NextScreeningSchema(Schema):
     cue_time: datetime = Field(..., description="When its lead-in cues it")
 
 
+class InterruptedSchema(Schema):
+    """A programme the player lost while on air (it restarted), for the operator to resume."""
+
+    programme_id: int
+    programme_name: str
+    position: int = Field(..., description="Programme position of the item it was on")
+    item_title: str | None = None
+    seconds: float | None = Field(None, description="How far into that item, when known")
+
+
 class PlayoutStatusDataSchema(Schema):
     phase: Phase = Field(..., description="What the player is doing, worked out once for every surface")
     screen: str = Field("", description="What the audience sees, e.g. 'System Ident', 'Title card', 'Alien'")
@@ -101,3 +113,4 @@ class PlayoutStatusDataSchema(Schema):
     next_item: ItemSchema | None = None
     playback: PlaybackStatusSchema | None = None
     manual: ManualQueueSchema | None = None
+    interrupted: InterruptedSchema | None = Field(None, description="A programme the player lost, to resume")

@@ -3,7 +3,7 @@
 	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
 	import { query } from '$lib/api/query.svelte';
-	import { lamp } from '$lib/playout/phase';
+	import { lamp, UNREACHABLE } from '$lib/playout/phase';
 	import { playout } from '$lib/stores/playout.svelte';
 	import { syncActivity } from '$lib/stores/syncActivity.svelte';
 	import { trailerActivity } from '$lib/stores/trailerActivity.svelte';
@@ -35,7 +35,7 @@
 	$effect(() => trailerActivity.subscribe());
 
 	// The booth lamp; on air it is the tally, a solid red block that never blinks.
-	const booth = $derived(lamp(playout.status, playout.loaded));
+	const booth = $derived(playout.stale ? UNREACHABLE : lamp(playout.status, playout.loaded));
 </script>
 
 {#snippet jobLamp(href: string, title: string, text: string, pct: number)}

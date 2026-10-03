@@ -71,7 +71,7 @@ function matches(href: string, path: string): boolean {
 }
 
 /**
- * The most specific nav entry wins: /programmes/create is a child of
+ * The most specific nav entry wins: /programmes/new is a child of
  * /programmes, and only the deeper one should light up.
  */
 export function isActive(href: string, pathname: string): boolean {

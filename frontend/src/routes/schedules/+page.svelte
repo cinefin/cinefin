@@ -687,7 +687,7 @@
 								compact
 							>
 								{#snippet action()}
-									<Button size="sm" href="{base}/programmes/create">Create programme</Button>
+									<Button size="sm" href="{base}/programmes/new">Create programme</Button>
 								{/snippet}
 							</EmptyState>
 						{:else}

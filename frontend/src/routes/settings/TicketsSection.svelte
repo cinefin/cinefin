@@ -1,30 +1,59 @@
 <script lang="ts">
-	import { ChevronRight, Plug, Printer, Receipt, RotateCcw } from '@lucide/svelte';
+	import { Plug, Plus, Receipt, RotateCcw } from '@lucide/svelte';
+	import { goto } from '$app/navigation';
+	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
+	import { query } from '$lib/api/query.svelte';
 	import { mutate } from '$lib/api/mutate';
 	import { attempt, errorText, raw, runCheck, type SettingsStore } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import type { CheckState } from '$lib/settings/types';
 	import Button from '$lib/components/ui/Button.svelte';
-	import Tabs from '$lib/components/ui/Tabs.svelte';
+	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
+	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import { STARTERS } from '$lib/tickets/kinds';
+	import SettingList from './SettingList.svelte';
+	import SettingLists from './SettingLists.svelte';
+	import SettingRow from './SettingRow.svelte';
+	import { onMount } from 'svelte';
+	import { page } from '$app/state';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import CheckResult from './CheckResult.svelte';
 	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
-	import TicketDesigner from './TicketDesigner.svelte';
-	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
-	// The Designs tab auto-saves; the page hides its Save bar there (bind `tab`).
-	interface Props {
-		store: SettingsStore;
-		confirm: ConfirmDialog['confirm'];
-		tab?: 'designs' | 'printer';
-	}
-	let { store, confirm, tab = $bindable('designs') }: Props = $props();
+	let { store }: { store: SettingsStore } = $props();
 
-	const TABS = [
-		{ id: 'designs', label: 'Designs' },
-		{ id: 'printer', label: 'Printer' }
-	];
+	// The designs; each opens its own page (settings/tickets/[id]).
+	const designs = query(() => raw(api.GET('/api/v2/tickets/designs')));
+	const designHref = (id: number) => `${base}/settings/tickets/${id}`;
+	const usage = (d: { lines: number; programmes: number; is_default: boolean }) =>
+		[
+			`${d.lines} line${d.lines === 1 ? '' : 's'}`,
+			d.programmes
+				? `picked by ${d.programmes} programme${d.programmes === 1 ? '' : 's'}`
+				: d.is_default
+					? 'for programmes without their own'
+					: null
+		]
+			.filter(Boolean)
+			.join(' · ');
+	const starterItems: MenuItem[] = STARTERS.map((s) => ({
+		label: s.label,
+		onclick: () =>
+			void attempt(async () => {
+				const d = await raw(
+					api.POST('/api/v2/tickets/designs', { body: { name: 'New design', starter: s.id } })
+				);
+				await goto(designHref(d.id));
+			}, 'Could not create design')
+	}));
+
+	// ?view=printer (the box office's "printer settings" link) opens on the printer.
+	onMount(() => {
+		if (page.url.searchParams.get('view') === 'printer') {
+			document.getElementById('tickets-printer')?.scrollIntoView();
+		}
+	});
 
 	const HOST = storeField('ticket_printer_host', 'Host', 'set-printer-host', {
 		placeholder: '10.0.0.20'
@@ -76,7 +105,6 @@
 	let printerResult = $state<CheckState>(null);
 	let printerBusy = $state(false);
 	let checkedAt = $state<Date | null>(null);
-	let showQuality = $state(false);
 
 	// The status card at the top of the Printer tab, from the last check.
 	const isNetwork = $derived(store.main.ticket_printer_type === 'network');
@@ -94,10 +122,7 @@
 			isNetwork
 				? `Network · ${store.main.ticket_printer_host || 'no host'}:${store.main.ticket_printer_port || '9100'}`
 				: `USB · ${store.main.ticket_printer_device || 'no device'}`,
-			store.main.ticket_paper_width === '576' ? '80 mm' : '58 mm',
-			checkedAt
-				? `checked ${checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-				: null
+			store.main.ticket_paper_width === '576' ? '80 mm roll' : '58 mm roll'
 		]
 			.filter(Boolean)
 			.join(' · ')
@@ -115,14 +140,8 @@
 		].join(' · ')
 	);
 
-	// Check once when the Printer tab opens, so the status card has something to say.
-	let autoChecked = false;
-	$effect(() => {
-		if (tab === 'printer' && !autoChecked) {
-			autoChecked = true;
-			void checkPrinter();
-		}
-	});
+	// Check once when the section opens, so the printer's status card has something to say.
+	onMount(() => void checkPrinter());
 
 	async function checkPrinter() {
 		printerBusy = true;
@@ -152,7 +171,7 @@
 		printerBusy = false;
 	}
 
-	// Reset acts on the *saved* config, not the unsaved form values.
+	// Reset acts on the saved config (a change still waiting to save is not included).
 	let resetResult = $state<CheckState>(null);
 	async function resetPrinter() {
 		printerBusy = true;
@@ -168,37 +187,57 @@
 	}
 </script>
 
-<div class="space-y-4">
-	<Tabs
-		tabs={TABS}
-		value={tab}
-		onselect={(id) => (tab = id as typeof tab)}
-		label="Ticket sections"
-	/>
+<SettingLists wider="second">
+	<SettingList title="Designs" text="A programme can pick its own; the default is for the rest">
+		{#snippet actions()}
+			<Menu items={starterItems} label="New design" icon={Plus} size="sm" />
+		{/snippet}
+		{#if !designs.data}
+			<div class="px-4 py-3"><Spinner size="sm" label="Loading designs…" /></div>
+		{:else}
+			{#each designs.data as d (d.id)}
+				<SettingRow label={d.name} summary={usage(d)} onclick={() => void goto(designHref(d.id))}>
+					{#snippet labelSnippet()}
+						<span
+							class="h-[1.125rem] w-3.5 shrink-0 border border-border bg-white"
+							aria-hidden="true"
+						></span>
+						<span class="font-medium">{d.name}</span>
+						{#if d.is_default}<span class="text-[0.7rem] text-warning">Default</span>{/if}
+					{/snippet}
+				</SettingRow>
+			{/each}
+		{/if}
+	</SettingList>
 
-	{#if tab === 'printer'}
-		<div class="space-y-4">
-			<section class="flex flex-wrap items-center gap-4 border border-border bg-surface-1 p-4">
-				<Printer size={26} class="shrink-0 text-muted" />
-				<div class="min-w-0 flex-1">
+	<div id="tickets-printer" class="scroll-mt-20">
+		<SettingList title="Printer" text="The thermal printer tickets print on">
+			<SettingRow
+				label="Printer"
+				hint={checkedAt
+					? `Checked ${checkedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+					: 'Not checked yet'}
+			>
+				{#snippet summarySnippet()}
 					<StatusLamp colour={printerStatus.colour} pending={printerStatus.pending}>
-						<span class="text-base font-medium text-text">{printerStatus.label}</span>
+						<span class="text-text">{printerStatus.label}</span>
+						{#if printerResult?.state === 'error'}<span class="text-muted">
+								· {printerResult.message}</span
+							>{/if}
 					</StatusLamp>
-					<p class="mt-1 font-mono text-xs break-all text-muted">{printerSummary}</p>
-					{#if printerResult?.state === 'error'}
-						<p class="mt-1 text-xs text-danger">{printerResult.message}</p>
-					{/if}
-				</div>
-				<Button disabled={printerBusy} onclick={checkPrinter}><Plug size={14} /> Check</Button>
-				<Button variant="primary" disabled={printerBusy} onclick={testPrint}>
-					<Receipt size={14} /> Print a test ticket
-				</Button>
-			</section>
+				{/snippet}
+				{#snippet control()}
+					<Button size="sm" disabled={printerBusy} onclick={checkPrinter}>
+						<Plug size={13} /> Check
+					</Button>
+					<Button size="sm" variant="primary" disabled={printerBusy} onclick={testPrint}>
+						<Receipt size={13} /> Print a test ticket
+					</Button>
+				{/snippet}
+			</SettingRow>
 
-			<section class="space-y-4 border border-border bg-surface-1 p-4">
-				<h3 class="text-sm font-medium">Connection</h3>
-				<div>
-					<span class="mb-1.5 block text-xs font-medium text-muted">Connected by</span>
+			<SettingRow label="Connection" hint="USB cable or network" mono summary={printerSummary}>
+				<div class="space-y-4">
 					<div
 						class="inline-flex border border-border-strong"
 						role="group"
@@ -213,62 +252,48 @@
 							>
 						{/each}
 					</div>
-				</div>
-				<div class="grid max-w-2xl gap-4 sm:grid-cols-2">
-					{#if isNetwork}
-						<div class="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
-							<StoreField {store} {...HOST} />
-							<StoreField {store} {...PORT} />
-						</div>
-					{:else}
-						<StoreField {store} {...DEVICE} />
-					{/if}
-					<StoreField {store} {...PAPER} />
-				</div>
-				{#if isNetwork}
-					<p class="text-xs text-muted">
-						A printer on another machine can be shared with, for example,
-						<code class="font-mono">socat TCP-LISTEN:9100,fork,reuseaddr OPEN:/dev/usb/lp0</code>.
-					</p>
-				{/if}
-			</section>
-
-			<section class="border border-border bg-surface-1">
-				<button
-					type="button"
-					class="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-surface-2"
-					aria-expanded={showQuality}
-					onclick={() => (showQuality = !showQuality)}
-				>
-					<ChevronRight size={14} class="transition-transform {showQuality ? 'rotate-90' : ''}" />
-					Print quality
-					<span class="ml-auto text-xs font-normal text-muted">{qualitySummary}</span>
-				</button>
-				{#if showQuality}
-					<div class="grid max-w-2xl gap-4 px-4 pb-4 sm:grid-cols-2">
-						{#each QUALITY as f (f.id)}
-							{#if isNetwork || f.field !== 'ticket_printer_timeout'}
-								<StoreField {store} {...f} />
-							{/if}
-						{/each}
+					<div class="grid max-w-2xl gap-4 sm:grid-cols-2">
+						{#if isNetwork}
+							<div class="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
+								<StoreField {store} {...HOST} />
+								<StoreField {store} {...PORT} />
+							</div>
+						{:else}
+							<StoreField {store} {...DEVICE} />
+						{/if}
+						<StoreField {store} {...PAPER} />
 					</div>
-				{/if}
-			</section>
-
-			<section class="flex flex-wrap items-center gap-3 border-t border-border pt-4">
-				<div class="mr-auto">
-					<h3 class="text-sm font-medium">Printing garbage?</h3>
-					<p class="mt-0.5 text-xs text-muted">
-						Reset clears a printer stuck after a garbled print, without a power cycle.
-					</p>
+					{#if isNetwork}
+						<p class="text-xs text-muted">
+							A printer on another machine can be shared with, for example,
+							<code class="font-mono">socat TCP-LISTEN:9100,fork,reuseaddr OPEN:/dev/usb/lp0</code>.
+						</p>
+					{/if}
 				</div>
-				<Button disabled={printerBusy} onclick={resetPrinter}>
-					<RotateCcw size={14} /> Reset printer
-				</Button>
-			</section>
-			<CheckResult result={resetResult} />
-		</div>
-	{:else}
-		<TicketDesigner {confirm} />
-	{/if}
-</div>
+			</SettingRow>
+
+			<SettingRow label="Print quality" summary={qualitySummary}>
+				<div class="grid max-w-2xl gap-4 sm:grid-cols-2">
+					{#each QUALITY as f (f.id)}
+						{#if isNetwork || f.field !== 'ticket_printer_timeout'}
+							<StoreField {store} {...f} />
+						{/if}
+					{/each}
+				</div>
+			</SettingRow>
+
+			<SettingRow
+				label="Printing garbage?"
+				hint="After a garbled print"
+				summary="Clears a stuck printer without a power cycle"
+			>
+				{#snippet control()}
+					<Button size="sm" disabled={printerBusy} onclick={resetPrinter}>
+						<RotateCcw size={13} /> Reset printer
+					</Button>
+				{/snippet}
+			</SettingRow>
+		</SettingList>
+		<CheckResult result={resetResult} />
+	</div>
+</SettingLists>

@@ -10,14 +10,14 @@
 	interface Props {
 		films: Feature[];
 		currentId?: number | null;
-		size?: 'sm' | 'md';
+		size?: 'xs' | 'sm';
 		class?: string;
 	}
 	let { films, currentId = null, size = 'sm', class: cls = '' }: Props = $props();
 
 	const SIZES = {
-		sm: { tile: 'w-9', overlap: '-ml-4', icon: 12, max: 3 },
-		md: { tile: 'w-16', overlap: '-ml-10', icon: 14, max: 4 }
+		xs: { tile: 'w-5', overlap: '-ml-3', icon: 10, max: 3 },
+		sm: { tile: 'w-9', overlap: '-ml-4', icon: 12, max: 3 }
 	};
 	const s = $derived(SIZES[size]);
 	const at = $derived(films.findIndex((f) => f.id === currentId));

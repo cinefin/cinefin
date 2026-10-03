@@ -1,12 +1,11 @@
 <script lang="ts">
-	// The empty-slot branch is a fallback: a template is only offered when it takes exactly the
-	// features already chosen.
+	// One feature slot of the chosen template: its movie, or the buttons that fill it.
 	import { ChevronDown, ChevronUp, Dices, Film, Plus } from '@lucide/svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import { itemTypeDisplay } from '$lib/item-types';
-	import { canChooseTracks, itemTitle, trackSummary } from '$lib/programmes/create-types';
+	import { itemTitle } from '$lib/programmes/create-types';
 	import { rowCols, rowRuntime, slotMeta, type SlotRow } from '$lib/programmes/create-rundown';
 
 	interface Props {
@@ -14,11 +13,10 @@
 		slots: number;
 		onchoose: () => void;
 		onrandom: () => void;
-		ontracks: () => void;
 		onmove: (direction: number) => void;
 	}
 
-	let { row, slots, onchoose, onrandom, ontracks, onmove }: Props = $props();
+	let { row, slots, onchoose, onrandom, onmove }: Props = $props();
 
 	const item = $derived(row.item);
 	const type = $derived(item?.kind === 'random' ? 'random_movie' : 'feature');
@@ -62,26 +60,12 @@
 			<p class="truncate text-xs text-muted">
 				{slotMeta(item)}
 			</p>
-			{#if item.kind === 'movie'}
-				<p class="truncate text-xs text-faint">{trackSummary(item)}</p>
-			{:else}
+			{#if item.kind === 'random'}
 				<p class="truncate text-xs text-faint">Chosen when the playlist is generated</p>
 			{/if}
 		</div>
 
 		<div class="ml-auto flex shrink-0 items-center gap-1">
-			{#if item.kind === 'movie'}
-				{#if canChooseTracks(item)}
-					<Button size="sm" title="Choose audio and subtitles for {item.title}" onclick={ontracks}>
-						Tracks…
-					</Button>
-				{:else}
-					<!-- Tooltip on the wrapper: a disabled button takes no pointer events. -->
-					<span title="This movie has one audio track and no subtitles">
-						<Button size="sm" disabled>Tracks…</Button>
-					</span>
-				{/if}
-			{/if}
 			<Button
 				size="sm"
 				title="Choose a different movie for feature {row.featureNumber}"

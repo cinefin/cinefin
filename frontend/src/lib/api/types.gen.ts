@@ -2913,10 +2913,6 @@ export interface components {
         AgentStatusDataSchema: {
             /** Agent Version */
             agent_version?: string | null;
-            /** Autostart */
-            autostart?: boolean | null;
-            /** Config Pushed At */
-            config_pushed_at?: number | null;
             /** Enabled */
             enabled: boolean;
             /**
@@ -3505,7 +3501,7 @@ export interface components {
              * @description A transport action; it must be in the status's actions (else 409)
              * @enum {string}
              */
-            action: "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end";
+            action: "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end" | "recover" | "dismiss";
             /**
              * Index
              * @description jump: to this player playlist index
@@ -3822,8 +3818,18 @@ export interface components {
             id: number;
             /** Is Default */
             is_default: boolean;
+            /**
+             * Lines
+             * @description How many elements (lines) it has
+             */
+            lines: number;
             /** Name */
             name: string;
+            /**
+             * Programmes
+             * @description Programmes that pick it as their own design
+             */
+            programmes: number;
         };
         /** DesignUpdateSchema */
         DesignUpdateSchema: {
@@ -4151,6 +4157,44 @@ export interface components {
              */
             success: boolean;
         };
+        /**
+         * HostAndroidSchema
+         * @description What an Android TV player's output path can do.
+         */
+        HostAndroidSchema: {
+            /**
+             * Device
+             * @description e.g. "NVIDIA SHIELD Android TV"
+             * @default
+             */
+            device: string;
+            /**
+             * Hdr
+             * @description HDR formats the display shows, e.g. ["HDR10", "HLG"]
+             */
+            hdr?: string[];
+            /**
+             * Max Channels
+             * @default 0
+             */
+            max_channels: number;
+            /**
+             * Modes
+             * @description the display's modes
+             */
+            modes?: components["schemas"]["HostDisplayModeSchema"][];
+            /**
+             * Passthrough
+             * @description encodings the receiver takes as a bitstream, e.g. ["ac3", "truehd"]
+             */
+            passthrough?: string[];
+            /**
+             * Sdk
+             * @description Android API level
+             * @default 0
+             */
+            sdk: number;
+        };
         /** HostAudioDeviceSchema */
         HostAudioDeviceSchema: {
             /**
@@ -4206,6 +4250,26 @@ export interface components {
              */
             restart_required: boolean;
         };
+        /** HostDisplayModeSchema */
+        HostDisplayModeSchema: {
+            /**
+             * H
+             * @default 0
+             */
+            h: number;
+            /**
+             * Hz
+             * @default 0
+             */
+            hz: number;
+            /** Id */
+            id: number;
+            /**
+             * W
+             * @default 0
+             */
+            w: number;
+        };
         /** HostGraphicsSchema */
         HostGraphicsSchema: {
             /**
@@ -4214,6 +4278,12 @@ export interface components {
              * @default
              */
             display: string;
+            /**
+             * Display Mode
+             * @description android: the display mode, e.g. "3840x2160@23.976"; "" = the box's own (ignored by the desktop agent)
+             * @default
+             */
+            display_mode: string;
             /**
              * Drm Connector
              * @description drm mode: e.g. "HDMI-A-1"; "" = the first connected screen
@@ -4256,8 +4326,14 @@ export interface components {
              */
             hwdec: string;
             /**
+             * Keep Awake
+             * @description android: keep the screen on so the box never goes to standby (ignored by the desktop agent)
+             * @default true
+             */
+            keep_awake: boolean;
+            /**
              * Mode
-             * @description "desktop" (X/Wayland session) or "drm" (headless KMS)
+             * @description "desktop" (X/Wayland session), "drm" (headless KMS) or "android" (an Android TV player)
              * @default desktop
              */
             mode: string;
@@ -4273,6 +4349,12 @@ export interface components {
              * @default 0
              */
             screen: number;
+            /**
+             * Tunneling
+             * @description android: tunnelled playback, A/V sync in the decoder (ignored by the desktop agent)
+             * @default false
+             */
+            tunneling: boolean;
             /**
              * Vo
              * @default gpu-next
@@ -4292,6 +4374,8 @@ export interface components {
         };
         /** HostHardwareSchema */
         HostHardwareSchema: {
+            /** @description an Android TV player only */
+            android?: components["schemas"]["HostAndroidSchema"] | null;
             /** Audio Devices */
             audio_devices?: components["schemas"]["HostAudioDeviceSchema"][];
             /** Drm Connectors */
@@ -4429,6 +4513,28 @@ export interface components {
             url: string;
             /** Width */
             width?: number | null;
+        };
+        /**
+         * InterruptedSchema
+         * @description A programme the player lost while on air (it restarted), for the operator to resume.
+         */
+        InterruptedSchema: {
+            /** Item Title */
+            item_title?: string | null;
+            /**
+             * Position
+             * @description Programme position of the item it was on
+             */
+            position: number;
+            /** Programme Id */
+            programme_id: number;
+            /** Programme Name */
+            programme_name: string;
+            /**
+             * Seconds
+             * @description How far into that item, when known
+             */
+            seconds?: number | null;
         };
         /** ItemSchema */
         ItemSchema: {
@@ -5689,6 +5795,12 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Needs Cinefin Update
+             * @description The agent no longer serves this Cinefin's protocol: update Cinefin (or use an older player)
+             * @default false
+             */
+            needs_cinefin_update: boolean;
+            /**
              * Needs Pairing Again
              * @description An agent paired before pairing codes (a token but no agent id): remove it and pair again
              * @default false
@@ -5730,9 +5842,11 @@ export interface components {
         /** PlayoutStatusDataSchema */
         PlayoutStatusDataSchema: {
             /** Actions */
-            actions?: ("cue" | "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end")[];
+            actions?: ("cue" | "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end" | "recover" | "dismiss")[];
             /** @description The item on screen (the title card in the pre-show) */
             current_item?: components["schemas"]["ItemSchema"] | null;
+            /** @description A programme the player lost, to resume */
+            interrupted?: components["schemas"]["InterruptedSchema"] | null;
             /**
              * Label
              * @description One line for the phase, e.g. 'Cued · Friday Night: Alien'

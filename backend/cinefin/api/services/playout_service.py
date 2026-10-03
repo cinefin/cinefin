@@ -12,8 +12,9 @@ from datetime import timedelta
 from django.utils import timezone
 
 from cinefin.api.exceptions import ConflictError, UnprocessableEntityError, ValidationError
-from cinefin.api.models import Command, PlayoutHost, Programme, ProgrammeSchedule
+from cinefin.api.models import Command, PlaylistItem, PlayoutHost, Programme, ProgrammeSchedule
 from cinefin.api.schemas.playout import (
+    InterruptedSchema,
     ItemSchema,
     ManualItemSchema,
     ManualQueueSchema,
@@ -64,6 +65,8 @@ _ACTION_WORDS = {
     "jump": "jump to an item",
     "end_hold": "end a hold",
     "end": "end",
+    "recover": "resume the interrupted programme",
+    "dismiss": "dismiss the interrupted programme",
 }
 _PHASE_WORDS = {
     OFFLINE: "the player can't be reached",
@@ -103,10 +106,12 @@ def phase_of(snap: dict | None) -> str:
     return PLAYING
 
 
-def allowed_actions(phase: str, manual: bool) -> list[str]:
+def allowed_actions(phase: str, manual: bool, interrupted: bool = False) -> list[str]:
     actions = list(ACTIONS[phase])
     if manual:
         actions = [a for a in actions if a not in ("previous", "jump")] + ["cue"]
+    if interrupted and phase == STANDBY:
+        actions += ["recover", "dismiss"]
     return actions
 
 
@@ -115,7 +120,7 @@ def require(action: str) -> None:
     from cinefin.api.mpv_service import mpv_service
 
     phase = phase_of(mpv_service.snapshot())
-    allowed = allowed_actions(phase, bool(mpv_service.manual_items))
+    allowed = allowed_actions(phase, bool(mpv_service.manual_items), bool(mpv_service.interrupted))
     if action not in allowed:
         raise ConflictError(
             f"Can't {_ACTION_WORDS.get(action, action)} now: {_PHASE_WORDS[phase]}",
@@ -153,12 +158,33 @@ def perform(action: str, seconds: float | None = None, offset: float | None = No
         ok = mpv_service.playlist_jump(index)
     elif action == "end":
         ok = mpv_service.standby()
+    elif action == "recover":
+        ok = mpv_service.resume_interrupted()
+    elif action == "dismiss":
+        ok = mpv_service.dismiss_interrupted()
     else:
         raise ValidationError(f"Unknown action: {action}")
     if not ok:
         raise UnprocessableEntityError(
             f"The player didn't {_ACTION_WORDS.get(action, action)}", error_code="PLAYER_FAILED"
         )
+
+
+def _interrupted(lost: dict | None) -> InterruptedSchema | None:
+    """What the player lost, for the operator to resume."""
+    if not lost:
+        return None
+    programme = Programme.objects.filter(id=lost["programme_id"]).first()
+    if programme is None:
+        return None
+    item = PlaylistItem.objects.filter(playlist__programme=programme, order=lost["order"]).first()
+    return InterruptedSchema(
+        programme_id=programme.id,
+        programme_name=programme.name,
+        position=lost["order"],
+        item_title=_item(item).title if item else None,
+        seconds=lost["seconds"],
+    )
 
 
 def _clock(seconds: float) -> str:
@@ -255,9 +281,10 @@ def playout_status() -> PlayoutStatusDataSchema:
     manual = list(mpv_service.manual_items)
     status = PlayoutStatusDataSchema(
         phase=phase,
-        actions=allowed_actions(phase, bool(manual)),
+        actions=allowed_actions(phase, bool(manual), bool(mpv_service.interrupted)),
         player=_player(host),
         next_screening=next_screening(),
+        interrupted=_interrupted(mpv_service.interrupted),
     )
     if phase == OFFLINE:
         status.label = f"{host.name} is offline" if host else "No player is set up"

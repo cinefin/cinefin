@@ -1,59 +1,102 @@
 <script lang="ts">
-	import { AlertTriangle, RefreshCw, Save } from '@lucide/svelte';
+	// A player's screen and sound. Saves itself; a change that needs the player restarted says so.
+	import { onDestroy, untrack } from 'svelte';
+	import { RotateCw } from '@lucide/svelte';
+	import { api } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { showToast } from '$lib/toast.svelte';
 	import { query } from '$lib/api/query.svelte';
 	import { attempt } from '$lib/settings/form.svelte';
+	import { AutoSave } from '$lib/settings/autosave.svelte';
+	import SaveState from '$lib/settings/SaveState.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import HostConfigFields from '$lib/playout/HostConfigFields.svelte';
-	import { loadHostConfig, saveHostConfig } from '$lib/playout/host-config';
+	import { describeConfig, loadHostConfig, saveHostConfig } from '$lib/playout/host-config';
 
-	const { hostId }: { hostId: number } = $props();
+	interface Props {
+		hostId: number;
+		hostName: string;
+		/** One line for the collapsed row: the screen, then the sound. */
+		summary?: string;
+	}
+	let { hostId, hostName, summary = $bindable('') }: Props = $props();
 
 	const host = query(() => loadHostConfig(hostId));
-	let saving = $state(false);
+	$effect(() => {
+		if (host.error) summary = "Couldn't read the player's settings";
+		else if (!host.data) summary = 'Reading…';
+		else {
+			const d = describeConfig(host.data.config, host.data.hardware);
+			summary = `${d.screen} · ${d.sound}`;
+		}
+	});
 	let restartPending = $state(false);
+	let restarting = $state(false);
 
-	async function save(thenRestart: boolean) {
+	// What the player last accepted; a save runs only when the form differs from it.
+	let saved: string | null = null;
+	const saver = new AutoSave(async () => {
 		if (!host.data) return;
-		const draft = host.data.config;
-		saving = true;
+		const draft = JSON.stringify(host.data.config);
+		if (draft === saved) return;
+		if (await saveHostConfig(hostId, host.data.config, false)) restartPending = true;
+		saved = draft;
+	});
+
+	$effect(() => {
+		if (!host.data) return;
+		const draft = JSON.stringify(host.data.config);
+		untrack(() => {
+			if (saved === null) saved = draft;
+			else if (draft !== saved) saver.schedule();
+		});
+	});
+	onDestroy(() => {
+		if (saver.waiting) void saver.flush();
+	});
+
+	async function restart() {
+		restarting = true;
 		await attempt(async () => {
-			restartPending = await saveHostConfig(hostId, draft, thenRestart);
-			showToast(
-				thenRestart && !restartPending ? 'Saved. The player is restarting' : 'Saved',
-				'success'
+			await saver.flush();
+			await mutate(
+				api.POST('/api/v2/playout/hosts/{host_id}/restart', {
+					params: { path: { host_id: hostId } }
+				})
 			);
-		}, 'Could not save');
-		saving = false;
+			restartPending = false;
+			showToast(`${hostName} is restarting`, 'success');
+		}, 'Could not restart the player');
+		restarting = false;
 	}
 </script>
 
 {#if host.loading}
-	<div class="p-3"><Spinner size="sm" label="Reading the host's configuration…" /></div>
+	<Spinner size="sm" label="Reading the host's configuration…" />
 {:else if host.error}
-	<div class="p-3"><ErrorState compact error={host.error} retry={() => void host.load()} /></div>
+	<ErrorState compact error={host.error} retry={() => void host.load()} />
 {:else if host.data}
-	<div class="max-w-2xl space-y-5 p-4">
+	<div class="max-w-2xl space-y-4">
+		{#if restartPending}
+			<div
+				class="flex flex-wrap items-center gap-3 border border-warning/40 bg-warning/10 px-3 py-2 text-sm"
+				role="status"
+			>
+				<span class="mr-auto">Saved. It takes effect when {hostName} restarts.</span>
+				<Button size="sm" variant="ghost" onclick={() => (restartPending = false)}>Later</Button>
+				<Button size="sm" disabled={restarting} onclick={() => void restart()}>
+					<RotateCw size={13} />
+					{restarting ? 'Restarting…' : 'Restart now'}
+				</Button>
+			</div>
+		{/if}
 		<HostConfigFields
 			bind:config={host.data.config}
 			hardware={host.data.hardware}
 			idPrefix="hc-{hostId}"
 		/>
-
-		<div class="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-			<Button variant="primary" disabled={saving} onclick={() => void save(false)}>
-				<Save size={13} /> Save
-			</Button>
-			<Button disabled={saving} onclick={() => void save(true)}>
-				<RefreshCw size={13} /> Save and restart the player
-			</Button>
-			{#if restartPending}
-				<span class="flex items-center gap-1.5 text-xs text-warning">
-					<AlertTriangle size={13} /> Saved - takes effect when the player restarts.
-				</span>
-			{/if}
-		</div>
+		<SaveState {saver} />
 	</div>
 {/if}

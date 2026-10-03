@@ -1,7 +1,7 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
-	import { FilterX, ListVideo, PenLine, Trash2, Wand2 } from '@lucide/svelte';
+	import { FilterX, ListVideo, Plus, Trash2 } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
@@ -168,15 +168,8 @@
 
 <PageHeader title="Programmes" {actions} />
 {#snippet actions()}
-	<Button
-		href="{base}/programmes/create"
-		variant="primary"
-		title="Pick your films and build from a matching template"
-	>
-		<Wand2 size={14} /> Guided
-	</Button>
-	<Button href="{base}/programmes/new" title="Start with an empty running order in the editor">
-		<PenLine size={14} /> From scratch
+	<Button href="{base}/programmes/new" variant="primary">
+		<Plus size={14} /> New programme
 	</Button>
 {/snippet}
 
@@ -210,15 +203,12 @@
 		<EmptyState
 			icon={ListVideo}
 			title="No programmes yet"
-			message="Build your first programme from trailers, user media and a feature — guided from your films, or from a blank running order."
+			message="Build your first programme from trailers, user media and a feature - from a template, or a blank running order."
 		>
 			{#snippet action()}
-				<div class="flex items-center gap-2">
-					<Button href="{base}/programmes/create" variant="primary">
-						<Wand2 size={14} /> Guided
-					</Button>
-					<Button href="{base}/programmes/new"><PenLine size={14} /> From scratch</Button>
-				</div>
+				<Button href="{base}/programmes/new" variant="primary">
+					<Plus size={14} /> New programme
+				</Button>
 			{/snippet}
 		</EmptyState>
 	{/if}

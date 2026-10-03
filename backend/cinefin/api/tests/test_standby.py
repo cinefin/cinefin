@@ -221,6 +221,26 @@ class TestStandbyAgent:
         assert service.standby() is True
         assert calls == ["PUT", "POST", "POST"]  # unchanged spec: not sent again
 
+    def test_a_change_made_after_connecting_is_what_the_player_gets(self, monkeypatch):
+        # Regression: the service held the row read when it connected, so standby sent the old
+        # show_status (and name) back to the player after it was turned off.
+        host = _agent(show_status=True)
+        sent = []
+        monkeypatch.setattr(
+            PlayoutAgentService, "put_standby", classmethod(lambda cls, h, spec: sent.append(spec) or {})
+        )
+        monkeypatch.setattr(PlayoutAgentService, "enter_standby", classmethod(lambda cls, h: {}))
+        service = _service(PlayoutHost.objects.get(pk=host.pk))
+        standby.sync_spec(host)  # what the player holds
+
+        PlayoutHost.objects.filter(pk=host.pk).update(show_status=False, name="Screen 2")
+        standby.sync_spec(PlayoutHost.objects.get(pk=host.pk))  # the PATCH's push
+        service.standby()
+
+        assert sent[0]["show_status"] is True
+        # Nothing after the change sends the old spec back.
+        assert [(s["show_status"], s["player_name"]) for s in sent[1:]] == [(False, "Screen 2")] * (len(sent) - 1)
+
     @pytest.mark.parametrize("lost", [True, False], ids=["lost-its-spec", "failed-download"])
     def test_the_spec_is_sent_again(self, monkeypatch, lost):
         host = _agent()

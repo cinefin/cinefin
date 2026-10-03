@@ -1,5 +1,5 @@
 <script lang="ts">
-	// A Toggle bound to one boolean of the settings draft, with its unsaved mark.
+	// A Toggle bound to one boolean of the settings draft (it saves itself), with its pending mark.
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import type { MainDraft, SettingsStore } from './form.svelte';
 

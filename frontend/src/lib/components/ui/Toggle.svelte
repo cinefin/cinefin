@@ -24,7 +24,7 @@
 		<span class="flex items-center gap-1.5">
 			{label}
 			{#if dirty}
-				<span class="h-1.5 w-1.5 bg-warning" title="Unsaved change"></span>
+				<span class="h-1.5 w-1.5 bg-warning" title="Saving shortly"></span>
 			{/if}
 		</span>
 		{#if hint}

@@ -45,7 +45,7 @@ class MPVController:
         self.restart_path = None
         self.restart_serial = 0
         self.event_handlers = {
-            e: [] for e in ("pause", "file_end", "file_start", "playlist_change", "time_pos", "quit")
+            e: [] for e in ("pause", "file_end", "file_start", "playlist_change", "time_pos", "quit", "reconnect")
         }
 
         self.player = None
@@ -71,10 +71,11 @@ class MPVController:
                 return False
             kind, target, token = config
             try:
+                back = lambda: self._dispatch_event("reconnect", None)  # noqa: E731
                 if kind == "socket":
-                    self.player = SocketMPV(target, quit_callback=self._on_quit)
+                    self.player = SocketMPV(target, quit_callback=self._on_quit, reconnect_callback=back)
                 else:
-                    self.player = WSMPV(target, token=token, quit_callback=self._on_quit)
+                    self.player = WSMPV(target, token=token, quit_callback=self._on_quit, reconnect_callback=back)
                 logger.info("Connected to mpv via %s at %s", "local socket" if kind == "socket" else "agent WS", target)
                 self._register_observers()
             except Exception:
@@ -207,13 +208,14 @@ class MPVController:
     def seek_relative(self, seconds):
         return self.seek(seconds, reference="relative")
 
-    def get_property(self, name):
+    def get_property(self, name, quiet=False):
         """Accepts dashed or underscore names: a dashed name would silently read
-        back a plain Python attribute instead of asking MPV."""
+        back a plain Python attribute instead of asking MPV. ``quiet`` logs a
+        failure at DEBUG, for reads polled while the link may be down."""
         try:
             return getattr(self.player, name.replace("-", "_"))
         except Exception as e:
-            logger.error(f"Error getting property {name}: {e}")
+            (logger.debug if quiet else logger.error)(f"Error getting property {name}: {e}")
             return None
 
     def set_property(self, name, value, quiet=False):

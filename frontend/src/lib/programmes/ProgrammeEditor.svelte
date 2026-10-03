@@ -1,14 +1,11 @@
 <script lang="ts">
-	// The running-order editor, mounted by the programme page at ?edit=1 and /programmes/new.
+	// The running-order editor, mounted by the programme page at ?edit=1 and by /programmes/new.
 	// Reference lists load when it mounts, so viewing never pays for the editor.
 	import { onMount, type Snippet } from 'svelte';
-	import { base } from '$app/paths';
-	import { page } from '$app/state';
 	import { api, unwrap } from '$lib/api/client';
 	import { showToast } from '$lib/toast.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import { ListVideo } from '@lucide/svelte';
-	import Button from '$lib/components/ui/Button.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import EditorShell from '$lib/editor/EditorShell.svelte';
 	import { EditorSession } from '$lib/editor/session.svelte';
@@ -79,7 +76,6 @@
 	async function buildBlocks(): Promise<void> {
 		if (!items.length) {
 			editor.reset([]);
-			applyRandomMovieUrlParams();
 			return;
 		}
 		const blocks = programmeItemsToBlocks(items, () => editor.uid());
@@ -109,23 +105,6 @@
 			})
 		);
 		editor.reset(blocks);
-	}
-
-	/** Legacy deep link from the library: ?random_movie=true&rm_… adds a block. */
-	function applyRandomMovieUrlParams(): void {
-		const params = page.url.searchParams;
-		if (params.get('random_movie') !== 'true') return;
-		const genreId = params.get('rm_genre_id');
-		const genreName = params.get('rm_genre_name');
-		editor.add('random_movie', {
-			...defaultProgrammeContent('random_movie'),
-			genre_ids: genreId ? [parseInt(genreId, 10)] : [],
-			genre_names: genreName ? [genreName] : [],
-			certification: params.get('rm_certification') || null,
-			year_from: params.get('rm_year_from') ? parseInt(params.get('rm_year_from')!, 10) : null,
-			year_to: params.get('rm_year_to') ? parseInt(params.get('rm_year_to')!, 10) : null,
-			count: 1
-		});
 	}
 
 	async function addBlock(type: string): Promise<void> {
@@ -212,12 +191,8 @@
 		<EmptyState
 			icon={ListVideo}
 			title="This running order is empty"
-			message="Add blocks from the palette to build it, then drag to reorder. Prefer a guided start? Create from a template instead."
+			message="Add blocks from the palette to build it, then drag to reorder."
 			compact
-		>
-			{#snippet action()}
-				<Button href="{base}/programmes/create" size="sm">Create from a template</Button>
-			{/snippet}
-		</EmptyState>
+		/>
 	{/snippet}
 </EditorShell>

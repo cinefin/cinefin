@@ -157,14 +157,45 @@ def _claim(schedule_id):
     return ProgrammeSchedule.objects.filter(id=schedule_id, status="scheduled").update(status="running") == 1
 
 
+def _on_air_programme_id():
+    """The programme on air, if any. Until this process has re-attached to the player (see
+    MPVService._restore_session), the persisted session answers: memory says nothing is on
+    air yet, and a screening started then would cut into one still playing."""
+    from cinefin.api.models import PlayoutSession
+    from cinefin.api.mpv_service import ProgrammeState, mpv_service
+
+    if mpv_service._session_restored:
+        running = mpv_service.programme_state == ProgrammeState.RUNNING and mpv_service.current_programme
+        return mpv_service.current_programme.id if running else None
+    session = PlayoutSession.load()
+    return session.programme_id if session.state == ProgrammeState.RUNNING else None
+
+
 def _mpv_busy() -> bool:
     """True while a programme has started (playing or paused), so a due schedule doesn't seize the player."""
     try:
-        from cinefin.api.mpv_service import ProgrammeState, mpv_service
-
-        return mpv_service.programme_state == ProgrammeState.RUNNING
+        return _on_air_programme_id() is not None
     except Exception:  # noqa: BLE001 - never let a status read break the tick
         return False
+
+
+def abandon_running(programme_id, reason):
+    """Mark a screening of ``programme_id`` still 'running' as missed: its programme is gone
+    from the player (which restarted), so it would otherwise read 'completed' at its end.
+    Returns the id of the screening, if there was one."""
+    ids = list(
+        ProgrammeSchedule.objects.filter(status="running", programme_id=programme_id).values_list("id", flat=True)
+    )
+    ProgrammeSchedule.objects.filter(id__in=ids).update(status="missed", last_error=reason)
+    if ids:
+        logger.warning("Screening of programme %s marked missed: %s", programme_id, reason)
+    return ids[0] if ids else None
+
+
+def resume_abandoned(schedule_id):
+    """The operator resumed a screening abandoned by abandon_running: it is on air again."""
+    if schedule_id:
+        ProgrammeSchedule.objects.filter(id=schedule_id, status="missed").update(status="running", last_error="")
 
 
 def recover_orphans():
@@ -177,14 +208,10 @@ def recover_orphans():
     if not running:
         return
 
-    playing_programme_id = None
     try:
-        from cinefin.api.mpv_service import ProgrammeState, mpv_service
-
-        if mpv_service.programme_state == ProgrammeState.RUNNING and mpv_service.current_programme:
-            playing_programme_id = mpv_service.current_programme.id
+        playing_programme_id = _on_air_programme_id()
     except Exception:  # noqa: BLE001 - a status read must never block recovery
-        pass
+        playing_programme_id = None
 
     for s in running:
         if s.programme_id == playing_programme_id:

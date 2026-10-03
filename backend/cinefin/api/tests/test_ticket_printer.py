@@ -1,4 +1,4 @@
-"""Ticket printing: printer selection, layout ops, preview, QR modes, rating images."""
+"""Ticket printing: printer selection, layout ops, preview, QR modes, rating images, the design list."""
 
 import itertools
 from unittest.mock import MagicMock, call
@@ -222,3 +222,17 @@ class TestImageSize:
     def test_the_file_name_cannot_climb_out_of_the_library(self):
         (el,) = ticket_service.parse_elements([{"type": "image", "file": "../../etc/passwd"}])
         assert el.file == "passwd"
+
+
+def test_the_design_list_counts_lines_and_the_programmes_that_pick_it(client):
+    from cinefin.api.models import TicketDesign
+
+    from .factories import ProgrammeFactory
+
+    standard = TicketDesign.get_default()
+    compact = TicketDesign.objects.create(name="Compact", elements=[{"type": "text", "text": "x"}])
+    ProgrammeFactory(ticket_design=compact)
+    ProgrammeFactory(ticket_design=compact)
+    rows = {d["name"]: d for d in client.get("/api/v2/tickets/designs").json()}
+    assert rows["Compact"]["lines"] == 1 and rows["Compact"]["programmes"] == 2
+    assert rows[standard.name]["lines"] == len(standard.elements) and rows[standard.name]["programmes"] == 0

@@ -1,6 +1,7 @@
 /**
  * Shared playout status feed on the WebSocket "playout" channel; read it through
- * `$lib/playout/phase`. No interval fallback: a dead socket stops the clock rather than hiding it.
+ * `$lib/playout/phase`. No interval fallback: a dead socket stops the clock rather than hiding it,
+ * and while Cinefin can't be reached (`stale`) the last status stands with no actions allowed.
  */
 import { api, toApiError, unwrap, type ApiError } from '$lib/api/client';
 import type { components } from '$lib/api/types.gen';
@@ -11,7 +12,10 @@ import { refCounted } from './refcount';
 export type ControlBody = components['schemas']['ControlPlayoutSchema'];
 
 class PlayoutStore {
-	status = $state<PlayoutStatus | null>(null);
+	#live = $state<PlayoutStatus | null>(null);
+	/** True while Cinefin can't be reached, so `status` is the last one seen. */
+	stale = $derived(realtime.down);
+	status = $derived(this.stale && this.#live ? { ...this.#live, actions: [] } : this.#live);
 	error = $state<ApiError | null>(null);
 	loaded = $state(false);
 
@@ -51,7 +55,7 @@ class PlayoutStore {
 
 	/** Show or hide the active player's status line over standby (PATCH the host). */
 	async setStatusLine(show: boolean): Promise<void> {
-		const id = this.status?.player?.id;
+		const id = this.#live?.player?.id;
 		if (id == null) return;
 		await unwrap(
 			api.PATCH('/api/v2/playout/hosts/{host_id}', {
@@ -63,7 +67,7 @@ class PlayoutStore {
 	}
 
 	#adopt(status: PlayoutStatus | null): void {
-		this.status = status;
+		this.#live = status;
 		this.error = null;
 		this.loaded = true;
 	}

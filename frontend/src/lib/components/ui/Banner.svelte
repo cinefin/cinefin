@@ -58,8 +58,7 @@
 >
 	<Icon size={15} class="shrink-0 {align === 'start' ? 'mt-0.5' : ''} {iconTone[severity]}" />
 	<span class="min-w-0 flex-1">
-		{#if title}<strong>{title}</strong>
-		{/if}{@render children?.()}
+		{#if title}<strong>{title}</strong>{' '}{/if}{@render children?.()}
 	</span>
 	{#if actions}
 		<span class="flex shrink-0 items-center gap-4">{@render actions()}</span>

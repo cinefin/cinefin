@@ -106,6 +106,15 @@ class TestWSMPV:
         assert _wait(lambda: len(events) >= 2, timeout=8.0)
         assert len([c for c in stub.received_commands if c[:1] == ["observe_property"]]) >= 2
 
+    def test_reconnect_callback_runs_before_the_observers_report_again(self, stub, player):
+        order = []
+        player.bind_property_observer("pause", lambda name, data: order.append("value"))
+        assert _wait(lambda: order)
+        player.reconnect_callback = lambda: order.append("reconnected")
+        stub.drop_client()
+        assert _wait(lambda: order.count("value") >= 2, timeout=8.0)
+        assert order[1:] == ["reconnected", "value"]
+
     def test_concurrent_sends_are_serialized_and_none_dropped(self, stub, player):
         active = max_concurrent = 0
         lock = threading.Lock()

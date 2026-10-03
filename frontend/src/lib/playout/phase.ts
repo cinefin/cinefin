@@ -32,6 +32,9 @@ const LAMPS: Record<Phase, Lamp> = {
 	manual: { label: 'On air · manual', colour: 'red', tally: true }
 };
 
+/** Cinefin itself is out of reach: whatever the last status said is no longer known. */
+export const UNREACHABLE: Lamp = { label: 'Cinefin unreachable', colour: 'amber', pending: true };
+
 /** The lamp for a status; `loaded` false while the first status is on its way. */
 export function lamp(status: PlayoutStatus | null | undefined, loaded = true): Lamp {
 	if (status) return LAMPS[status.phase];

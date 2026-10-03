@@ -133,7 +133,7 @@ class TestHostList:
         reply = _resp(200, {"version": "0.9", "os": "linux", "arch": "amd64"})
         with patch("cinefin.api.services.playout_host_service.requests.get", return_value=reply) as get:
             r = client.post(f"{HOSTS}/{host.id}/refresh")
-        assert get.call_args.kwargs["headers"] == {"Authorization": "Bearer t"}
+        assert get.call_args.kwargs["headers"] == {"Cinefin-Protocol": "2", "Authorization": "Bearer t"}
         assert r.json()["data"]["needs_update"] is True
         host.refresh_from_db()
         assert (host.protocol, host.agent_version, host.os, host.arch) == (0, "0.9", "linux", "amd64")
@@ -146,7 +146,7 @@ class TestHostList:
         with patch(AGENT_REQUEST, return_value=_resp()) as req, patch(UNLOAD) as unload:
             assert client.delete(f"{HOSTS}/{a.id}").status_code == 200
         assert req.call_args.args[:2] == ("POST", "http://a:8089/unpair")
-        assert req.call_args.kwargs["headers"] == {"Authorization": "Bearer t"}
+        assert req.call_args.kwargs["headers"] == {"Cinefin-Protocol": "2", "Authorization": "Bearer t"}
         unload.assert_called_once()
         assert PlayoutHost.objects.get(pk=b.id).is_active is True
         with patch(AGENT_REQUEST, side_effect=requests.ConnectionError("refused")):
@@ -228,6 +228,28 @@ class TestHostProxies:
         with _answer(400, {"error": "graphics.drm_connector is required in drm mode"}):
             r = client.put(url, data=CONFIG, content_type="application/json")
         assert (r.status_code, r.json()["error"]) == (422, "graphics.drm_connector is required in drm mode")
+
+    def test_an_android_players_settings_and_output_survive_the_round_trip(self, client):
+        host = _host()
+        android = {"graphics": {"mode": "android", "display_mode": "3840x2160@23.976", "keep_awake": False}}
+        with _answer(200, android):
+            g = client.get(f"{HOSTS}/{host.id}/config").json()["data"]["graphics"]
+        assert (g["mode"], g["display_mode"], g["keep_awake"], g["tunneling"]) == (
+            "android",
+            "3840x2160@23.976",
+            False,
+            False,
+        )
+        with _answer(200, {"restart_required": False}) as rq:
+            client.put(f"{HOSTS}/{host.id}/config", data=android, content_type="application/json")
+        sent = rq.call_args.kwargs["json"]["graphics"]
+        assert (sent["display_mode"], sent["keep_awake"]) == ("3840x2160@23.976", False)
+        report = {"android": {"passthrough": ["ac3", "truehd"], "hdr": ["HDR10"], "modes": [{"id": 1, "hz": 23.976}]}}
+        with _answer(200, report):
+            hw = client.get(f"{HOSTS}/{host.id}/hardware").json()["data"]
+        assert hw["android"]["passthrough"] == ["ac3", "truehd"] and hw["android"]["modes"][0]["hz"] == 23.976
+        with _answer(200, {}):
+            assert client.get(f"{HOSTS}/{host.id}/hardware").json()["data"]["android"] is None
 
     @pytest.mark.parametrize(
         ("path", "body", "agent_path", "answer"),
