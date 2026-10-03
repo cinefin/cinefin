@@ -3,7 +3,7 @@
 # Build the Cinefin pip/pipx wheel: the `cinefin` server as a self-contained
 # wheel with the SPA build and collected static bundled in. Users then:
 #
-#   pipx install ./cinefin3-<version>-py3-none-any.whl
+#   pipx install ./cinefin-<version>-py3-none-any.whl
 #   cinefin            # migrate + serve on 0.0.0.0:8000
 #
 # ffmpeg is an optional system dependency (certification/title cards need it);

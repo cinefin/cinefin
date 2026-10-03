@@ -1,6 +1,6 @@
 # Cinefin server as a system service (pip/pipx install, no Docker).
 #
-#   sudo pipx install --global ./cinefin3-<version>-py3-none-any.whl   # -> /usr/local/bin/cinefin
+#   sudo pipx install --global ./cinefin-<version>-py3-none-any.whl   # -> /usr/local/bin/cinefin
 #   sudo useradd --system --home-dir /var/lib/cinefin cinefin
 #   sudo cp cinefin.service.example /etc/systemd/system/cinefin.service
 #   sudo systemctl daemon-reload

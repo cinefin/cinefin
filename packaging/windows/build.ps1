@@ -6,7 +6,7 @@ every data file / native lib / dynamic import resolves normally — no PyInstall
 spec, no hidden-imports.
 
 Inputs:
-  -Wheel    path to cinefin3-*.whl (built by packaging/pip/build-wheel.sh / the
+  -Wheel    path to cinefin-*.whl (built by packaging/pip/build-wheel.sh / the
             `wheel` CI job). Required.
   -Version  installer version (default: from backend/pyproject.toml).
 
@@ -14,7 +14,7 @@ Prereqs: Inno Setup 6 (iscc on PATH), tar (built into Windows 10+), internet.
 
 Usage (local):
   bash packaging/pip/build-wheel.sh                       # -> backend/dist/*.whl
-  pwsh packaging/windows/build.ps1 -Wheel backend/dist/cinefin3-0.36.0-py3-none-any.whl
+  pwsh packaging/windows/build.ps1 -Wheel backend/dist/cinefin-0.36.0-py3-none-any.whl
 #>
 [CmdletBinding()]
 param([string]$Wheel = "", [string]$Version = "")

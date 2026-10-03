@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "cinefin3"
+name = "cinefin"
 version = "0.1.0"
 description = ""
 authors = ["Cinefin contributors"]

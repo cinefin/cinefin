@@ -8,7 +8,7 @@ an optional system dependency (certification/title cards need it —
 ## Install & run
 
 ```bash
-pipx install ./cinefin3-<version>-py3-none-any.whl   # or the URL from a release
+pipx install ./cinefin-<version>-py3-none-any.whl   # or the URL from a release
 cinefin serve               # migrate, then serve on 0.0.0.0:8000
 ```
 
@@ -23,7 +23,7 @@ that runs `cinefin serve --data-dir /var/lib/cinefin`.
 ## Building the wheel
 
 ```bash
-packaging/pip/build-wheel.sh     # -> backend/dist/cinefin3-<version>-py3-none-any.whl
+packaging/pip/build-wheel.sh     # -> backend/dist/cinefin-<version>-py3-none-any.whl
 ```
 
 It builds the SPA, copies it into the package (`cinefin/spa`), runs

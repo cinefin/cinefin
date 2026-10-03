@@ -47,10 +47,10 @@ Needs a Windows box with Inno Setup 6 (`iscc` on PATH) + internet. Build the
 wheel first (works on Linux/WSL/git-bash), then assemble:
 
 ```bash
-bash packaging/pip/build-wheel.sh                      # -> backend/dist/cinefin3-<ver>-py3-none-any.whl
+bash packaging/pip/build-wheel.sh                      # -> backend/dist/cinefin-<ver>-py3-none-any.whl
 ```
 ```powershell
-pwsh packaging/windows/build.ps1 -Wheel backend\dist\cinefin3-<ver>-py3-none-any.whl
+pwsh packaging/windows/build.ps1 -Wheel backend\dist\cinefin-<ver>-py3-none-any.whl
 # -> packaging/windows/Output/Cinefin-Setup-<ver>.exe
 ```
 

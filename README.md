@@ -54,11 +54,11 @@ CINEFIN_SERVER_URL='http://localhost:8000' docker compose up -d --build
 
 Install `ffmpeg` using your distro's package manager
 
-Grab the latest `cinefin3-*.whl` from the
+Grab the latest `cinefin-*.whl` from the
 [**releases page**](https://github.com/cinefin/cinefin/releases/latest):
 
 ```bash
-pipx install ./cinefin3-<version>-py3-none-any.whl   # paste the release URL
+pipx install ./cinefin-<version>-py3-none-any.whl   # paste the release URL
 cinefin serve                                        # migrate, then serve on :8000
 ```
 

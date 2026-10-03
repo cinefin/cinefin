@@ -72,7 +72,7 @@ class ApiConfig(AppConfig):
                 f"Cinefin must run with exactly one gunicorn worker (got --workers "
                 f"{match.group(1)}). Playout state, the schedule runner and the sync "
                 f"engine are per-process; use --workers 1 --threads N for concurrency "
-                f"(see etc/cinefin3.service)."
+                f"(see packaging/systemd/cinefin.service.example)."
             )
 
     @staticmethod
