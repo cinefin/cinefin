@@ -6,7 +6,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
-from cinefin.api.models import ProgrammeTitleTemplate, TicketDesign
+from cinefin.api.models import ProgrammeTitleTemplate
 
 pytestmark = pytest.mark.django_db
 
@@ -45,13 +45,6 @@ def test_a_title_image_in_use_is_kept(client):
     )
     r = client.delete(f"{API}/titles/logo.png")
     assert r.status_code == 409 and "Evening" in str(r.json())
-
-
-def test_a_ticket_image_in_use_is_kept(client):
-    _upload(client, "tickets")
-    TicketDesign.objects.create(name="Gala", elements=[{"type": "image", "file": "logo.png"}])
-    r = client.delete(f"{API}/tickets/logo.png")
-    assert r.status_code == 409 and "Gala" in str(r.json())
 
 
 def test_rejects_unknown_library_and_wrong_type(client):

@@ -6,7 +6,7 @@ import os
 
 from django.conf import settings as django_settings
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, File, Form, Router, Schema, Status, UploadedFile
+from ninja import Field, File, Form, Router, Schema, UploadedFile
 
 from cinefin.api.exceptions import NotFoundError, ValidationError
 from cinefin.api.models import Certification, Settings
@@ -23,13 +23,11 @@ ALLOWED_UPLOADS = {".jpg": "background", ".jpeg": "background", ".mp4": "video"}
 
 
 class RatingCardSchema(Schema):
-    certification: str = Field(..., description="Certificate value (e.g. 'PG')")
-    source: str = Field(
-        ..., description="Effective card source: static_video | custom_background | bundled_background | none"
-    )
-    static_video: bool = Field(..., description="A user static card video exists")
-    custom_background: bool = Field(..., description="A user background override exists")
-    bundled_background: bool = Field(..., description="A bundled background exists")
+    certification: str
+    source: str = Field(..., description="static_video | custom_background | bundled_background | none")
+    static_video: bool
+    custom_background: bool
+    bundled_background: bool
     generated_count: int = Field(..., description="Generated card rows currently in the database")
 
 
@@ -93,25 +91,16 @@ def list_rating_cards(request: HttpRequest, system: str):
         static_video = rating_card_video_path(system, cert) is not None
         custom_background = _custom_background_path(system, cert) is not None
         bundled = os.path.exists(os.path.join(django_settings.CINEFIN_ASSETS_DIR, "ratings", system, f"{cert}.jpg"))
-        if static_video:
-            source = "static_video"
-        elif custom_background:
-            source = "custom_background"
-        elif bundled:
-            source = "bundled_background"
-        else:
-            source = "none"
+        flags = {"static_video": static_video, "custom_background": custom_background, "bundled_background": bundled}
         cards.append(
-            RatingCardSchema(
-                certification=cert,
-                source=source,
-                static_video=static_video,
-                custom_background=custom_background,
-                bundled_background=bundled,
-                generated_count=Certification.objects.filter(ratings_system=system, certification=cert).count(),
-            )
+            {
+                "certification": cert,
+                "source": next((name for name, on in flags.items() if on), "none"),
+                **flags,
+                "generated_count": Certification.objects.filter(ratings_system=system, certification=cert).count(),
+            }
         )
-    return Status(200, RatingCardListResponseSchema(data=RatingCardListSchema(system=system, cards=cards)))
+    return {"data": {"system": system, "cards": cards}}
 
 
 @rating_cards_api.post(
@@ -141,7 +130,7 @@ def upload_rating_card(
     purged = _purge_generated_cards(system, certification)
     what = "static card video" if kind == "video" else "card background"
     logger.info(f"Uploaded {what} for {system}/{certification}; purged {purged} generated card(s)")
-    return Status(200, MessageResponseSchema(message=f"Saved {what} for {certification}"))
+    return {"message": f"Saved {what} for {certification}"}
 
 
 @rating_cards_api.delete("", response={200: MessageResponseSchema, 400: ErrorResponseSchema, 404: ErrorResponseSchema})
@@ -162,7 +151,7 @@ def delete_rating_card_override(request: HttpRequest, system: str, certification
     os.remove(path)
     purged = _purge_generated_cards(system, certification)
     logger.info(f"Removed {kind} override for {system}/{certification}; purged {purged} generated card(s)")
-    return Status(200, MessageResponseSchema(message=f"Removed {kind} override for {certification}"))
+    return {"message": f"Removed {kind} override for {certification}"}
 
 
 @rating_cards_api.get("/preview", response={400: ErrorResponseSchema, 404: ErrorResponseSchema})

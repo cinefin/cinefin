@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { base } from '$app/paths';
 	import { ChevronDown, Minus, Plus, Printer, Receipt, RotateCcw } from '@lucide/svelte';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import type { components } from '$lib/api/types.gen';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 
 	type Schedule = components['schemas']['ScheduleSchema'];
 	type SeatMap = components['schemas']['SeatMapDataSchema'];
@@ -65,19 +67,17 @@
 		if (savingDesign) return;
 		savingDesign = true;
 		const id = next ? parseInt(next, 10) : null;
-		try {
+		const fail = 'Could not set the ticket design';
+		await attempt(async () => {
 			const res = await api.POST('/api/v2/tickets/programmes/{programme_id}/design', {
 				params: { path: { programme_id: programmeId } },
 				body: { design_id: id }
 			});
-			if (res.error) throw new Error('Could not set the ticket design');
+			if (res.error) throw new Error(fail);
 			showToast('Ticket design updated', 'success');
 			onchange(id);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not set the ticket design', 'error');
-		} finally {
-			savingDesign = false;
-		}
+		}, fail);
+		savingDesign = false;
 	}
 
 	async function loadSchedules() {
@@ -177,7 +177,7 @@
 	async function printTickets() {
 		if (printing) return;
 		printing = true;
-		try {
+		await attempt(async () => {
 			const body: components['schemas']['ProgrammeTicketRequestSchema'] = {
 				copies: Math.min(20, Math.max(1, effectiveQty || 1)),
 				seats: selectedSeats.length ? [...selectedSeats] : null,
@@ -190,38 +190,32 @@
 				})
 			);
 			afterPrint(data);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to print programme ticket', 'error');
-		} finally {
-			printing = false;
-		}
+		}, 'Failed to print programme ticket');
+		printing = false;
 	}
+
+	// Toast the action's success message, or its error.
+	const act = (run: () => Promise<string>, fail: string) =>
+		attempt(async () => showToast(await run(), 'success'), fail);
 
 	async function testPrint() {
 		if (testing) return;
 		testing = true;
-		try {
+		await act(async () => {
 			await unwrap(api.POST('/api/v2/tickets/test', { body: { include_seat: true } }));
-			showToast('Test ticket printed', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to print test ticket', 'error');
-		} finally {
-			testing = false;
-		}
+			return 'Test ticket printed';
+		}, 'Failed to print test ticket');
+		testing = false;
 	}
 
 	async function resetPrinter() {
 		if (resetting) return;
 		resetting = true;
-		try {
-			const res = await api.POST('/api/v2/tickets/reset');
-			if (res.error) throw toApiError(res.error, res.response);
-			showToast(res.data?.message || 'Printer reset', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to reset printer', 'error');
-		} finally {
-			resetting = false;
-		}
+		await act(
+			async () => (await mutate(api.POST('/api/v2/tickets/reset'))) || 'Printer reset',
+			'Failed to reset printer'
+		);
+		resetting = false;
 	}
 
 	async function refreshHistory() {
@@ -241,17 +235,14 @@
 	async function reprint(issue: IssuedTicket) {
 		if (reprinting !== null) return;
 		reprinting = issue.id;
-		try {
-			const res = await api.POST('/api/v2/tickets/reprint/{issue_id}', {
-				params: { path: { issue_id: issue.id } }
-			});
-			if (res.error) throw toApiError(res.error, res.response);
-			showToast(res.data?.message || 'Reprinted', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to reprint ticket', 'error');
-		} finally {
-			reprinting = null;
-		}
+		const path = { issue_id: issue.id };
+		await act(
+			async () =>
+				(await mutate(api.POST('/api/v2/tickets/reprint/{issue_id}', { params: { path } }))) ||
+				'Reprinted',
+			'Failed to reprint ticket'
+		);
+		reprinting = null;
 	}
 
 	function formatPrintedAt(iso: string): string {
@@ -270,6 +261,18 @@
 		void printTickets();
 	}
 </script>
+
+{#snippet stepper(label: string, delta: number, Icon: typeof Plus)}
+	<button
+		type="button"
+		class="flex h-9 w-8 items-center justify-center text-muted hover:bg-surface-2 hover:text-text disabled:opacity-45"
+		aria-label={label}
+		disabled={seatsLocked}
+		onclick={() => stepQty(delta)}
+	>
+		<Icon size={13} />
+	</button>
+{/snippet}
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="max-w-2xl space-y-4 p-4" onkeydown={onKeydown}>
@@ -311,25 +314,9 @@
 		<div class="flex items-center gap-2">
 			<span class="text-xs text-muted">Qty</span>
 			<div class="flex items-center rounded-md border border-border-strong">
-				<button
-					type="button"
-					class="flex h-9 w-8 items-center justify-center text-muted hover:bg-surface-2 hover:text-text disabled:opacity-45"
-					aria-label="Fewer"
-					disabled={seatsLocked}
-					onclick={() => stepQty(-1)}
-				>
-					<Minus size={13} />
-				</button>
+				{@render stepper('Fewer', -1, Minus)}
 				<span class="w-8 text-center font-mono text-sm">{effectiveQty}</span>
-				<button
-					type="button"
-					class="flex h-9 w-8 items-center justify-center text-muted hover:bg-surface-2 hover:text-text disabled:opacity-45"
-					aria-label="More"
-					disabled={seatsLocked}
-					onclick={() => stepQty(1)}
-				>
-					<Plus size={13} />
-				</button>
+				{@render stepper('More', 1, Plus)}
 			</div>
 		</div>
 

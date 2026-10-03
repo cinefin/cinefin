@@ -1,10 +1,10 @@
 <script lang="ts">
-	// A columns line: how its cells split the width, adding to each cell, and the selected item's
-	// own settings (pick items on the ticket). Every change goes back through `onedit`, which applies
-	// it, records it and saves.
+	// A columns line: its cell widths, adding to each cell, and the selected item's own settings.
+	// Every change goes back through `onedit`, which applies, records and saves it.
 	import { ChevronDown, ChevronUp, Plus, Trash2 } from '@lucide/svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
+	import IconButton from './IconButton.svelte';
 	import ItemFields from './ItemFields.svelte';
 	import Segmented from './Segmented.svelte';
 	import { COLUMN_WIDTHS, KINDS, kindOf, setField, type TicketElement } from './kinds';
@@ -22,8 +22,6 @@
 	const selected = $derived(
 		cell !== undefined && item !== undefined ? cells[cell]?.[item] : undefined
 	);
-	const iconBtn =
-		'rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30';
 
 	function setWidths(widths: number[]) {
 		onedit((row) => {
@@ -85,33 +83,32 @@
 					{kindOf(selected).label}
 					<span class="font-normal text-muted">in cell {cell + 1}</span>
 				</h4>
-				<button
-					type="button"
-					class={iconBtn}
-					aria-label="Move up in the cell"
+				<IconButton
+					icon={ChevronUp}
+					label="Move up in the cell"
 					disabled={item === 0}
-					onclick={() => moveItem(cell, item, -1)}><ChevronUp size={15} /></button
-				>
-				<button
-					type="button"
-					class={iconBtn}
-					aria-label="Move down in the cell"
+					onclick={() => moveItem(cell, item, -1)}
+				/>
+				<IconButton
+					icon={ChevronDown}
+					label="Move down in the cell"
 					disabled={item === cells[cell].length - 1}
-					onclick={() => moveItem(cell, item, 1)}><ChevronDown size={15} /></button
-				>
-				<button
-					type="button"
-					class="{iconBtn} hover:text-danger"
-					aria-label="Remove from the cell"
-					onclick={() => removeItem(cell, item)}><Trash2 size={15} /></button
-				>
+					onclick={() => moveItem(cell, item, 1)}
+				/>
+				<IconButton
+					icon={Trash2}
+					label="Remove from the cell"
+					danger
+					onclick={() => removeItem(cell, item)}
+				/>
 			</div>
 			<ItemFields
 				el={selected}
 				onpatch={(key, value) =>
-					onedit((row) => {
-						setField(row.cells![cell][item], key, value);
-					}, `cell-${cell}-${item}-${key}`)}
+					onedit(
+						(row) => setField(row.cells![cell][item], key, value),
+						`cell-${cell}-${item}-${key}`
+					)}
 			/>
 		</div>
 	{:else}

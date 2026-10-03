@@ -1,9 +1,5 @@
 <script lang="ts">
-	interface Props {
-		title: string;
-		sub: string;
-	}
-	let { title, sub }: Props = $props();
+	let { title, sub }: { title: string; sub: string } = $props();
 </script>
 
 <div class="kiosk-empty">

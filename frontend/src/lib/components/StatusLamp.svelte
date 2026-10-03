@@ -1,17 +1,8 @@
 <script lang="ts">
-	/**
-	 * Status is a LAMP, not a pill (spec §06): one exposure-shaped square —
-	 * the mark's own module — beside plain sentence-case words. No border, no
-	 * tinted capsule, no round dot. Settled lamps hold steady; only a state
-	 * in transition (`pending`) pulses.
-	 *
-	 * The one loud state is not a lamp — use `Tally.svelte` for On air.
-	 */
+	/** Status is a lamp, not a pill (spec §06); only `pending` pulses. On air is `Tally`. */
 	import type { Snippet } from 'svelte';
 
 	interface Props {
-		/** Channel: blue interactive, red live, green ready; amber warning;
-		 *  neutral for idle/off states. */
 		colour: 'blue' | 'red' | 'green' | 'amber' | 'neutral';
 		/** State in transition — the lamp breathes. */
 		pending?: boolean;

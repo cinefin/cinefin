@@ -6,15 +6,9 @@
 	import ConfigSelect from '../ConfigSelect.svelte';
 	import NumberInput from '../NumberInput.svelte';
 	import { pickBumperIntoBlock } from '../pick-actions';
-	import type { EditorBlock, EditorContext } from '../types';
+	import { idOptions, type ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
-
-	let { block, ctx, commit }: Props = $props();
+	let { block, ctx, commit }: ConfigProps = $props();
 
 	// Can't be a pure $derived of tag_id: switching TO random has no tag yet, so it
 	// would snap back to specific and never open. Seed once (BlockList keys per uid).
@@ -36,35 +30,30 @@
 		});
 	}
 
-	async function chooseBumper(): Promise<void> {
-		await pickBumperIntoBlock(block, ctx, commit);
-	}
+	const chooseBumper = () => void pickBumperIntoBlock(block, ctx, commit);
 
-	const seg =
-		'h-8 flex-1 rounded-sm px-3 text-sm transition-colors ' +
-		'border border-border-strong text-muted hover:text-text';
-	const segActive = 'bg-surface-3 text-text';
+	const MODES = [
+		['specific', 'Specific clip'],
+		['random', 'Random from tag']
+	] as const;
 </script>
 
 <ConfigForm>
 	<ConfigField label="Mode" wide>
 		<div class="flex w-full max-w-xs gap-1" role="group" aria-label="User media mode">
-			<button
-				type="button"
-				class="{seg} {mode === 'specific' ? segActive : ''}"
-				aria-pressed={mode === 'specific'}
-				onclick={() => setMode('specific')}
-			>
-				Specific clip
-			</button>
-			<button
-				type="button"
-				class="{seg} {mode === 'random' ? segActive : ''}"
-				aria-pressed={mode === 'random'}
-				onclick={() => setMode('random')}
-			>
-				Random from tag
-			</button>
+			{#each MODES as [value, label] (value)}
+				<button
+					type="button"
+					class="h-8 flex-1 rounded-sm border border-border-strong px-3 text-sm text-muted transition-colors hover:text-text {mode ===
+					value
+						? 'bg-surface-3 text-text'
+						: ''}"
+					aria-pressed={mode === value}
+					onclick={() => setMode(value)}
+				>
+					{label}
+				</button>
+			{/each}
 		</div>
 	</ConfigField>
 
@@ -74,11 +63,11 @@
 				<span class="min-w-0 truncate text-sm" title={block.content.title || ''}>
 					{block.content.title || 'User media'}
 				</span>
-				<Button size="sm" class="shrink-0" onclick={() => void chooseBumper()}>
+				<Button size="sm" class="shrink-0" onclick={chooseBumper}>
 					<ArrowLeftRight size={12} /> Change
 				</Button>
 			{:else}
-				<Button size="sm" onclick={() => void chooseBumper()}>
+				<Button size="sm" onclick={chooseBumper}>
 					<Images size={12} /> Choose user media…
 				</Button>
 			{/if}
@@ -86,11 +75,11 @@
 	{:else}
 		<ConfigField label="Tag">
 			<ConfigSelect
-				value={block.content.tag_id ? String(block.content.tag_id) : ''}
-				options={ctx.tags.map((t) => ({ value: String(t.id), label: t.name }))}
+				value={block.content.tag_id}
+				options={idOptions(ctx.tags)}
 				placeholder="Select..."
-				onchange={(v) => {
-					const tag = ctx.tags.find((t) => t.id === parseInt(v, 10));
+				onnumber={(v) => {
+					const tag = ctx.tags.find((t) => t.id === v);
 					if (!tag) return;
 					commit(() => {
 						block.content.tag_id = tag.id;

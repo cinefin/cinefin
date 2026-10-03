@@ -5,8 +5,6 @@ layout keeps working: they resolve against the current MEDIA_ROOT at read time.
 An absolute path (external file, or legacy row) passes through unchanged.
 """
 
-from __future__ import annotations
-
 import os
 
 from django.conf import settings

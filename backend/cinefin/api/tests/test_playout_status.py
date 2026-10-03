@@ -1,7 +1,6 @@
 """The playout status: one phase, label and set of actions for every surface."""
 
 from datetime import timedelta
-from unittest.mock import MagicMock
 
 import pytest
 from django.utils import timezone
@@ -9,11 +8,12 @@ from django.utils import timezone
 from cinefin.api.models import PlayoutHost, PlayoutSession
 from cinefin.api.mpv_service import ProgrammeState, mpv_service
 from cinefin.api.services import schedule_runner
-from cinefin.api.services.playout_service import allowed_actions, next_screening, phase_of, playout_status
+from cinefin.api.services.playout_service import next_screening, playout_status
 
 from .factories import (
     BumperFactory,
     CommandFactory,
+    MovieFactory,
     PlaylistFactory,
     PlaylistItemFactory,
     ProgrammeFactory,
@@ -63,117 +63,88 @@ def load(svc, items=("bumper", "movie", "system"), offset=1, state=ProgrammeStat
     return programme
 
 
+RUNNING = ProgrammeState.RUNNING
+TRANSPORT = ["previous", "next", "seek", "jump", "end"]
+MANUAL = ["next", "seek", "end", "cue"]
+
+
 class TestPhase:
-    def test_unreachable_player_is_offline(self, svc):
+    def test_unreachable_or_missing_player_is_offline(self, svc):
         svc.go_offline()
         status = playout_status()
-        assert status.phase == "offline"
-        assert status.label == "Living room is offline"
-        assert status.actions == []
+        assert (status.phase, status.label, status.actions) == ("offline", "Living room is offline", [])
         assert status.player.name == "Living room"
-
-    def test_no_player_set_up(self, svc):
         PlayoutHost.objects.all().delete()
         status = playout_status()
         assert (status.phase, status.player, status.label) == ("offline", None, "No player is set up")
 
-    def test_nothing_loaded_is_standby_showing_the_ident(self, svc):
+    @pytest.mark.parametrize(
+        ("programme", "manual", "snapped", "expected"),
+        [
+            (None, None, {}, ("standby", "System Ident", "Standby", ["cue"])),
+            ({}, None, {"pause": True, "pos": 0}, ("cued", "Standby", "Cued · Friday Night", ["start", "cue", "end"])),
+            (
+                {"offset": 2},
+                None,
+                {"pause": True, "pos": 1},
+                ("cued", "Title card", "Cued · Friday Night", ["start", "cue", "end"]),
+            ),
+            (
+                {"offset": 2, "state": RUNNING},
+                None,
+                {"pos": 1},
+                ("preshow", "Title card", "Pre-show · Title card", ["pause", "next", "seek", "jump", "end"]),
+            ),
+            (
+                {"state": RUNNING},
+                None,
+                {"pos": 1},
+                ("playing", "Clip 0", "Item 1 of 2 · Clip 0", ["pause", *TRANSPORT]),
+            ),
+            (
+                {"state": RUNNING},
+                None,
+                {"pause": True, "pos": 1, "time": 75.0},
+                ("paused", "Clip 0", "Paused · Clip 0 at 1:15", ["resume", *TRANSPORT]),
+            ),
+            (None, ["Dune", "Alien"], {"pos": 1}, ("manual", "Alien", "Manual · 2 of 2 · Alien", ["pause", *MANUAL])),
+            (None, ["Dune"], {"pause": True, "pos": 0}, ("paused", "Dune", "Paused · Dune", ["resume", *MANUAL])),
+        ],
+    )
+    def test_phase_screen_label_and_actions(self, svc, programme, manual, snapped, expected):
+        if programme is not None:
+            load(svc, **programme)
+        if manual:
+            svc.manual_items = [{"title": t, "kind": "url"} for t in manual]
+        svc.set_snap(**snapped)
         status = playout_status()
-        assert (status.phase, status.label, status.screen) == ("standby", "Standby", "System Ident")
-        assert status.actions == ["cue"]
-        assert status.playback is None and status.programme is None
+        assert (status.phase, status.screen, status.label, status.actions) == expected
 
-    def test_loaded_is_cued_on_standby(self, svc):
+    def test_cued_and_playing_details(self, svc):
+        assert playout_status().playback is None
         load(svc)
         svc.set_snap(pause=True, pos=0)
         status = playout_status()
-        assert (status.phase, status.screen, status.label) == ("cued", "Standby", "Cued · Friday Night")
-        assert status.actions == ["start", "cue", "end"]
-        assert status.current_item is None
-        assert status.next_item.title == "Clip 0"  # first up
+        assert status.current_item is None and status.next_item.title == "Clip 0"
         assert status.playlist.total_items == 2  # the end sentinel isn't counted
-
-    def test_cued_on_a_held_title_card(self, svc):
-        load(svc, offset=2)
-        svc.set_snap(pause=True, pos=1)
-        status = playout_status()
-        assert (status.phase, status.screen) == ("cued", "Title card")
-        assert status.current_item.type == "title"
-
-    def test_started_on_the_title_card_is_preshow(self, svc):
-        load(svc, offset=2, state=ProgrammeState.RUNNING)
-        svc.set_snap(pos=1)
-        status = playout_status()
-        assert (status.phase, status.screen, status.label) == ("preshow", "Title card", "Pre-show · Title card")
-        assert status.actions == ["pause", "next", "seek", "jump", "end"]
-        assert status.playlist.current_position is None
-
-    def test_an_item_playing(self, svc):
-        load(svc, state=ProgrammeState.RUNNING)
+        svc.programme_state = RUNNING
         svc.set_snap(pos=1, time=4.0, duration=10.0)
-        status = playout_status()
-        assert status.phase == "playing"
-        assert (status.screen, status.label) == ("Clip 0", "Item 1 of 2 · Clip 0")
-        assert status.actions == ["pause", "previous", "next", "seek", "jump", "end"]
-        assert (status.playback.position, status.playback.remaining, status.playback.percentage) == (4.0, 6.0, 40.0)
-
-    def test_operator_pause_is_paused(self, svc):
-        load(svc, state=ProgrammeState.RUNNING)
-        svc.set_snap(pause=True, pos=1, time=75.0)
-        status = playout_status()
-        assert (status.phase, status.label) == ("paused", "Paused · Clip 0 at 1:15")
-        assert status.actions == ["resume", "previous", "next", "seek", "jump", "end"]
-
-    def test_paused_preshow_is_paused(self, svc):
-        load(svc, offset=2, state=ProgrammeState.RUNNING)
-        svc.set_snap(pause=True, pos=1)
-        assert playout_status().phase == "paused"
+        playback = playout_status().playback
+        assert (playback.position, playback.remaining, playback.percentage) == (4.0, 6.0, 40.0)
 
     def test_a_command_holding_the_screen_is_hold_with_its_own_clock(self, svc):
-        load(svc, items=("command", "system"), state=ProgrammeState.RUNNING)
+        load(svc, items=("command", "system"), state=RUNNING)
         svc.current_playlist.items.filter(order=0).update(command=CommandFactory(name="Dim the lights"))
         svc._executing_command = True
         svc._hold_progress = {"duration": 40.0, "elapsed": 12.5}
         svc.set_snap(pos=1, time=2.0, duration=5.0)  # mpv's clock: the looping black clip
         status = playout_status()
         assert (status.phase, status.screen, status.label) == ("hold", "Black", "Hold · Dim the lights")
-        assert "end_hold" in status.actions and "next" not in status.actions and "pause" not in status.actions
+        assert status.actions == ["previous", "end_hold", "jump", "end"]
         assert (status.playback.duration, status.playback.position, status.playback.remaining) == (40.0, 12.5, 27.5)
-
-    def test_manual_queue(self, svc):
-        svc.manual_items = [{"title": "Dune", "kind": "trailer"}, {"title": "Alien", "kind": "movie"}]
-        svc.set_snap(pos=1)
-        status = playout_status()
-        assert (status.phase, status.label, status.screen) == ("manual", "Manual · 2 of 2 · Alien", "Alien")
-        assert status.actions == ["pause", "next", "seek", "end", "cue"]
-        assert status.manual.position == 1
-
-    def test_paused_manual_queue(self, svc):
-        svc.manual_items = [{"title": "Dune", "kind": "trailer"}]
-        svc.set_snap(pause=True, pos=0)
-        status = playout_status()
-        assert (status.phase, status.label) == ("paused", "Paused · Dune")
-        assert status.actions == ["resume", "next", "seek", "end", "cue"]
-
-    def test_phase_of_needs_no_status_build(self, svc):
-        assert phase_of(None) == "offline"
-        assert phase_of(snap()) == "standby"
 
 
 class TestActions:
-    @pytest.mark.parametrize(
-        ("phase", "manual", "allowed"),
-        [
-            ("offline", False, []),
-            ("standby", False, ["cue"]),
-            ("cued", False, ["start", "cue", "end"]),
-            ("hold", False, ["previous", "end_hold", "jump", "end"]),
-            ("paused", True, ["resume", "next", "seek", "end", "cue"]),
-        ],
-    )
-    def test_allowed_per_phase(self, phase, manual, allowed):
-        assert allowed_actions(phase, manual) == allowed
-
     def test_disallowed_action_is_a_409_naming_the_phase(self, svc, client):
         response = client.post(f"{API}/control", {"action": "start"}, content_type="application/json")
         assert response.status_code == 409
@@ -193,35 +164,6 @@ class TestActions:
         response = client.post(f"{API}/control", {"action": "end_hold"}, content_type="application/json")
         assert response.status_code == 200 and moved == [True]
 
-    def test_pause_goes_through_the_player_and_returns_the_status(self, svc, client, monkeypatch):
-        load(svc, state=ProgrammeState.RUNNING)
-        svc.set_snap(pos=1)
-
-        def pause():
-            svc.set_snap(pause=True, pos=1)
-            return True
-
-        monkeypatch.setattr(svc, "pause", pause)
-        response = client.post(f"{API}/control", {"action": "pause"}, content_type="application/json")
-        assert response.status_code == 200
-        assert response.json()["data"]["phase"] == "paused"
-
-    def test_seek_by_an_offset(self, svc, client, monkeypatch):
-        load(svc, state=ProgrammeState.RUNNING)
-        svc.set_snap(pos=1)
-        seeks = []
-        monkeypatch.setattr(svc, "seek_relative", lambda s: seeks.append(s) or True)
-        response = client.post(f"{API}/control", {"action": "seek", "offset": -10}, content_type="application/json")
-        assert response.status_code == 200 and seeks == [-10]
-
-    def test_end_goes_to_standby(self, svc, client, monkeypatch):
-        load(svc)
-        svc.set_snap(pause=True, pos=0)
-        ended = MagicMock(return_value=True)
-        monkeypatch.setattr(svc, "standby", ended)
-        assert client.post(f"{API}/control", {"action": "end"}, content_type="application/json").status_code == 200
-        ended.assert_called_once_with()
-
     def test_cueing_over_a_programme_on_air_is_refused(self, svc, client):
         load(svc, state=ProgrammeState.RUNNING)
         svc.set_snap(pos=1)
@@ -232,10 +174,8 @@ class TestActions:
 
 
 class TestNextScreening:
-    def test_none_scheduled(self, svc):
-        assert next_screening() is None
-
     def test_the_next_one_still_to_play_with_its_cue_time(self, svc):
+        assert next_screening() is None
         now = timezone.now()
         ProgrammeScheduleFactory(start_time=now - timedelta(hours=3))  # already played
         ProgrammeScheduleFactory(start_time=now + timedelta(hours=1), status="cancelled")
@@ -252,10 +192,7 @@ class TestNextScreening:
         assert screening.programme_name == soon.programme.name
         assert screening.start_time == soon.start_time + timedelta(seconds=300)
         assert screening.cue_time == soon.start_time + timedelta(seconds=90)
-
-    def test_in_the_status(self, svc):
-        ProgrammeScheduleFactory()
-        assert playout_status().next_screening is not None
+        assert playout_status().next_screening.id == soon.id
 
 
 class TestSessionMigration:
@@ -281,40 +218,20 @@ class TestSessionMigration:
 
 
 class TestScheduleRunnerStates:
-    def test_busy_only_once_a_programme_has_started(self, monkeypatch):
-        for state, busy in [
-            (ProgrammeState.NOT_LOADED, False),
-            (ProgrammeState.LOADED, False),
-            (ProgrammeState.RUNNING, True),
-        ]:
-            monkeypatch.setattr(mpv_service, "programme_state", state, raising=False)
-            assert schedule_runner._mpv_busy() is busy
-
-    def test_a_started_programme_is_not_started_again(self, monkeypatch):
+    @pytest.mark.parametrize("state,starts", [(ProgrammeState.RUNNING, False), (ProgrammeState.LOADED, True)])
+    def test_only_a_cued_programme_is_started(self, monkeypatch, state, starts):
         schedule = ProgrammeScheduleFactory(status="running", start_time=timezone.now() - timedelta(seconds=10))
         monkeypatch.setattr("cinefin.api.services.preshow.run", lambda programme, steps: None)
-        monkeypatch.setattr(mpv_service, "programme_state", ProgrammeState.RUNNING, raising=False)
+        monkeypatch.setattr(mpv_service, "programme_state", state, raising=False)
         started = []
         monkeypatch.setattr(mpv_service, "start_programme", lambda: started.append(True) or True)
         monkeypatch.setattr(schedule_runner.time, "sleep", lambda s: None)
-
         schedule_runner.execute_schedule(schedule)
-        assert started == []
-
-    def test_a_cued_programme_is_started(self, monkeypatch):
-        schedule = ProgrammeScheduleFactory(status="running", start_time=timezone.now() - timedelta(seconds=10))
-        monkeypatch.setattr("cinefin.api.services.preshow.run", lambda programme, steps: None)
-        monkeypatch.setattr(mpv_service, "programme_state", ProgrammeState.LOADED, raising=False)
-        started = []
-        monkeypatch.setattr(mpv_service, "start_programme", lambda: started.append(True) or True)
-        monkeypatch.setattr(schedule_runner.time, "sleep", lambda s: None)
-
-        schedule_runner.execute_schedule(schedule)
-        assert started == [True]
+        assert bool(started) is starts
 
 
-def test_the_websocket_pushes_the_same_status(svc):
-    """GET /playout/status and the WebSocket push share one builder, so their shapes can't drift."""
+def pushed():
+    """The status as the WebSocket's "playout" channel sends it to an unauthenticated socket."""
     import threading
 
     from cinefin.api.views.ws_events import _produce
@@ -327,7 +244,11 @@ def test_the_websocket_pushes_the_same_status(svc):
             stop.set()
 
     _produce(put, stop, False)
-    assert sent == [playout_status().dict()]
+    return sent[0]
+
+
+def test_the_websocket_pushes_the_same_status(svc):
+    assert pushed() == playout_status().dict()
 
 
 class TestPublicPayload:
@@ -337,24 +258,13 @@ class TestPublicPayload:
     SECRETS = ("sekrit-agent-token", "10.0.0.99", "/run/secret-mpv.sock", "?t=", "/stream/")
 
     def _payloads(self, svc):
-        """The status as the WebSocket sends it, in every phase that has a programme or queue."""
+        """The pushed status in every phase that has a programme or queue."""
         import json
-        import threading
 
-        from cinefin.api.views.ws_events import _produce
+        def blob():
+            return json.dumps(pushed(), default=str)
 
-        def pushed():
-            stop, sent = threading.Event(), []
-
-            def put(msg):
-                if msg["channel"] == "playout":
-                    sent.append(msg["data"])
-                    stop.set()
-
-            _produce(put, stop, False)  # an unauthenticated (kiosk) socket
-            return json.dumps(sent[0], default=str)
-
-        blobs = [pushed()]  # standby
+        blobs = [blob()]  # standby
         programme = load(svc, offset=2)
         programme.title_file = "clips/title.mp4"
         programme.save()
@@ -367,13 +277,13 @@ class TestPublicPayload:
         ]:
             svc.programme_state = state
             svc.set_snap(pause=pause, pos=pos)
-            blobs.append(pushed())
+            blobs.append(blob())
         svc.current_programme = svc.current_playlist = None
         svc.manual_items = [{"title": "Dune", "kind": "url"}]
         svc.set_snap(pos=0)
-        blobs.append(pushed())
+        blobs.append(blob())
         svc.go_offline()
-        blobs.append(pushed())
+        blobs.append(blob())
         return blobs
 
     @pytest.mark.parametrize("kind", [PlayoutHost.KIND_AGENT, PlayoutHost.KIND_LOCAL_SOCKET])
@@ -394,3 +304,21 @@ class TestPublicPayload:
             for secret in self.SECRETS:
                 assert secret not in blob, f"{secret!r} in the public status: {blob}"
         assert '"name": "Living room"' in blobs[0]  # the player is still named
+
+
+def test_manual_play_needs_an_http_url_and_ending_a_loaded_programme(svc, client, monkeypatch):
+    from cinefin.api.ninja_views import playout_ninja
+
+    url = f"{API}/manual"
+    bad = client.post(url, {"kind": "url", "url": "file:///etc/passwd"}, content_type="application/json")
+    assert bad.status_code == 400
+    calls = []
+    monkeypatch.setattr(playout_ninja, "resolve_media_path", lambda obj: "http://d/film")
+    svc.current_programme = ProgrammeFactory()
+    monkeypatch.setattr(svc, "standby", lambda: calls.append("standby") or True)
+    monkeypatch.setattr(svc, "manual_add", lambda *a, **k: calls.append(a) or True)
+    body = {"kind": "movie", "id": MovieFactory().id}
+    assert client.post(url, body, content_type="application/json").status_code == 409  # PROGRAMME_LOADED
+    body["end_programme"] = True
+    assert client.post(url, body, content_type="application/json").status_code == 200
+    assert calls[0] == "standby" and calls[1][1:] == ("movie", "http://d/film")

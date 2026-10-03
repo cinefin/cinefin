@@ -14,6 +14,11 @@ test('undo and redo step through recorded edits', () => {
 	assert.deepEqual(h.redo({ n: 0 }), { n: 1 });
 	assert.deepEqual(h.redo({ n: 1 }), { n: 2 });
 	assert.equal(h.canRedo, false);
+	// A new edit after undo drops the redo branch.
+	h.undo({ n: 2 });
+	h.record({ n: 5 });
+	assert.equal(h.canRedo, false);
+	assert.deepEqual(h.undo({ n: 5 }), { n: 1 });
 });
 
 test('a burst of edits to one field is one step', () => {
@@ -27,16 +32,6 @@ test('a burst of edits to one field is one step', () => {
 	assert.equal(h.undo('abcd'), 'abc!');
 	assert.equal(h.undo('abc!'), 'abc');
 	assert.equal(h.undo('abc'), '');
-});
-
-test('a new edit after undo drops the redo branch', () => {
-	const h = new History<number>();
-	h.reset(0);
-	h.record(1);
-	h.undo(1);
-	h.record(5);
-	assert.equal(h.canRedo, false);
-	assert.equal(h.undo(5), 0);
 });
 
 test('snapshots are copies, not the live document', () => {

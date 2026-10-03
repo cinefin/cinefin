@@ -1,41 +1,23 @@
 <script lang="ts">
-	import { Dices, Film, Plus, X } from '@lucide/svelte';
+	import { Dices, Film, Plus } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import ConfigField from '../ConfigField.svelte';
 	import ConfigForm from '../ConfigForm.svelte';
 	import ConfigSelect from '../ConfigSelect.svelte';
+	import GenreChips from '../GenreChips.svelte';
 	import NumberInput from '../NumberInput.svelte';
-	import type { EditorBlock, EditorContext } from '../types';
+	import { featureOptions, idOptions, type EditorBlock, type ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
+	let { block, ctx, commit }: ConfigProps = $props();
 
-	let { block, ctx, commit }: Props = $props();
+	type Content = EditorBlock['content'];
+	const set = <K extends keyof Content>(field: K, value: Content[K]) =>
+		commit(() => (block.content[field] = value));
 
 	const isBoundToRandom = $derived(
 		ctx.mode === 'programme' && block.content.bound_to_block_order != null
 	);
-	const featureOptions = $derived(
-		Array.from({ length: ctx.featureCount }, (_, i) => ({
-			value: String(i + 1),
-			label: `Feature ${i + 1}`
-		}))
-	);
-	const tagOptions = $derived(ctx.trailerTags.map((t) => ({ value: String(t.id), label: t.name })));
-	const certOptions = $derived(ctx.certifications.map((c) => ({ value: c, label: c })));
-
-	function set<K extends keyof EditorBlock['content']>(
-		field: K,
-		value: EditorBlock['content'][K]
-	): void {
-		commit(() => {
-			block.content[field] = value;
-		});
-	}
 
 	const refMovie = $derived(
 		block.content.reference_movie_id
@@ -43,54 +25,56 @@
 			: null
 	);
 
+	const SEED_YEARS = 5;
+	type MovieDetail = {
+		genres?: number[] | null;
+		certification?: string | null;
+		year?: number | null;
+	};
+	let refGenreIds = $state<number[]>([]);
+	let refCert = $state('');
+	let refYear = $state<number | null>(null);
+	let lastSeededId = $state<number | null>(null);
+
+	function seedRef(m: MovieDetail | null, id: number | null): void {
+		refGenreIds = m?.genres ?? [];
+		refCert = m?.certification ?? '';
+		refYear = m?.year ?? null;
+		lastSeededId = id;
+	}
+
+	const fetchMovie = (id: number) =>
+		unwrap(api.GET('/api/v2/movies/{movie_id}', { params: { path: { movie_id: id } } }));
+
 	async function pickReference() {
 		const picked = await ctx.pickMovie?.();
 		if (!picked) return;
 		try {
-			const m = await unwrap(
-				api.GET('/api/v2/movies/{movie_id}', { params: { path: { movie_id: picked.id } } })
-			);
+			const m = await fetchMovie(picked.id);
 			commit(() => {
 				block.content.reference_movie_id = picked.id;
 				block.content.genre_ids = m.genres ?? [];
 				block.content.certificate_ceiling = m.certification ?? '';
-				block.content.year_from = m.year ? m.year - seedYearWindow : null;
-				block.content.year_to = m.year ? m.year + seedYearWindow : null;
+				block.content.year_from = m.year ? m.year - SEED_YEARS : null;
+				block.content.year_to = m.year ? m.year + SEED_YEARS : null;
 			});
-			// Seed the chips from the detail just fetched so the $effect below
-			// doesn't issue a second identical GET for the same film.
-			refGenreIds = m.genres ?? [];
-			refCert = m.certification ?? '';
-			refYear = m.year ?? null;
-			lastSeededId = picked.id;
+			// Seed the chips from this detail so the $effect below doesn't refetch it.
+			seedRef(m, picked.id);
 		} catch {
 			set('reference_movie_id', picked.id);
 		}
 	}
 
-	let refGenreIds = $state<number[]>([]);
-	let refCert = $state('');
-	let refYear = $state<number | null>(null);
-	let lastSeededId = $state<number | null>(null);
 	$effect(() => {
 		const id = block.content.reference_movie_id;
 		if (ctx.mode !== 'programme' || !id) {
-			refGenreIds = [];
-			refCert = '';
-			refYear = null;
-			lastSeededId = null;
+			seedRef(null, null);
 			return;
 		}
-		if (id === lastSeededId) return; // chips already seeded for this film
+		if (id === lastSeededId) return;
 		let cancelled = false;
-		unwrap(api.GET('/api/v2/movies/{movie_id}', { params: { path: { movie_id: id } } }))
-			.then((m) => {
-				if (cancelled) return;
-				refGenreIds = m.genres ?? [];
-				refCert = m.certification ?? '';
-				refYear = m.year ?? null;
-				lastSeededId = id;
-			})
+		fetchMovie(id)
+			.then((m) => !cancelled && seedRef(m, id))
 			.catch(() => {});
 		return () => {
 			cancelled = true;
@@ -98,25 +82,14 @@
 	});
 
 	const selectedGenreIds = $derived(block.content.genre_ids ?? []);
-	function addGenre(id: number) {
-		if (!selectedGenreIds.includes(id)) set('genre_ids', [...selectedGenreIds, id]);
-	}
-	function removeGenre(id: number) {
-		set(
-			'genre_ids',
-			selectedGenreIds.filter((x) => x !== id)
-		);
-	}
 	const genreName = (id: number) => ctx.genres.find((g) => g.id === id)?.name ?? String(id);
 	const seedGenres = $derived(refGenreIds.filter((id) => !selectedGenreIds.includes(id)));
-	const addableGenres = $derived(ctx.genres.filter((g) => !selectedGenreIds.includes(g.id)));
 
-	const seedYearWindow = 5;
 	function seedFromReferenceYear() {
 		if (refYear == null) return;
 		commit(() => {
-			block.content.year_from = refYear! - seedYearWindow;
-			block.content.year_to = refYear! + seedYearWindow;
+			block.content.year_from = refYear! - SEED_YEARS;
+			block.content.year_to = refYear! + SEED_YEARS;
 		});
 	}
 
@@ -129,15 +102,15 @@
 			return;
 		}
 		// Read everything reactive up front so the effect re-runs on any change.
-		const query: Record<string, string | number> = { count: block.content.count || 3 };
-		if (block.content.reference_movie_id) query.movie_id = block.content.reference_movie_id;
+		const c = block.content;
+		const count = c.count || 3;
+		const query: Record<string, string | number> = { count };
+		if (c.reference_movie_id) query.movie_id = c.reference_movie_id;
 		if (selectedGenreIds.length) query.genre_ids = selectedGenreIds.join(',');
-		if (block.content.certificate_ceiling)
-			query.certificate_ceiling = block.content.certificate_ceiling;
-		if (block.content.year_from != null) query.year_from = block.content.year_from;
-		if (block.content.year_to != null) query.year_to = block.content.year_to;
-		if (block.content.trailer_tag_id) query.tag_id = block.content.trailer_tag_id;
-		const count = block.content.count || 3;
+		if (c.certificate_ceiling) query.certificate_ceiling = c.certificate_ceiling;
+		if (c.year_from != null) query.year_from = c.year_from;
+		if (c.year_to != null) query.year_to = c.year_to;
+		if (c.trailer_tag_id) query.tag_id = c.trailer_tag_id;
 
 		const seq = ++matchSeq;
 		match = { text: 'Checking…', colour: 'neutral', pending: true };
@@ -161,38 +134,64 @@
 		return () => clearTimeout(timer);
 	});
 
-	const checkCls = 'inline-flex items-center gap-1.5 text-sm text-text';
-	const chip = 'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs transition-colors';
+	const MATCH_ON = [
+		{ key: 'match_genres', label: 'Genre', fallback: true },
+		{ key: 'match_certification', label: 'Rating', fallback: true },
+		{ key: 'match_year', label: 'Year', fallback: false }
+	] as const;
+
+	const chip =
+		'inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs transition-colors bg-surface-3 text-muted hover:text-text';
 	const fieldLabel = 'mb-1 block text-xs font-medium text-muted';
 	const fieldHint = 'mt-1 text-[11px] text-faint';
 </script>
 
+{#snippet countInput(cls = '')}
+	<NumberInput
+		value={block.content.count || 3}
+		min={1}
+		max={10}
+		class={cls}
+		onchange={(v) => set('count', v ?? 3)}
+	/>
+{/snippet}
+
+<!-- A suggestion from the reference movie, one click to apply. -->
+{#snippet seed(label: string, onclick: () => void)}
+	<button type="button" class={chip} title="From {refMovie?.title ?? 'reference'}" {onclick}>
+		<Plus size={10} />{label}
+	</button>
+{/snippet}
+
+{#snippet tagSelect(cls = '')}
+	<ConfigSelect
+		value={block.content.trailer_tag_id}
+		class={cls}
+		options={idOptions(ctx.trailerTags)}
+		placeholder="Any"
+		onnumber={(v) => set('trailer_tag_id', v)}
+	/>
+{/snippet}
+
 {#if ctx.mode === 'template'}
-	<!-- Sibling of the programme-mode bar below: same labelled-field rhythm. A
-	     template rule has no concrete criteria — it matches each feature at
-	     build time — so it carries the match toggles + tolerance, no footer. -->
+	<!-- A template rule has no concrete criteria — it matches each feature at build
+	     time — so it carries the match toggles + tolerance, no footer. -->
 	<div class="max-w-3xl space-y-3.5">
 		<div class="flex flex-wrap items-start gap-x-5 gap-y-3">
 			<div>
 				<span class={fieldLabel}>For feature</span>
 				<ConfigSelect
-					value={block.content.bound_to_feature ? String(block.content.bound_to_feature) : ''}
+					value={block.content.bound_to_feature}
 					class="!w-32"
-					options={featureOptions}
+					options={featureOptions(ctx.featureCount)}
 					placeholder="Select…"
-					onchange={(v) => set('bound_to_feature', v === '' ? null : parseInt(v, 10))}
+					onnumber={(v) => set('bound_to_feature', v)}
 				/>
 			</div>
 
 			<div>
 				<span class={fieldLabel}>Trailers</span>
-				<NumberInput
-					value={block.content.count || 3}
-					min={1}
-					max={10}
-					class="!w-20"
-					onchange={(v) => set('count', v ?? 3)}
-				/>
+				{@render countInput('!w-20')}
 			</div>
 
 			<div>
@@ -208,43 +207,24 @@
 
 			<div>
 				<span class={fieldLabel}>Tag</span>
-				<ConfigSelect
-					value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
-					class="!w-36"
-					options={tagOptions}
-					placeholder="Any"
-					onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
-				/>
+				{@render tagSelect('!w-36')}
 			</div>
 		</div>
 
 		<div>
 			<span class={fieldLabel}>Match the feature on</span>
 			<div class="flex flex-wrap items-center gap-x-4 gap-y-1">
-				<label class={checkCls}>
-					<input
-						type="checkbox"
-						class="accent-accent"
-						checked={block.content.match_genres !== false}
-						onchange={(e) => set('match_genres', (e.target as HTMLInputElement).checked)}
-					/> Genre
-				</label>
-				<label class={checkCls}>
-					<input
-						type="checkbox"
-						class="accent-accent"
-						checked={block.content.match_certification !== false}
-						onchange={(e) => set('match_certification', (e.target as HTMLInputElement).checked)}
-					/> Rating
-				</label>
-				<label class={checkCls}>
-					<input
-						type="checkbox"
-						class="accent-accent"
-						checked={block.content.match_year === true}
-						onchange={(e) => set('match_year', (e.target as HTMLInputElement).checked)}
-					/> Year
-				</label>
+				{#each MATCH_ON as m (m.key)}
+					<label class="inline-flex items-center gap-1.5 text-sm text-text">
+						<input
+							type="checkbox"
+							class="accent-accent"
+							checked={block.content[m.key] ?? m.fallback}
+							onchange={(e) => set(m.key, e.currentTarget.checked)}
+						/>
+						{m.label}
+					</label>
+				{/each}
 			</div>
 			<p class={fieldHint}>
 				Trailers share the chosen feature's attributes — year within ± the tolerance.
@@ -259,20 +239,10 @@
 			</span>
 		</ConfigField>
 		<ConfigField label="Tag">
-			<ConfigSelect
-				value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
-				options={tagOptions}
-				placeholder="Any"
-				onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
-			/>
+			{@render tagSelect()}
 		</ConfigField>
 		<ConfigField label="Number of trailers">
-			<NumberInput
-				value={block.content.count || 3}
-				min={1}
-				max={10}
-				onchange={(v) => set('count', v ?? 3)}
-			/>
+			{@render countInput()}
 		</ConfigField>
 	</ConfigForm>
 {:else}
@@ -295,7 +265,8 @@
 					class="text-xs text-muted hover:text-danger"
 					onclick={() => set('reference_movie_id', null)}>Clear</button
 				>
-				<span class="text-xs text-faint">— seeds the criteria and ranks the picks, not a filter</span
+				<span class="text-xs text-faint"
+					>— seeds the criteria and ranks the picks, not a filter</span
 				>
 			{:else}
 				<button
@@ -309,43 +280,18 @@
 			{/if}
 		</div>
 
-		<!-- Criteria as one wrapping bar of labelled fields. -->
 		<div class="flex flex-wrap items-start gap-x-5 gap-y-3">
 			<div class="min-w-[15rem] grow">
 				<span class={fieldLabel}>Genres</span>
-				<div class="flex flex-wrap items-center gap-1.5">
-					{#if !selectedGenreIds.length}
-						<span class="text-xs text-faint">Any genre</span>
-					{:else}
-						{#each selectedGenreIds as id (id)}
-							<span class="{chip} bg-accent/15 text-accent">
-								{genreName(id)}
-								<button type="button" aria-label="Remove genre" onclick={() => removeGenre(id)}>
-									<X size={11} />
-								</button>
-							</span>
-						{/each}
-					{/if}
-					{#if addableGenres.length}
-						<ConfigSelect
-							value=""
-							class="!h-7 !w-auto !pr-6 text-xs"
-							options={addableGenres.map((g) => ({ value: String(g.id), label: g.name }))}
-							placeholder="+ add"
-							onchange={(v) => v && addGenre(parseInt(v, 10))}
-						/>
-					{/if}
+				<GenreChips
+					selected={selectedGenreIds}
+					genres={ctx.genres}
+					onchange={(ids) => set('genre_ids', ids)}
+				>
 					{#each seedGenres as id (id)}
-						<button
-							type="button"
-							class="{chip} bg-surface-3 text-muted hover:text-text"
-							title="From {refMovie?.title ?? 'reference'}"
-							onclick={() => addGenre(id)}
-						>
-							<Plus size={10} />{genreName(id)}
-						</button>
+						{@render seed(genreName(id), () => set('genre_ids', [...selectedGenreIds, id]))}
 					{/each}
-				</div>
+				</GenreChips>
 				<p class={fieldHint}>A trailer needs at least one; more shared rank first.</p>
 			</div>
 
@@ -355,32 +301,19 @@
 					<ConfigSelect
 						value={block.content.certificate_ceiling || ''}
 						class="!w-24"
-						options={certOptions}
+						options={ctx.certifications.map((c) => ({ value: c, label: c }))}
 						placeholder="No limit"
 						onchange={(v) => set('certificate_ceiling', v)}
 					/>
 					{#if refCert && refCert !== block.content.certificate_ceiling}
-						<button
-							type="button"
-							class="{chip} bg-surface-3 text-muted hover:text-text"
-							title="From {refMovie?.title ?? 'reference'}"
-							onclick={() => set('certificate_ceiling', refCert)}
-						>
-							<Plus size={10} />{refCert}
-						</button>
+						{@render seed(refCert, () => set('certificate_ceiling', refCert))}
 					{/if}
 				</div>
 			</div>
 
 			<div>
 				<span class={fieldLabel}>Trailers</span>
-				<NumberInput
-					value={block.content.count || 3}
-					min={1}
-					max={10}
-					class="!w-20"
-					onchange={(v) => set('count', v ?? 3)}
-				/>
+				{@render countInput('!w-20')}
 			</div>
 
 			<div>
@@ -404,31 +337,17 @@
 						onchange={(v) => set('year_to', v)}
 					/>
 					{#if refYear}
-						<button
-							type="button"
-							class="{chip} bg-surface-3 text-muted hover:text-text"
-							title="From {refMovie?.title ?? 'reference'}"
-							onclick={seedFromReferenceYear}
-						>
-							<Plus size={10} />{refYear - seedYearWindow}-{refYear + seedYearWindow}
-						</button>
+						{@render seed(`${refYear - SEED_YEARS}-${refYear + SEED_YEARS}`, seedFromReferenceYear)}
 					{/if}
 				</div>
 			</div>
 
 			<div>
 				<span class={fieldLabel}>Tag</span>
-				<ConfigSelect
-					value={block.content.trailer_tag_id ? String(block.content.trailer_tag_id) : ''}
-					class="!w-36"
-					options={tagOptions}
-					placeholder="Any"
-					onchange={(v) => set('trailer_tag_id', v === '' ? null : parseInt(v, 10))}
-				/>
+				{@render tagSelect('!w-36')}
 			</div>
 		</div>
 
-		<!-- The payoff: promoted from a faint centred line to a status lamp. -->
 		{#if match}
 			<div class="border-t border-border pt-2.5">
 				<StatusLamp colour={match.colour} pending={match.pending}>{match.text}</StatusLamp>

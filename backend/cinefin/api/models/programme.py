@@ -94,9 +94,9 @@ class ProgrammeTemplateItem(models.Model):
     def __str__(self):
         if self.item_type == "feature" and self.feature_number:
             return f"{self.template.name} - Feature {self.feature_number}"
-        elif self.item_type == "trailer_rule" and self.bound_to_feature:
+        if self.item_type == "trailer_rule" and self.bound_to_feature:
             return f"{self.template.name} - {self.trailer_count} Trailers (Feature {self.bound_to_feature})"
-        elif self.item_type == "certification" and self.certification_feature:
+        if self.item_type == "certification" and self.certification_feature:
             return f"{self.template.name} - Certification (Feature {self.certification_feature})"
         return f"{self.template.name} - {self.get_item_type_display()}"
 
@@ -159,73 +159,51 @@ class Programme(models.Model):
         return self.name
 
     def get_total_runtime_minutes(self):
-        total_seconds = 0
-
+        total = 0
         for block in self.blocks.all():
             content = block.content_object
             if block.content_type == "movie":
-                if content is None:
-                    continue
-                movie_runtime = getattr(content, "runtime", 0) or 0
-                total_seconds += movie_runtime * 60
+                total += (getattr(content, "runtime", 0) or 0) * 60
             elif block.content_type == "bumper":
-                bumper_duration = getattr(content, "duration", 0)
-                total_seconds += bumper_duration or 0
+                total += getattr(content, "duration", 0) or 0
             elif block.content_type == "certification":
-                cert_duration = getattr(content, "duration", 5)
-                total_seconds += cert_duration or 5
+                total += getattr(content, "duration", 5) or 5
             elif block.trailer_rule:
-                estimated_trailer_duration = block.trailer_rule.number_of_trailers * 150
-                total_seconds += estimated_trailer_duration
+                total += block.trailer_rule.number_of_trailers * 150
 
-        if hasattr(self, "playlist") and self.playlist:
-            playlist_seconds = 0
-            for item in self.playlist.items.all():
+        # A generated playlist (once it has expanded trailer rules etc.) is the better estimate.
+        playlist = getattr(self, "playlist", None)
+        if playlist and playlist.items.count() > self.blocks.count():
+            total = 0
+            for item in playlist.items.all():
                 content = item.content_object
                 if content is None:
                     continue
                 if item.content_type == "movie":
-                    movie = getattr(content, "movie", None)
-                    movie_runtime = getattr(movie, "runtime", 0) or 0
-                    playlist_seconds += movie_runtime * 60
-                elif item.content_type == "trailer":
-                    trailer_duration = getattr(content, "duration", 0)
-                    playlist_seconds += trailer_duration or 0
-                elif item.content_type == "bumper":
-                    bumper_duration = getattr(content, "duration", 0)
-                    playlist_seconds += bumper_duration or 0
+                    total += (getattr(getattr(content, "movie", None), "runtime", 0) or 0) * 60
+                elif item.content_type in ("trailer", "bumper"):
+                    total += getattr(content, "duration", 0) or 0
                 elif item.content_type == "certification":
-                    cert_duration = getattr(content, "duration", 5)
-                    playlist_seconds += cert_duration or 5
+                    total += getattr(content, "duration", 5) or 5
 
-            if self.playlist.items.count() > self.blocks.count():
-                total_seconds = playlist_seconds
-
-        total_minutes = (total_seconds + 59) // 60
-        return total_minutes
+        return (total + 59) // 60
 
     def get_runtime(self):
         return self.get_total_runtime_minutes()
 
     def get_formatted_runtime(self):
-        total_minutes = self.get_total_runtime_minutes()
+        hours, minutes = divmod(self.get_total_runtime_minutes(), 60)
 
-        if total_minutes >= 60:
-            hours = total_minutes // 60
-            minutes = total_minutes % 60
-            if minutes > 0:
-                return f"{hours} hour{'s' if hours != 1 else ''} {minutes} minute{'s' if minutes != 1 else ''}"
-            else:
-                return f"{hours} hour{'s' if hours != 1 else ''}"
-        else:
-            return f"{total_minutes} minute{'s' if total_minutes != 1 else ''}"
+        def unit(n, word):
+            return f"{n} {word}{'s' if n != 1 else ''}"
+
+        if not hours:
+            return unit(minutes, "minute")
+        return f"{unit(hours, 'hour')} {unit(minutes, 'minute')}" if minutes else unit(hours, "hour")
 
     def get_feature_movies(self):
         blocks = self.blocks.filter(content_type="movie").select_related("movie").order_by("order")
         return [block.movie for block in blocks if block.movie is not None]
-
-    def has_title_configured(self):
-        return self.title_template is not None
 
     def get_title_file_path(self):
         from cinefin.api.utils.media_paths import usermedia_abs_path
@@ -240,9 +218,7 @@ class Programme(models.Model):
         from cinefin.api.utils.stream_token import make_stream_token
         from cinefin.api.utils.urls import cinefin_base_url
 
-        base_url = cinefin_base_url()
-        token = make_stream_token("title", self.id)
-        return f"{base_url}/stream/title/{self.id}/?t={token}"
+        return f"{cinefin_base_url()}/stream/title/{self.id}/?t={make_stream_token('title', self.id)}"
 
 
 class TrailerRule(models.Model):
@@ -371,17 +347,11 @@ class ProgrammeBlock(models.Model):
 
     @property
     def content_object(self):
-        if self.content_type == "movie":
-            return self.movie
-        if self.content_type == "bumper":
-            return self.bumper
-        if self.content_type == "command":
-            return self.command
-        if self.content_type == "trailer":
-            return self.trailer
         if self.content_type == "certification":
             # Production stores the reference Movie; legacy rows point at the clip.
             return self.movie or self.certification
+        if self.content_type in ("movie", "bumper", "command", "trailer"):
+            return getattr(self, self.content_type)
         return None
 
     def save(self, *args, **kwargs):

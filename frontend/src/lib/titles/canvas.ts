@@ -51,6 +51,8 @@ export interface TTPreviewData {
 	features: TTFeature[];
 }
 
+type Guide = { axis: 'v' | 'h'; pos: number };
+
 export type TTAlignMode = 'left' | 'centerH' | 'right' | 'top' | 'middle' | 'bottom';
 
 export interface EditorHost {
@@ -75,6 +77,54 @@ function fontFamily(name?: string): string {
 	const n = name || 'Inter';
 	return FONT_ALIASES[n] ?? n;
 }
+
+/** The bundled title-card faces (PIL's BUNDLED_FONTS), served by Django from static/fonts — the
+ *  SAME files the server renders with, so the canvas preview is true WYSIWYG. */
+export const TITLE_FONTS: Record<string, string> = {
+	'Bebas Neue': 'BebasNeue',
+	'Courier Prime': 'CourierPrime',
+	Inter: 'Inter',
+	Oswald: 'Oswald',
+	'Playfair Display': 'PlayfairDisplay'
+};
+
+// Konva paints text to a canvas, which never triggers @font-face loading, so each bundled face
+// is registered and loaded explicitly (once per page load) before the editor re-renders.
+let titleFonts: Promise<unknown> | undefined;
+export function loadTitleFonts(): Promise<unknown> {
+	if (typeof document === 'undefined' || !('fonts' in document)) return Promise.resolve();
+	return (titleFonts ??= Promise.allSettled(
+		Object.entries(TITLE_FONTS).map(([family, file]) => {
+			const face = new FontFace(family, `url('/static/fonts/${file}.ttf')`);
+			document.fonts.add(face);
+			return face.load();
+		})
+	));
+}
+
+/** New elements of each type, before x/y. */
+const DEFAULTS: Record<string, Partial<TTElement>> = {
+	poster: { feature_index: 0, width: 300, height: 450, opacity: 1.0 },
+	text: {
+		field: 'title',
+		feature_index: 0,
+		font: 'Inter',
+		size: 48,
+		color: '#FFFFFF',
+		opacity: 1.0
+	},
+	rectangle: { width: 200, height: 100, color: '#FFFFFF', fill: true, opacity: 1.0 },
+	image: { path: '', width: 200, height: 200, opacity: 1.0 }
+};
+
+const PLACEHOLDER_TEXT: Record<string, string> = {
+	title: 'Movie Title',
+	director: 'Director Name',
+	year: '2024',
+	certification: 'PG-13',
+	runtime: '120 min',
+	programme_name: 'Programme Name'
+};
 
 export function emptyTemplateConfig(): TTTemplateConfig {
 	return { canvas: { width: CW, height: CH }, elements: [] };
@@ -116,15 +166,9 @@ export class TitleCanvasEditor {
 		this.#stage.add(this.#content, this.#overlay);
 
 		// Non-listening so presses on empty canvas fall through to the stage (marquee / deselect).
-		const bg = new Konva.Rect({
-			x: 0,
-			y: 0,
-			width: CW,
-			height: CH,
-			fill: '#000000',
-			listening: false
-		});
-		this.#content.add(bg);
+		this.#content.add(
+			new Konva.Rect({ x: 0, y: 0, width: CW, height: CH, fill: '#000000', listening: false })
+		);
 
 		this.#tr = new Konva.Transformer({
 			rotateEnabled: false,
@@ -135,8 +179,7 @@ export class TitleCanvasEditor {
 			anchorFill: '#5D8A66',
 			borderStroke: '#5D8A66',
 			borderDash: [5, 5],
-			boundBoxFunc: (oldBox, newBox) =>
-				newBox.width < 20 || newBox.height < 20 ? oldBox : newBox
+			boundBoxFunc: (oldBox, newBox) => (newBox.width < 20 || newBox.height < 20 ? oldBox : newBox)
 		});
 		this.#content.add(this.#tr);
 
@@ -203,26 +246,25 @@ export class TitleCanvasEditor {
 	}
 
 	undo() {
-		if (!this.undoStack.length) return;
-		this.redoStack.push(JSON.stringify(this.config.elements));
-		this.config.elements = JSON.parse(this.undoStack.pop()!) as TTElement[];
-		this.#clampSelection();
-		this.render();
-		this.markDirty();
+		this.#restore(this.undoStack, this.redoStack);
 	}
 
 	redo() {
-		if (!this.redoStack.length) return;
-		this.undoStack.push(JSON.stringify(this.config.elements));
-		this.config.elements = JSON.parse(this.redoStack.pop()!) as TTElement[];
-		this.#clampSelection();
-		this.render();
-		this.markDirty();
+		this.#restore(this.redoStack, this.undoStack);
 	}
 
-	#clampSelection() {
+	#restore(from: string[], to: string[]) {
+		if (!from.length) return;
+		to.push(JSON.stringify(this.config.elements));
+		this.config.elements = JSON.parse(from.pop()!) as TTElement[];
 		const n = this.config.elements.length;
 		this.setSelection(this.selectedIndices.filter((i) => i < n));
+		this.#commit();
+	}
+
+	#commit() {
+		this.render();
+		this.markDirty();
 	}
 
 	markDirty() {
@@ -232,21 +274,12 @@ export class TitleCanvasEditor {
 	}
 
 	handleKeyDown(e: KeyboardEvent): void {
-		const ctrl = e.ctrlKey || e.metaKey;
-		if (ctrl && e.key.toLowerCase() === 'z') {
+		const key = e.ctrlKey || e.metaKey ? e.key.toLowerCase() : '';
+		if (key === 'z' || key === 'y' || key === 'd') {
 			e.preventDefault();
-			if (e.shiftKey) this.redo();
+			if (key === 'd') this.duplicateSelected();
+			else if (key === 'y' || e.shiftKey) this.redo();
 			else this.undo();
-			return;
-		}
-		if (ctrl && e.key.toLowerCase() === 'y') {
-			e.preventDefault();
-			this.redo();
-			return;
-		}
-		if (ctrl && e.key.toLowerCase() === 'd') {
-			e.preventDefault();
-			this.duplicateSelected();
 			return;
 		}
 		if (!this.selectedIndices.length) return;
@@ -274,8 +307,7 @@ export class TitleCanvasEditor {
 					el.x = Math.max(0, Math.round(el.x + dx));
 					el.y = Math.max(0, Math.round(el.y + dy));
 				});
-				this.render();
-				this.markDirty();
+				this.#commit();
 				break;
 			}
 		}
@@ -283,34 +315,9 @@ export class TitleCanvasEditor {
 
 	addElement(type: string) {
 		this.snapshot();
-		this.config.elements.push(this.createDefaultElement(type));
+		this.config.elements.push({ type, x: 100, y: 100, ...DEFAULTS[type] });
 		this.setSelection([this.config.elements.length - 1]);
-		this.render();
-		this.markDirty();
-	}
-
-	createDefaultElement(type: string): TTElement {
-		const base = { type, x: 100, y: 100 };
-		switch (type) {
-			case 'poster':
-				return { ...base, feature_index: 0, width: 300, height: 450, opacity: 1.0 };
-			case 'text':
-				return {
-					...base,
-					field: 'title',
-					feature_index: 0,
-					font: 'Inter',
-					size: 48,
-					color: '#FFFFFF',
-					opacity: 1.0
-				};
-			case 'rectangle':
-				return { ...base, width: 200, height: 100, color: '#FFFFFF', fill: true, opacity: 1.0 };
-			case 'image':
-				return { ...base, path: '', width: 200, height: 200, opacity: 1.0 };
-			default:
-				return base;
-		}
+		this.#commit();
 	}
 
 	deleteElement(index: number) {
@@ -319,8 +326,7 @@ export class TitleCanvasEditor {
 		this.setSelection(
 			this.selectedIndices.filter((i) => i !== index).map((i) => (i > index ? i - 1 : i))
 		);
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	deleteSelected() {
@@ -329,8 +335,7 @@ export class TitleCanvasEditor {
 		const remove = new Set(this.selectedIndices);
 		this.config.elements = this.config.elements.filter((_, i) => !remove.has(i));
 		this.setSelection([]);
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	moveElement(index: number, direction: number) {
@@ -340,8 +345,7 @@ export class TitleCanvasEditor {
 		this.snapshot();
 		[els[index], els[to]] = [els[to], els[index]];
 		this.setSelection([to]);
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	duplicateSelected() {
@@ -356,8 +360,7 @@ export class TitleCanvasEditor {
 		});
 		els.push(...clones);
 		this.setSelection(clones.map((_, i) => els.length - clones.length + i));
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	setSelection(indices: number[]) {
@@ -409,8 +412,7 @@ export class TitleCanvasEditor {
 				el.height = value as number;
 				el.width = Math.max(1, Math.round((value as number) * ratio));
 			}
-			this.render();
-			this.markDirty();
+			this.#commit();
 			return;
 		}
 
@@ -420,34 +422,25 @@ export class TitleCanvasEditor {
 		}
 
 		(el as unknown as Record<string, unknown>)[property] = value;
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	toggleAspectLock() {
-		if (this.selectedElementIndex === null) return;
-		const el = this.config.elements[this.selectedElementIndex];
+		const el = this.selectedElement;
+		if (!el) return;
 		el.lock_aspect = !el.lock_aspect;
 		this.#refreshSelection();
 		this.markDirty();
 	}
 
-	centerElementHorizontally() {
-		if (this.selectedElementIndex === null) return;
-		const el = this.config.elements[this.selectedElementIndex];
+	/** Centre the selected element on the canvas along one axis. */
+	center(axis: 'x' | 'y') {
+		const el = this.selectedElement;
+		if (!el) return;
 		this.snapshot();
-		el.x = Math.round((CW - this.getElementBounds(el).width) / 2);
-		this.render();
-		this.markDirty();
-	}
-
-	centerElementVertically() {
-		if (this.selectedElementIndex === null) return;
-		const el = this.config.elements[this.selectedElementIndex];
-		this.snapshot();
-		el.y = Math.round((CH - this.getElementBounds(el).height) / 2);
-		this.render();
-		this.markDirty();
+		const b = this.getElementBounds(el);
+		el[axis] = Math.round(axis === 'x' ? (CW - b.width) / 2 : (CH - b.height) / 2);
+		this.#commit();
 	}
 
 	getElementBounds(element: TTElement): TTBounds {
@@ -458,10 +451,9 @@ export class TitleCanvasEditor {
 			const h = node ? node.height() : (element.size ?? 48);
 			return { x: element.x, y: element.y, width: Math.max(20, w), height: Math.max(1, h) };
 		}
-		return { x: element.x, y: element.y, width: element.width || 100, height: element.height || 50 };
+		const { x, y } = element;
+		return { x, y, width: element.width || 100, height: element.height || 50 };
 	}
-
-	// --- Konva rendering -----------------------------------------------------
 
 	render() {
 		if (this.#destroyed) return;
@@ -480,27 +472,23 @@ export class TitleCanvasEditor {
 
 	#makeNode(el: TTElement, i: number): Konva.Node {
 		const opacity = el.opacity ?? 1;
+		const at = { x: el.x, y: el.y, opacity };
+		const box = { ...at, width: el.width || 100, height: el.height || 50 };
 		let node: Konva.Node;
 
 		if (el.type === 'text') {
 			node = new Konva.Text({
-				x: el.x,
-				y: el.y,
+				...at,
 				text: this.#textPreview(el),
 				fontSize: el.size || 48,
 				fontFamily: fontFamily(el.font),
 				fill: el.color || '#FFFFFF',
-				opacity,
 				align: el.align || 'left',
 				...(el.max_width ? { width: el.max_width, wrap: 'word' } : { wrap: 'none' })
 			});
 		} else if (el.type === 'rectangle') {
 			node = new Konva.Rect({
-				x: el.x,
-				y: el.y,
-				width: el.width || 100,
-				height: el.height || 50,
-				opacity,
+				...box,
 				...(el.fill
 					? { fill: el.color || '#FFFFFF' }
 					: { stroke: el.color || '#FFFFFF', strokeWidth: el.border_width || 1 })
@@ -508,18 +496,10 @@ export class TitleCanvasEditor {
 		} else {
 			const src = this.#sourceFor(el);
 			const img = src ? this.#loadImage(src) : null;
-			if (img && img.complete && img.naturalWidth > 0) {
-				node = new Konva.Image({
-					image: img,
-					x: el.x,
-					y: el.y,
-					width: el.width || 100,
-					height: el.height || 50,
-					opacity
-				});
-			} else {
-				node = this.#placeholder(el, opacity);
-			}
+			node =
+				img && img.complete && img.naturalWidth > 0
+					? new Konva.Image({ image: img, ...box })
+					: this.#placeholder(el, opacity);
 		}
 
 		node.setAttr('elIndex', i);
@@ -543,11 +523,7 @@ export class TitleCanvasEditor {
 		const h = el.height || 50;
 		const poster = el.type === 'poster';
 		const colour = poster ? '#666' : '#f39c12';
-		const label = poster
-			? `Poster ${el.feature_index || 0}`
-			: el.path
-				? 'Loading…'
-				: 'No image';
+		const label = poster ? `Poster ${el.feature_index || 0}` : el.path ? 'Loading…' : 'No image';
 		const g = new Konva.Group({ x: el.x, y: el.y, opacity });
 		g.add(
 			new Konva.Rect({ width: w, height: h, stroke: colour, strokeWidth: 3, dash: [8, 6] }),
@@ -566,11 +542,9 @@ export class TitleCanvasEditor {
 	}
 
 	#sourceFor(el: TTElement): string | null {
-		if (el.type === 'poster') {
-			const feat = this.previewData?.features[el.feature_index || 0];
-			return feat?.poster || null;
-		}
-		return el.path && el.path.trim() ? el.path : null;
+		if (el.type === 'poster')
+			return this.previewData?.features[el.feature_index || 0]?.poster || null;
+		return el.path?.trim() ? el.path : null;
 	}
 
 	#loadImage(src: string): HTMLImageElement {
@@ -601,18 +575,8 @@ export class TitleCanvasEditor {
 			const value = feat?.[element.field as keyof TTFeature];
 			if (value != null && value !== '') return String(value);
 		}
-		const labels: Record<string, string> = {
-			title: 'Movie Title',
-			director: 'Director Name',
-			year: '2024',
-			certification: 'PG-13',
-			runtime: '120 min',
-			programme_name: 'Programme Name'
-		};
-		return labels[element.field!] || element.field || 'Text';
+		return PLACEHOLDER_TEXT[element.field!] || element.field || 'Text';
 	}
-
-	// --- Selection & overlay -------------------------------------------------
 
 	#refreshSelection() {
 		const single = this.selectedIndices.length === 1;
@@ -630,7 +594,7 @@ export class TitleCanvasEditor {
 		this.#host.onChange();
 	}
 
-	#drawOverlay(guides: Array<{ axis: 'v' | 'h'; pos: number }> = []) {
+	#drawOverlay(guides: Guide[] = []) {
 		this.#overlay.destroyChildren();
 
 		for (const { axis, pos } of guides) {
@@ -649,30 +613,17 @@ export class TitleCanvasEditor {
 			for (const i of this.selectedIndices) {
 				const b = this.getElementBounds(this.config.elements[i]);
 				this.#overlay.add(
-					new Konva.Rect({
-						x: b.x,
-						y: b.y,
-						width: b.width,
-						height: b.height,
-						stroke: '#5D8A66',
-						strokeWidth: 2,
-						dash: [5, 5]
-					})
+					new Konva.Rect({ ...b, stroke: '#5D8A66', strokeWidth: 2, dash: [5, 5] })
 				);
 			}
 		}
 
 		if (this.#marquee) {
-			const p = this.#stage.getRelativePointerPosition();
-			if (p) {
-				const x = Math.min(this.#marquee.x0, p.x);
-				const y = Math.min(this.#marquee.y0, p.y);
+			const r = this.#marqueeRect();
+			if (r) {
 				this.#overlay.add(
 					new Konva.Rect({
-						x,
-						y,
-						width: Math.abs(p.x - this.#marquee.x0),
-						height: Math.abs(p.y - this.#marquee.y0),
+						...r,
 						stroke: '#6B8CAE',
 						strokeWidth: 2,
 						dash: [4, 4],
@@ -683,7 +634,14 @@ export class TitleCanvasEditor {
 		}
 	}
 
-	// --- Pointer interaction -------------------------------------------------
+	#marqueeRect(): TTBounds | null {
+		const p = this.#stage.getRelativePointerPosition();
+		const m = this.#marquee;
+		if (!p || !m) return null;
+		const x = Math.min(m.x0, p.x);
+		const y = Math.min(m.y0, p.y);
+		return { x, y, width: Math.abs(p.x - m.x0), height: Math.abs(p.y - m.y0) };
+	}
 
 	#onNodeClick(i: number, e: Konva.KonvaEventObject<MouseEvent>) {
 		// Konva fires 'click' only when no drag happened.
@@ -695,12 +653,9 @@ export class TitleCanvasEditor {
 		if (!this.selectedIndices.includes(i)) this.setSelection([i]);
 		this.snapshot();
 		this.#host.onEdited();
-		const dragged = this.#nodes[i];
-		this.#dragOrigin = { x: dragged.x(), y: dragged.y() };
-		this.#dragStart = this.selectedIndices.map((idx) => {
-			const n = this.#nodes[idx];
-			return { node: n, x: n.x(), y: n.y() };
-		});
+		const pos = (node: Konva.Node) => ({ node, x: node.x(), y: node.y() });
+		this.#dragOrigin = pos(this.#nodes[i]);
+		this.#dragStart = this.selectedIndices.map((idx) => pos(this.#nodes[idx]));
 	}
 
 	#onDragMove(e: Konva.KonvaEventObject<DragEvent>) {
@@ -715,12 +670,8 @@ export class TitleCanvasEditor {
 			dy = Math.min(Math.max(dy, -y), CH - b.height - y);
 		});
 
-		const guides: Array<{ axis: 'v' | 'h'; pos: number }> = [];
-		if (!e.evt.shiftKey) {
-			const snapped = this.#applySnapping(dx, dy, guides);
-			dx = snapped.dx;
-			dy = snapped.dy;
-		}
+		const guides: Guide[] = [];
+		if (!e.evt.shiftKey) ({ dx, dy } = this.#applySnapping(dx, dy, guides));
 
 		this.#dragStart.forEach(({ node, x, y }) =>
 			node.position({ x: Math.round(x + dx), y: Math.round(y + dy) })
@@ -741,16 +692,12 @@ export class TitleCanvasEditor {
 
 	#onTransformEnd(node: Konva.Node) {
 		const el = this.config.elements[node.getAttr('elIndex') as number];
-		const sx = node.scaleX();
-		const sy = node.scaleY();
-		node.scaleX(1);
-		node.scaleY(1);
-		el.width = Math.max(20, Math.round((el.width || 100) * sx));
-		el.height = Math.max(20, Math.round((el.height || 50) * sy));
+		el.width = Math.max(20, Math.round((el.width || 100) * node.scaleX()));
+		el.height = Math.max(20, Math.round((el.height || 50) * node.scaleY()));
+		node.scale({ x: 1, y: 1 });
 		el.x = Math.round(node.x());
 		el.y = Math.round(node.y());
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	#nodeSize(node: Konva.Node): { width: number; height: number } {
@@ -759,11 +706,7 @@ export class TitleCanvasEditor {
 		return { width: el?.width || 100, height: el?.height || 50 };
 	}
 
-	#applySnapping(
-		dx: number,
-		dy: number,
-		guides: Array<{ axis: 'v' | 'h'; pos: number }>
-	): { dx: number; dy: number } {
+	#applySnapping(dx: number, dy: number, guides: Guide[]): { dx: number; dy: number } {
 		const dragged = new Set(this.#dragStart.map((p) => p.node));
 		let gx1 = Infinity,
 			gy1 = Infinity,
@@ -824,24 +767,25 @@ export class TitleCanvasEditor {
 	}
 
 	#onStageUp() {
-		if (!this.#marquee) return;
-		const p = this.#stage.getRelativePointerPosition();
 		const m = this.#marquee;
+		if (!m) return;
+		const r = this.#marqueeRect();
 		this.#marquee = null;
-		if (!p) {
+		if (!r) {
 			this.#drawOverlay();
 			return;
 		}
-		const moved = Math.abs(p.x - m.x0) > 3 || Math.abs(p.y - m.y0) > 3;
-		if (moved) {
-			const x = Math.min(m.x0, p.x),
-				y = Math.min(m.y0, p.y);
-			const x2 = Math.max(m.x0, p.x),
-				y2 = Math.max(m.y0, p.y);
+		if (r.width > 3 || r.height > 3) {
 			const hits: number[] = [];
 			this.config.elements.forEach((el, i) => {
 				const b = this.getElementBounds(el);
-				if (b.x < x2 && b.x + b.width > x && b.y < y2 && b.y + b.height > y) hits.push(i);
+				if (
+					b.x < r.x + r.width &&
+					b.x + b.width > r.x &&
+					b.y < r.y + r.height &&
+					b.y + b.height > r.y
+				)
+					hits.push(i);
 			});
 			this.setSelection(m.additive ? [...this.selectedIndices, ...hits] : hits);
 		} else if (!m.additive) {
@@ -859,8 +803,6 @@ export class TitleCanvasEditor {
 		if (!this.selectedIndices.includes(i)) this.setSelection([i]);
 		this.#host.onContextMenu(e.evt.clientX, e.evt.clientY, i);
 	}
-
-	// --- Align / distribute --------------------------------------------------
 
 	selectionBounds() {
 		const bs = this.selectedIndices.map((i) => this.getElementBounds(this.config.elements[i]));
@@ -884,31 +826,21 @@ export class TitleCanvasEditor {
 		this.selectedIndices.forEach((i) => {
 			const el = this.config.elements[i];
 			const b = this.getElementBounds(el);
-			switch (mode) {
-				case 'left':
-					el.x = Math.round(a.minX);
-					break;
-				case 'centerH':
-					el.x = Math.round(a.cx - b.width / 2);
-					break;
-				case 'right':
-					el.x = Math.round(a.maxX - b.width);
-					break;
-				case 'top':
-					el.y = Math.round(a.minY);
-					break;
-				case 'middle':
-					el.y = Math.round(a.cy - b.height / 2);
-					break;
-				case 'bottom':
-					el.y = Math.round(a.maxY - b.height);
-					break;
-			}
+			const horiz = mode === 'left' || mode === 'centerH' || mode === 'right';
+			const [lo, mid, hi, size] = horiz
+				? [a.minX, a.cx, a.maxX, b.width]
+				: [a.minY, a.cy, a.maxY, b.height];
+			const pos =
+				mode === 'left' || mode === 'top'
+					? lo
+					: mode === 'right' || mode === 'bottom'
+						? hi - size
+						: mid - size / 2;
+			el[horiz ? 'x' : 'y'] = Math.round(pos);
 			el.x = Math.max(0, el.x);
 			el.y = Math.max(0, el.y);
 		});
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	distribute(axis: 'h' | 'v', by: 'centers' | 'gaps' = 'centers') {
@@ -921,20 +853,12 @@ export class TitleCanvasEditor {
 			return { el, start: horiz ? b.x : b.y, size: horiz ? b.width : b.height };
 		});
 
-		let lo: number, hi: number;
-		if (this.alignAreaMode === 'canvas') {
-			lo = 0;
-			hi = horiz ? CW : CH;
-		} else {
-			lo = Math.min(...items.map((i) => i.start));
-			hi = Math.max(...items.map((i) => i.start + i.size));
-		}
+		const onCanvas = this.alignAreaMode === 'canvas';
+		const lo = onCanvas ? 0 : Math.min(...items.map((i) => i.start));
+		const hi = onCanvas ? (horiz ? CW : CH) : Math.max(...items.map((i) => i.start + i.size));
 
-		const setPos = (it: { el: TTElement; start: number; size: number }, pos: number) => {
-			pos = Math.max(0, Math.round(pos));
-			if (horiz) it.el.x = pos;
-			else it.el.y = pos;
-		};
+		const setPos = (it: { el: TTElement }, pos: number) =>
+			(it.el[horiz ? 'x' : 'y'] = Math.max(0, Math.round(pos)));
 
 		if (by === 'gaps') {
 			const sorted = [...items].sort((p, q) => p.start - q.start);
@@ -947,20 +871,15 @@ export class TitleCanvasEditor {
 			});
 		} else {
 			const sorted = [...items].sort((p, q) => p.start + p.size / 2 - (q.start + q.size / 2));
-			let c0: number, c1: number;
-			if (this.alignAreaMode === 'canvas') {
-				c0 = lo + sorted[0].size / 2;
-				c1 = hi - sorted[sorted.length - 1].size / 2;
-			} else {
-				c0 = sorted[0].start + sorted[0].size / 2;
-				c1 = sorted[sorted.length - 1].start + sorted[sorted.length - 1].size / 2;
-			}
+			const first = sorted[0];
+			const last = sorted[sorted.length - 1];
+			const c0 = (onCanvas ? lo : first.start) + first.size / 2;
+			const c1 = onCanvas ? hi - last.size / 2 : last.start + last.size / 2;
 			const step = sorted.length > 1 ? (c1 - c0) / (sorted.length - 1) : 0;
 			sorted.forEach((it, idx) => setPos(it, c0 + step * idx - it.size / 2));
 		}
 
-		this.render();
-		this.markDirty();
+		this.#commit();
 	}
 
 	setAlignArea(value: 'selection' | 'canvas') {

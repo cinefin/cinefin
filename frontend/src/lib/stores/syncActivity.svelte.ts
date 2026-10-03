@@ -1,100 +1,68 @@
 /**
- * Shared "is a sync running?" signal for the topbar lamp. Rides the sync job
- * stream (subscriber-counted, open only while a consumer is mounted) and
- * reconciles against GET /sync/jobs?active_only=true on every (re)connect,
+ * Shared "is a job of this kind running?" signal for the topbar lamp. Rides the job stream
+ * (subscriber-counted) and reconciles against the active-jobs endpoint on every (re)connect,
  * since the stream only carries jobs active while it is open.
  */
 import { api } from '$lib/api/client';
 import { JobStream, jobIsActive, unwrapLoose, type ApiJob, type JobEvent } from '$lib/jobs';
 import { SvelteMap } from 'svelte/reactivity';
+import { refCounted } from './refcount';
 
-interface ActiveSync {
-	operation: string;
-	state: string;
-	percentage: number;
-}
+export class JobActivityStore {
+	/** job id → percentage */
+	#active = new SvelteMap<number, number>();
+	#kind: 'sync' | 'trailer';
+	#fetchActive: () => Promise<ApiJob[]>;
 
-class SyncActivityStore {
-	#active = new SvelteMap<number, ActiveSync>();
-
-	#subscribers = 0;
-	#stream: JobStream | null = null;
-
-	get count(): number {
-		return this.#active.size;
+	constructor(kind: 'sync' | 'trailer', fetchActive: () => Promise<ApiJob[]>) {
+		this.#kind = kind;
+		this.#fetchActive = fetchActive;
 	}
 
 	get busy(): boolean {
 		return this.#active.size > 0;
 	}
 
-	/** Coarse progress of the busiest job, for a tooltip/label. 0 when unknown. */
+	/** Coarse progress of the busiest job. 0 when unknown. */
 	get percentage(): number {
-		let max = 0;
-		for (const j of this.#active.values()) max = Math.max(max, j.percentage || 0);
-		return Math.round(max);
+		return Math.round(Math.max(0, ...this.#active.values()));
 	}
 
-	subscribe(): () => void {
-		this.#subscribers += 1;
-		if (this.#subscribers === 1) this.#open();
-		return () => {
-			this.#subscribers -= 1;
-			if (this.#subscribers === 0) this.#close();
+	subscribe = refCounted(() => {
+		const onEvent = (p: JobEvent) => {
+			if (jobIsActive(p.state)) this.#active.set(p.job_id, p.percentage || 0);
+			else this.#active.delete(p.job_id);
 		};
-	}
-
-	#open(): void {
-		this.#stream = new JobStream(
-			{ kind: 'sync' },
+		const stream = new JobStream(
+			{ kind: this.#kind },
 			{
-				onState: (p) => this.#onEvent(p),
-				onProgress: (p) => this.#onEvent(p),
+				onState: onEvent,
+				onProgress: onEvent,
 				onComplete: (p) => this.#active.delete(p.job_id),
 				onOpen: () => void this.#reconcile()
 			}
 		);
-		this.#stream.open();
-	}
-
-	#close(): void {
-		this.#stream?.close();
-		this.#stream = null;
-		this.#active.clear();
-	}
-
-	#onEvent(p: JobEvent): void {
-		if (jobIsActive(p.state)) {
-			this.#active.set(p.job_id, {
-				operation: p.operation,
-				state: p.state,
-				percentage: p.percentage ?? 0
-			});
-		} else {
-			this.#active.delete(p.job_id);
-		}
-	}
+		stream.open();
+		return () => {
+			stream.close();
+			this.#active.clear();
+		};
+	});
 
 	async #reconcile(): Promise<void> {
 		try {
-			const data = await unwrapLoose<{ jobs: ApiJob[] }>(
-				api.GET('/api/v2/sync/jobs', { params: { query: { active_only: true, limit: 50 } } })
-			);
-			const seen = new Set<number>();
-			for (const j of data.jobs ?? []) {
-				seen.add(j.id);
-				this.#active.set(j.id, {
-					operation: j.operation,
-					state: j.state,
-					percentage: j.percentage ?? 0
-				});
-			}
-			// Anything tracked but no longer listed finished while the stream was down.
-			for (const id of this.#active.keys()) if (!seen.has(id)) this.#active.delete(id);
+			const jobs = await this.#fetchActive();
+			this.#active.clear();
+			for (const j of jobs) this.#active.set(j.id, j.percentage || 0);
 		} catch {
 			// Supplementary — keep whatever the stream tells us.
 		}
 	}
 }
 
-export const syncActivity = new SyncActivityStore();
+export const syncActivity = new JobActivityStore('sync', async () => {
+	const data = await unwrapLoose<{ jobs: ApiJob[] }>(
+		api.GET('/api/v2/sync/jobs', { params: { query: { active_only: true, limit: 50 } } })
+	);
+	return data.jobs ?? [];
+});

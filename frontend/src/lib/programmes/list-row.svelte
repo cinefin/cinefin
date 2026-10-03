@@ -13,6 +13,7 @@
 	import { formatRuntime, relativeTime } from '$lib/format';
 	import Button from '$lib/components/ui/Button.svelte';
 	import FeatureStack from '$lib/components/FeatureStack.svelte';
+	import { dismiss } from '$lib/components/dismiss';
 	import {
 		ACTION_COL,
 		CHECK_COL,
@@ -39,29 +40,11 @@
 
 	const movies = $derived(p.movies ?? []);
 
-	// Suppress the film list only when it's character-identical to the name (a
-	// single-film programme auto-named after its film would print it twice).
+	// A single-film programme auto-named after its film would print it twice.
 	const filmList = $derived(movies.map((m) => m.title).join(' · '));
 	const showFilmList = $derived(filmList !== '' && filmList !== p.name.trim());
 
 	let menuOpen = $state(false);
-	let menuRoot = $state<HTMLDivElement>();
-
-	$effect(() => {
-		if (!menuOpen) return;
-		const onClick = (e: MouseEvent) => {
-			if (menuRoot && !menuRoot.contains(e.target as Node)) menuOpen = false;
-		};
-		const onKeydown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') menuOpen = false;
-		};
-		window.addEventListener('click', onClick);
-		window.addEventListener('keydown', onKeydown);
-		return () => {
-			window.removeEventListener('click', onClick);
-			window.removeEventListener('keydown', onKeydown);
-		};
-	});
 
 	// Cue can regenerate a stale playlist, so it reports busy rather than inert.
 	let cueing = $state(false);
@@ -74,8 +57,7 @@
 		}
 	}
 
-	// Hidden until hover/focus (space reserved via ACTION_COL); always on below
-	// `md` and on hover-less devices (see the scoped style).
+	// Hidden until hover/focus; always on below `md` and on hover-less devices.
 	const actionsVisibility =
 		'transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100';
 
@@ -83,6 +65,21 @@
 		'flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs text-muted ' +
 		'transition-colors hover:bg-surface-2 hover:text-text';
 </script>
+
+{#snippet menuButton(Icon: typeof Copy, label: string, run: () => void, cls = '')}
+	<button
+		type="button"
+		role="menuitem"
+		class="{menuItem} {cls}"
+		onclick={() => {
+			menuOpen = false;
+			run();
+		}}
+	>
+		<Icon size={13} />
+		{label}
+	</button>
+{/snippet}
 
 <li class="group flex h-14 items-center gap-3 px-3 transition-colors hover:bg-surface-2/40">
 	<div class={CHECK_COL}>
@@ -154,7 +151,7 @@
 			<Pencil size={12} /> Edit
 		</Button>
 
-		<div class="relative" bind:this={menuRoot}>
+		<div class="relative" {@attach menuOpen && dismiss(() => (menuOpen = false))}>
 			<button
 				type="button"
 				class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border-strong
@@ -172,17 +169,7 @@
 					class="absolute right-0 z-20 mt-1 w-48 rounded-md border border-border-strong bg-surface-1 py-1"
 					role="menu"
 				>
-					<button
-						type="button"
-						role="menuitem"
-						class={menuItem}
-						onclick={() => {
-							menuOpen = false;
-							void onduplicate(p);
-						}}
-					>
-						<Copy size={13} /> Duplicate
-					</button>
+					{@render menuButton(Copy, 'Duplicate', () => void onduplicate(p))}
 					<a
 						role="menuitem"
 						class={menuItem}
@@ -191,17 +178,7 @@
 					>
 						<CalendarPlus size={13} /> Schedule a screening
 					</a>
-					<button
-						type="button"
-						role="menuitem"
-						class="{menuItem} hover:text-danger"
-						onclick={() => {
-							menuOpen = false;
-							ondelete(p);
-						}}
-					>
-						<Trash2 size={13} /> Delete
-					</button>
+					{@render menuButton(Trash2, 'Delete', () => ondelete(p), 'hover:text-danger')}
 				</div>
 			{/if}
 		</div>

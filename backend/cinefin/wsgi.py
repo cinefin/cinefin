@@ -1,11 +1,4 @@
-"""
-WSGI config for cinefin project.
-
-It exposes the WSGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/5.0/howto/deployment/wsgi/
-"""
+"""WSGI entrypoint (runserver); deployments run the ASGI app in asgi.py."""
 
 import os
 

@@ -1,17 +1,12 @@
 /**
- * Shared playout status feed (topbar lamp, playout bar, dashboard, remote, kiosk).
- * Rides the real-time WebSocket "playout" channel. Subscribe from an $effect.
- * WebSocket-only, no interval fallback: if the socket is down the clock stops
- * rather than masking a dead connection (which would hide a broken proxy).
- *
- * Read it through `$lib/playout/phase` (lamp, bar lines, enabled buttons), and act
- * through `control()` and `cue()`: every transport button goes to POST
- * /playout/control, which refuses (409) an action the status doesn't allow.
+ * Shared playout status feed on the WebSocket "playout" channel; read it through
+ * `$lib/playout/phase`. No interval fallback: a dead socket stops the clock rather than hiding it.
  */
 import { api, toApiError, unwrap, type ApiError } from '$lib/api/client';
 import type { components } from '$lib/api/types.gen';
 import type { PlayoutStatus } from '$lib/playout/phase';
 import { realtime, type RealtimeMessage } from '$lib/realtime.svelte';
+import { refCounted } from './refcount';
 
 export type ControlBody = components['schemas']['ControlPlayoutSchema'];
 
@@ -20,26 +15,13 @@ class PlayoutStore {
 	error = $state<ApiError | null>(null);
 	loaded = $state(false);
 
-	#subscribers = 0;
-	#unsub: (() => void) | null = null;
-
-	subscribe(): () => void {
-		this.#subscribers += 1;
-		if (this.#subscribers === 1) {
-			void this.refresh(); // instant first paint; the socket takes over
-			this.#unsub = realtime.subscribe({
-				channel: 'playout',
-				onMessage: (msg: RealtimeMessage) => this.#adopt(msg.data as PlayoutStatus)
-			});
-		}
-		return () => {
-			this.#subscribers -= 1;
-			if (this.#subscribers === 0) {
-				this.#unsub?.();
-				this.#unsub = null;
-			}
-		};
-	}
+	subscribe = refCounted(() => {
+		void this.refresh(); // instant first paint; the socket takes over
+		return realtime.subscribe({
+			channel: 'playout',
+			onMessage: (msg: RealtimeMessage) => this.#adopt(msg.data as PlayoutStatus)
+		});
+	});
 
 	async refresh(): Promise<void> {
 		try {

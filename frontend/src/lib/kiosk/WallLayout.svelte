@@ -4,10 +4,7 @@
 	import type { KioskController } from './controller.svelte';
 	import { dayLabel, fmtClock, isRunning } from './time';
 
-	interface Props {
-		kiosk: KioskController;
-	}
-	let { kiosk }: Props = $props();
+	let { kiosk }: { kiosk: KioskController } = $props();
 
 	let stageW = $state(0);
 	let stageH = $state(0);

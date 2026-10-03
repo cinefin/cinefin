@@ -44,6 +44,10 @@
 
 	const iconBtn =
 		'shrink-0 rounded-sm p-0.5 text-muted hover:bg-surface-3 hover:text-text disabled:opacity-30';
+	const MOVES = [
+		{ label: 'Move up', by: -1, Icon: ChevronUp },
+		{ label: 'Move down', by: 1, Icon: ChevronDown }
+	] as const;
 </script>
 
 <ol class="divide-y divide-border rounded-md border border-border">
@@ -62,24 +66,17 @@
 					{formatTime(commandOf(step.command)?.duration ?? 0)}
 				</span>
 			{/if}
-			<button
-				type="button"
-				class={iconBtn}
-				aria-label="Move up"
-				disabled={i === 0}
-				onclick={() => move(i, -1)}
-			>
-				<ChevronUp size={14} />
-			</button>
-			<button
-				type="button"
-				class={iconBtn}
-				aria-label="Move down"
-				disabled={i === steps.length - 1}
-				onclick={() => move(i, 1)}
-			>
-				<ChevronDown size={14} />
-			</button>
+			{#each MOVES as m (m.by)}
+				<button
+					type="button"
+					class={iconBtn}
+					aria-label={m.label}
+					disabled={!steps[i + m.by]}
+					onclick={() => move(i, m.by)}
+				>
+					<m.Icon size={14} />
+				</button>
+			{/each}
 			{#if step.cue}
 				<span class="w-5 shrink-0"></span>
 			{:else}

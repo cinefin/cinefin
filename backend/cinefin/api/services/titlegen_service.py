@@ -14,16 +14,10 @@ from cinefin.api.utils.media_paths import to_usermedia_relative, usermedia_abs_p
 
 logger = logging.getLogger(__name__)
 
-# Pillow 10+ removed ANTIALIAS, use Resampling.LANCZOS instead
-try:
-    LANCZOS = Image.Resampling.LANCZOS
-except AttributeError:
-    LANCZOS = Image.LANCZOS
+LANCZOS = Image.Resampling.LANCZOS
 
-
-# Fonts shipped with the app (cinefin/static/fonts/, all SIL OFL). Bundled so
-# the rendered card and the editor's browser preview (@font-face on the same
-# files) agree — system fonts vary per box and PIL quietly falls back to
+# Fonts shipped with the app (cinefin/static/fonts/, all SIL OFL). Bundled so the rendered card and the editor's
+# browser preview (@font-face on the same files) agree — system fonts vary per box and PIL quietly falls back to
 # DejaVu when a name doesn't resolve.
 BUNDLED_FONTS = {
     "Bebas Neue": "BebasNeue.ttf",
@@ -33,14 +27,12 @@ BUNDLED_FONTS = {
     "Playfair Display": "PlayfairDisplay.ttf",
 }
 
-# The default face for text, and unbundled sans names that would otherwise fall
-# back to DejaVu here (and to a system font in the browser) — mapped to a bundled
-# face so the card and the editor's WYSIWYG preview stay identical everywhere.
+# Unbundled sans names would fall back to DejaVu here (and a system font in the browser), so map them to a
+# bundled face to keep the card and the editor's WYSIWYG preview identical.
 DEFAULT_FONT = "Inter"
 BUNDLED_ALIASES = {"Arial": "Inter", "Helvetica": "Inter", "sans-serif": "Inter"}
 
-# System fonts worth probing for in the discovery endpoint — the legacy
-# editor list. Only ones PIL can actually load are ever offered.
+# System fonts the discovery endpoint probes for; only ones PIL can load are offered.
 SYSTEM_FONT_CANDIDATES = [
     "Arial",
     "Arial Black",
@@ -90,18 +82,12 @@ class TitleGenService:
             canvas = config.get("canvas", {"width": 1920, "height": 1080})
             width = canvas.get("width", 1920)
             height = canvas.get("height", 1080)
-
-            duration = self._get_duration()
-
-            image = self._render_frame(width, height, config)
+            duration = title_length(self.programme)
 
             temp_image_path = self.output_dir / f"temp_{self.programme.id}.png"
-            image.save(temp_image_path, "PNG")
-
+            self._render_frame(width, height, config).save(temp_image_path, "PNG")
             output_file = self._generate_video(temp_image_path, width, height, duration)
-
-            if temp_image_path.exists():
-                temp_image_path.unlink()
+            temp_image_path.unlink(missing_ok=True)
 
             # Store MEDIA_ROOT-relative so the card survives a moved media volume.
             self.programme.title_file = to_usermedia_relative(str(output_file))
@@ -118,17 +104,8 @@ class TitleGenService:
         """Design-view stand-ins matching the editor's canvas placeholders."""
         from types import SimpleNamespace
 
-        return [
-            SimpleNamespace(
-                title="Movie Title",
-                director="Director Name",
-                year=2024,
-                certification="PG-13",
-                runtime=120,
-                poster_key="",
-            )
-            for _ in range(4)
-        ]
+        movie = {"title": "Movie Title", "director": "Director Name", "year": 2024, "certification": "PG-13"}
+        return [SimpleNamespace(**movie, runtime=120, poster_key="") for _ in range(4)]
 
     @classmethod
     def render_config_frame(cls, config: dict, programme=None) -> Image.Image:
@@ -138,42 +115,40 @@ class TitleGenService:
         inst._preview_mode = True
         canvas = config.get("canvas", {"width": 1920, "height": 1080})
         frame = inst._render_frame(canvas.get("width", 1920), canvas.get("height", 1080), config)
-        # The real card composites over a background video/black; previews
-        # composite onto near-black so transparency reads correctly.
+        # The real card composites over a background video/black; previews use near-black so transparency reads.
         background = Image.new("RGB", frame.size, (16, 16, 16))
         background.paste(frame, (0, 0), frame)
         return background
 
-    def _get_duration(self) -> int:
-        return title_length(self.programme)
-
     def _render_frame(self, width: int, height: int, config: dict) -> Image.Image:
         image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
-
-        # placeholder stand-ins in design-view previews
         movies = self.programme.get_feature_movies() if self.programme else self._placeholder_movies()
-
-        elements = config.get("elements", [])
-        for element in elements:
-            element_type = element.get("type")
-
-            if element_type == "poster":
-                self._render_poster(image, element, movies)
-            elif element_type == "text":
-                self._render_text(draw, element, movies)
-            elif element_type == "image":
-                self._render_image(image, element)
-            elif element_type == "rectangle":
-                self._render_rectangle(draw, element)
-
+        for element in config.get("elements", []):
+            match element.get("type"):
+                case "poster":
+                    self._render_poster(image, element, movies)
+                case "text":
+                    self._render_text(draw, element, movies)
+                case "image":
+                    self._render_image(image, element)
+                case "rectangle":
+                    self._render_rectangle(draw, element)
         return image
+
+    @staticmethod
+    def _paste(image: Image.Image, layer: Image.Image, element: dict) -> None:
+        """Paste `layer` at the element's x/y, faded by its opacity."""
+        layer = layer.convert("RGBA")
+        opacity = element.get("opacity", 1.0)
+        if opacity < 1.0:
+            layer.putalpha(layer.split()[-1].point(lambda p: int(p * opacity)))
+        image.paste(layer, (int(element.get("x", 0)), int(element.get("y", 0))), layer)
 
     def _render_poster(self, image: Image.Image, element: dict, movies: list) -> None:
         feature_index = element.get("feature_index", 0)
         movie = movies[feature_index] if feature_index < len(movies) else None
-        # Posters live on the media server, so this is a live fetch — a server
-        # that is asleep means no poster on the card, not a failed render.
+        # A live fetch from the media server: one that is asleep means no poster on the card, not a failed render.
         content = poster_service.fetch_poster(movie) if movie is not None and movie.poster_key else None
         if content is None:
             if getattr(self, "_preview_mode", False):
@@ -183,24 +158,8 @@ class TitleGenService:
             return
 
         try:
-            poster = Image.open(BytesIO(content))
-            poster_width = int(element.get("width", 300))
-            poster_height = int(element.get("height", 450))
-            poster = poster.resize((poster_width, poster_height), LANCZOS)
-
-            if poster.mode != "RGBA":
-                poster = poster.convert("RGBA")
-
-            opacity = element.get("opacity", 1.0)
-            if opacity < 1.0:
-                alpha = poster.split()[-1]
-                alpha = alpha.point(lambda p: int(p * opacity))
-                poster.putalpha(alpha)
-
-            x = int(element.get("x", 0))
-            y = int(element.get("y", 0))
-            image.paste(poster, (x, y), poster)
-
+            size = (int(element.get("width", 300)), int(element.get("height", 450)))
+            self._paste(image, Image.open(BytesIO(content)).resize(size, LANCZOS), element)
         except Exception as e:
             logger.error(f"Failed to render poster for {movie.title}: {e}")
 
@@ -218,10 +177,7 @@ class TitleGenService:
 
     @staticmethod
     def _parse_hex_rgb(color_hex: str, default: tuple[int, int, int] = (255, 255, 255)) -> tuple[int, int, int]:
-        """Parse a hex colour to an (r, g, b) triple, tolerant of #RGB shorthand
-        and malformed input. A bad colour in a saved template config would
-        otherwise raise and 500 the preview endpoints (which, unlike
-        generate_title, don't catch it)."""
+        """Hex colour -> (r, g, b), tolerant of #RGB and junk: a bad saved colour must not 500 the previews."""
         h = (color_hex or "").lstrip("#").strip()
         if len(h) == 3:
             h = "".join(c * 2 for c in h)  # #abc -> #aabbcc
@@ -231,61 +187,34 @@ class TitleGenService:
             return default
 
     def _render_text(self, draw: ImageDraw.Draw, element: dict, movies: list) -> None:
-        field = element.get("field")
-        feature_index = element.get("feature_index", 0)
-
-        text = self._get_text_value(field, feature_index, movies)
+        text = self._get_text_value(element.get("field"), element.get("feature_index", 0), movies)
         if not text:
             return
 
-        font_name = element.get("font") or DEFAULT_FONT
         font_size = int(element.get("size", 48))
-        font = self._load_font(font_name, font_size)
+        font = self._load_font(element.get("font") or DEFAULT_FONT, font_size)
+        x, y = int(element.get("x", 0)), int(element.get("y", 0))
+        color = (*self._parse_hex_rgb(element.get("color", "#FFFFFF")), int(255 * element.get("opacity", 1.0)))
 
-        x = int(element.get("x", 0))
-        y = int(element.get("y", 0))
-        color_hex = element.get("color", "#FFFFFF")
-        opacity = element.get("opacity", 1.0)
-
-        r, g, b = self._parse_hex_rgb(color_hex)
-        alpha = int(255 * opacity)
-        color = (r, g, b, alpha)
-
-        # Optional word-wrap + alignment within a bounding box
         max_width = element.get("max_width")
-        align = element.get("align", "left")
-
-        if max_width:
-            max_width = int(max_width)
-            lines = self._wrap_text(draw, text, font, max_width)
-            try:
-                ascent, descent = font.getmetrics()
-                line_height = int((ascent + descent) * 1.1)
-            except Exception:
-                line_height = int(font_size * 1.2)
-            for i, line in enumerate(lines):
-                line_w = self._text_width(draw, line, font)
-                if align == "center":
-                    lx = x + (max_width - line_w) // 2
-                elif align == "right":
-                    lx = x + (max_width - line_w)
-                else:
-                    lx = x
-                draw.text((int(lx), y + i * line_height), line, fill=color, font=font)
-        else:
+        if not max_width:
             draw.text((x, y), text, fill=color, font=font)
-
-    def _text_width(self, draw, text, font):
-        """Measure rendered text width across Pillow versions."""
+            return
+        # Word-wrap and align within a box of max_width.
+        max_width = int(max_width)
         try:
-            return draw.textlength(text, font=font)
+            ascent, descent = font.getmetrics()
+            line_height = int((ascent + descent) * 1.1)
         except Exception:
-            try:
-                return font.getlength(text)
-            except Exception:
-                return font.getsize(text)[0]
+            line_height = int(font_size * 1.2)
+        align = element.get("align", "left")
+        for i, line in enumerate(self._wrap_text(draw, text, font, max_width)):
+            slack = max_width - draw.textlength(line, font=font)
+            lx = x + {"center": slack // 2, "right": slack}.get(align, 0)
+            draw.text((int(lx), y + i * line_height), line, fill=color, font=font)
 
-    def _wrap_text(self, draw, text, font, max_width):
+    @staticmethod
+    def _wrap_text(draw, text, font, max_width):
         """Greedy word-wrap so no line exceeds max_width."""
         words = text.split()
         if not words:
@@ -294,7 +223,7 @@ class TitleGenService:
         current = words[0]
         for word in words[1:]:
             candidate = current + " " + word
-            if self._text_width(draw, candidate, font) <= max_width:
+            if draw.textlength(candidate, font=font) <= max_width:
                 current = candidate
             else:
                 lines.append(current)
@@ -305,23 +234,17 @@ class TitleGenService:
     def _get_text_value(self, field: str, feature_index: int, movies: list) -> str | None:
         if feature_index >= len(movies):
             return None
-
         movie = movies[feature_index]
-
-        if field == "title":
-            return movie.title
-        elif field == "director":
-            return movie.director
-        elif field == "year":
-            return str(movie.year)
-        elif field == "certification":
-            return movie.certification
-        elif field == "runtime":
-            return f"{movie.runtime} min"
-        elif field == "programme_name":
+        if field == "programme_name":
             return self.programme.name if self.programme else "Programme Name"
-
-        return None
+        values = {
+            "title": lambda: movie.title,
+            "director": lambda: movie.director,
+            "year": lambda: str(movie.year),
+            "certification": lambda: movie.certification,
+            "runtime": lambda: f"{movie.runtime} min",
+        }
+        return values[field]() if field in values else None
 
     def _render_image(self, image: Image.Image, element: dict) -> None:
         image_path = element.get("path")
@@ -338,46 +261,18 @@ class TitleGenService:
 
         try:
             custom_img = Image.open(image_path)
-            width = element.get("width")
-            height = element.get("height")
-
+            width, height = element.get("width"), element.get("height")
             if width and height:
-                width = int(width)
-                height = int(height)
-                custom_img = custom_img.resize((width, height), LANCZOS)
-
-            if custom_img.mode != "RGBA":
-                custom_img = custom_img.convert("RGBA")
-
-            opacity = element.get("opacity", 1.0)
-            if opacity < 1.0:
-                alpha = custom_img.split()[-1]
-                alpha = alpha.point(lambda p: int(p * opacity))
-                custom_img.putalpha(alpha)
-
-            x = int(element.get("x", 0))
-            y = int(element.get("y", 0))
-            image.paste(custom_img, (x, y), custom_img)
-
+                custom_img = custom_img.resize((int(width), int(height)), LANCZOS)
+            self._paste(image, custom_img, element)
         except Exception as e:
             logger.error(f"Failed to render image {image_path}: {e}")
 
     def _render_rectangle(self, draw: ImageDraw.Draw, element: dict) -> None:
-        x = int(element.get("x", 0))
-        y = int(element.get("y", 0))
-        width = int(element.get("width", 100))
-        height = int(element.get("height", 100))
-        color_hex = element.get("color", "#FFFFFF")
-        fill = element.get("fill", True)
-        opacity = element.get("opacity", 1.0)
-
-        r, g, b = self._parse_hex_rgb(color_hex)
-        alpha = int(255 * opacity)
-        color = (r, g, b, alpha)
-
-        coords = [(x, y), (x + width, y + height)]
-
-        if fill:
+        x, y = int(element.get("x", 0)), int(element.get("y", 0))
+        coords = [(x, y), (x + int(element.get("width", 100)), y + int(element.get("height", 100)))]
+        color = (*self._parse_hex_rgb(element.get("color", "#FFFFFF")), int(255 * element.get("opacity", 1.0)))
+        if element.get("fill", True):
             draw.rectangle(coords, fill=color)
         else:
             draw.rectangle(coords, outline=color, width=element.get("border_width", 1))
@@ -386,8 +281,7 @@ class TitleGenService:
     def _resolve_font_path(font_name: str) -> str | None:
         """Resolve a font name to a loadable file, or None if nothing resolves."""
         font_name = BUNDLED_ALIASES.get(font_name, font_name)
-        bundled = BUNDLED_FONTS.get(font_name)
-        if bundled:
+        if bundled := BUNDLED_FONTS.get(font_name):
             path = bundled_fonts_dir() / bundled
             if path.exists():
                 return str(path)
@@ -402,13 +296,7 @@ class TitleGenService:
             "Arial": ["arial.ttf", "Arial.ttf", "DejaVuSans.ttf", "FreeSans.ttf"],
             "Helvetica": ["helvetica.ttf", "Helvetica.ttf", "DejaVuSans.ttf", "FreeSans.ttf"],
             "Times": ["times.ttf", "Times.ttf", "DejaVuSerif.ttf", "FreeSerif.ttf"],
-            "Courier": [
-                "cour.ttf",
-                "Courier.ttf",
-                "DejaVuSansMono.ttf",
-                "LiberationMono-Regular.ttf",
-                "FreeMono.ttf",
-            ],
+            "Courier": ["cour.ttf", "Courier.ttf", "DejaVuSansMono.ttf", "LiberationMono-Regular.ttf", "FreeMono.ttf"],
         }
         font_files = font_alternatives.get(font_name, [f"{font_name}.ttf", f"{font_name.lower()}.ttf"])
         font_dirs = [
@@ -446,105 +334,42 @@ class TitleGenService:
 
     @classmethod
     def available_fonts(cls) -> list[dict]:
-        fonts = [{"name": name, "bundled": True} for name in sorted(BUNDLED_FONTS)]
-        for name in SYSTEM_FONT_CANDIDATES:
-            if cls._resolve_font_path(name):
-                fonts.append({"name": name, "bundled": False})
-        return fonts
+        return [{"name": name, "bundled": True} for name in sorted(BUNDLED_FONTS)] + [
+            {"name": name, "bundled": False} for name in SYSTEM_FONT_CANDIDATES if cls._resolve_font_path(name)
+        ]
 
     def _generate_video(self, image_path: Path, width: int, height: int, duration: int) -> Path:
         output_file = self.output_dir / f"programme_{self.programme.id}_title.mp4"
+        programme = self.programme
+        fade_in = getattr(programme, "title_fade_in", 0.0)
+        fade_out = getattr(programme, "title_fade_out", 0.0)
+        fades = []
+        if fade_in > 0:
+            fades.append(f"fade=t=in:st=0:d={fade_in}")
+        if fade_out > 0:
+            fades.append(f"fade=t=out:st={max(0, duration - fade_out)}:d={fade_out}")
+        fade_suffix = "," + ",".join(fades) if fades else ""
 
-        fade_in = getattr(self.programme, "title_fade_in", 0.0)
-        fade_out = getattr(self.programme, "title_fade_out", 0.0)
-
-        if fade_in > 0 or fade_out > 0:
-            fade_filters = []
-            if fade_in > 0:
-                fade_filters.append(f"fade=t=in:st=0:d={fade_in}")
-            if fade_out > 0:
-                fade_out_start = max(0, duration - fade_out)
-                fade_filters.append(f"fade=t=out:st={fade_out_start}:d={fade_out}")
-
-            fade_filter_str = ",".join(fade_filters)
-
-            if self.programme.title_background_type == "video" and self.programme.title_background_file:
-                filter_complex = f"[0:v]scale={width}:{height}[bg];[bg][1:v]overlay,{fade_filter_str}"
-            elif self.programme.title_background_type == "image" and self.programme.title_background_file:
-                filter_complex = (
-                    f"[0:v]loop=loop=-1:size=1:start=0,scale={width}:{height}[bg];[bg][1:v]overlay,{fade_filter_str}"
-                )
-            else:
-                filter_complex = f"[0:v][1:v]overlay,{fade_filter_str}"
+        background = programme.title_background_type if programme.title_background_file else None
+        if background in ("video", "image"):
+            loop = "loop=loop=-1:size=1:start=0," if background == "image" else ""
+            filter_complex = f"[0:v]{loop}scale={width}:{height}[bg];[bg][1:v]overlay{fade_suffix}"
+            inputs = ["-i", usermedia_abs_path(programme.title_background_file), "-i", str(image_path)]
+            length = ["-t", str(duration)]
         else:
-            if self.programme.title_background_type == "video" and self.programme.title_background_file:
-                filter_complex = f"[0:v]scale={width}:{height}[bg];[bg][1:v]overlay"
-            elif self.programme.title_background_type == "image" and self.programme.title_background_file:
-                filter_complex = f"[0:v]loop=loop=-1:size=1:start=0,scale={width}:{height}[bg];[bg][1:v]overlay"
-            else:
-                filter_complex = "[0:v][1:v]overlay"
-
-        if self.programme.title_background_type == "video" and self.programme.title_background_file:
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-i",
-                usermedia_abs_path(self.programme.title_background_file),
-                "-i",
-                str(image_path),
-                "-filter_complex",
-                filter_complex,
-                "-t",
-                str(duration),
-                "-c:v",
-                "libx264",
-                "-preset",
-                "fast",
-                "-pix_fmt",
-                "yuv420p",
-                str(output_file),
-            ]
-        elif self.programme.title_background_type == "image" and self.programme.title_background_file:
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-i",
-                usermedia_abs_path(self.programme.title_background_file),
-                "-i",
-                str(image_path),
-                "-filter_complex",
-                filter_complex,
-                "-t",
-                str(duration),
-                "-c:v",
-                "libx264",
-                "-preset",
-                "fast",
-                "-pix_fmt",
-                "yuv420p",
-                str(output_file),
-            ]
-        else:
-            color = self.programme.title_background_color.lstrip("#")
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                f"color=c=0x{color}:s={width}x{height}:d={duration}",
-                "-i",
-                str(image_path),
-                "-filter_complex",
-                filter_complex,
-                "-c:v",
-                "libx264",
-                "-preset",
-                "fast",
-                "-pix_fmt",
-                "yuv420p",
-                str(output_file),
-            ]
+            filter_complex = f"[0:v][1:v]overlay{fade_suffix}"
+            color = programme.title_background_color.lstrip("#")
+            inputs = ["-f", "lavfi", "-i", f"color=c=0x{color}:s={width}x{height}:d={duration}", "-i", str(image_path)]
+            length = []
+        cmd = [
+            "ffmpeg",
+            "-y",
+            *inputs,
+            "-filter_complex",
+            filter_complex,
+            *length,
+            *["-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", str(output_file)],
+        ]
 
         try:
             logger.info(f"Running ffmpeg: {' '.join(cmd)}")

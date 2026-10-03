@@ -1,6 +1,6 @@
 <script lang="ts">
-	// The empty-slot branch is a defensive fallback: a template is only offered
-	// when it takes exactly the features already chosen.
+	// The empty-slot branch is a fallback: a template is only offered when it takes exactly the
+	// features already chosen.
 	import { ChevronDown, ChevronUp, Dices, Film, Plus } from '@lucide/svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -29,6 +29,12 @@
 		'rounded-sm p-1 text-faint hover:bg-surface-3 hover:text-text disabled:opacity-30 ' +
 		'disabled:hover:bg-transparent disabled:hover:text-faint';
 </script>
+
+{#snippet move(dir: number, disabled: boolean, title: string, MoveIcon: typeof ChevronUp)}
+	<button type="button" class={iconButton} {disabled} {title} onclick={() => onmove(dir)}>
+		<MoveIcon size={14} />
+	</button>
+{/snippet}
 
 <div class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-3 {meta.classes.edge}">
 	<span class={rowCols.number}>{String(row.number).padStart(2, '0')}</span>
@@ -94,24 +100,8 @@
 				{item.kind === 'random' ? 'Filters…' : 'Random'}
 			</Button>
 			{#if slots > 1}
-				<button
-					type="button"
-					class={iconButton}
-					disabled={row.slotIndex === 0}
-					title="Move to the slot above"
-					onclick={() => onmove(-1)}
-				>
-					<ChevronUp size={14} />
-				</button>
-				<button
-					type="button"
-					class={iconButton}
-					disabled={row.slotIndex === slots - 1}
-					title="Move to the slot below"
-					onclick={() => onmove(1)}
-				>
-					<ChevronDown size={14} />
-				</button>
+				{@render move(-1, row.slotIndex === 0, 'Move to the slot above', ChevronUp)}
+				{@render move(1, row.slotIndex === slots - 1, 'Move to the slot below', ChevronDown)}
 			{/if}
 		</div>
 	{:else}

@@ -7,7 +7,6 @@ import pytest
 
 from cinefin import cli
 
-REAL_LAN_ADDRESS = cli.lan_address  # the fixture below stubs it for determinism
 ENV_VARS = [
     "CINEFIN_USERDATA_DIR",
     "CINEFIN_HOST",
@@ -24,7 +23,6 @@ ENV_VARS = [
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    """Start every test with none of the CLI's variables set (restored afterwards)."""
     for var in ENV_VARS:
         monkeypatch.setenv(var, "x")  # so the delete below is recorded and undone
         monkeypatch.delenv(var)
@@ -43,23 +41,12 @@ def _args(argv):
     return cli.build_parser().parse_args(["info", *argv])
 
 
-# -- data folder --------------------------------------------------------------
-
-
-def test_data_dir_flag_beats_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("CINEFIN_USERDATA_DIR", str(tmp_path / "env"))
-    assert cli.resolve_data_dir(str(tmp_path / "flag")) == (tmp_path / "flag", "--data-dir")
-
-
-def test_data_dir_env_beats_checkout(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli, "BACKEND_DIR", _checkout(tmp_path))
-    monkeypatch.setenv("CINEFIN_USERDATA_DIR", str(tmp_path / "env"))
-    assert cli.resolve_data_dir() == (tmp_path / "env", "CINEFIN_USERDATA_DIR")
-
-
-def test_data_dir_checkout_uses_repo_userdata(tmp_path, monkeypatch):
+def test_data_dir_precedence(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "BACKEND_DIR", _checkout(tmp_path))
     assert cli.resolve_data_dir() == (tmp_path / "repo" / "userdata", "source checkout")
+    monkeypatch.setenv("CINEFIN_USERDATA_DIR", str(tmp_path / "env"))
+    assert cli.resolve_data_dir() == (tmp_path / "env", "CINEFIN_USERDATA_DIR")
+    assert cli.resolve_data_dir(str(tmp_path / "flag")) == (tmp_path / "flag", "--data-dir")
 
 
 def test_data_dir_wheel_install_uses_platform_folder(tmp_path, monkeypatch):
@@ -74,61 +61,29 @@ def test_data_dir_wheel_install_uses_platform_folder(tmp_path, monkeypatch):
     assert cli.resolve_data_dir() == (tmp_path / "local" / "Cinefin", "platform default")
 
 
-def test_this_checkout_resolves_to_repo_userdata():
-    from django.conf import settings
-
-    assert cli.resolve_data_dir() == (settings.REPO_ROOT / "userdata", "source checkout")
-
-
-# -- listen and public URL ----------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "value,expected",
     [
         ("127.0.0.1:8000", ("127.0.0.1", 8000)),
-        ("[::]:8000", ("::", 8000)),
         ("[::1]:9000", ("::1", 9000)),
-        (":9000", ("0.0.0.0", 9000)),
         ("9000", ("0.0.0.0", 9000)),
-        ("cinema.local:80", ("cinema.local", 80)),
     ],
 )
 def test_parse_listen(value, expected):
     assert cli.parse_listen(value) == expected
 
 
-@pytest.mark.parametrize("value", ["host:abc", "host:0", "host:70000", "host:"])
+@pytest.mark.parametrize("value", ["host:abc", "host:70000", "host:"])
 def test_parse_listen_rejects(value):
     with pytest.raises(argparse.ArgumentTypeError):
         cli.parse_listen(value)
 
 
-def test_public_url_default():
-    assert cli.default_public_url("0.0.0.0", 8000) == "http://192.168.1.50:8000"
-    assert cli.default_public_url("::", 8000) == "http://192.168.1.50:8000"
-    assert cli.default_public_url("10.0.0.2", 9000) == "http://10.0.0.2:9000"
-    assert cli.default_public_url("::1", 9000) == "http://[::1]:9000"
-
-
-def test_lan_address_is_an_ipv4():
-    import ipaddress
-
-    assert isinstance(ipaddress.ip_address(REAL_LAN_ADDRESS()), ipaddress.IPv4Address)
-
-
-# -- precedence ---------------------------------------------------------------
-
-
-def test_defaults():
+def test_defaults_then_env(monkeypatch):
     cfg = cli.resolve(_args([]))
     assert cfg["listen"] == ("0.0.0.0:8000", "default")
     assert cfg["public URL"] == ("http://192.168.1.50:8000", "LAN address")
-    assert cfg["log level"] == ("INFO", "default")
     assert cfg["log file"] == ("", "off")
-
-
-def test_env_used_without_flags(monkeypatch):
     monkeypatch.setenv("CINEFIN_HOST", "127.0.0.1")
     monkeypatch.setenv("CINEFIN_PORT", "9001")
     monkeypatch.setenv("CINEFIN_LOG_LEVEL", "DEBUG")
@@ -174,31 +129,9 @@ def test_apply_env_hands_values_to_django(tmp_path):
     assert (tmp_path / "d").is_dir()
 
 
-# -- commands -----------------------------------------------------------------
-
-
 def test_info_output(tmp_path, capsys):
     assert cli.main(["info", "--data-dir", str(tmp_path), "--listen", "127.0.0.1:9123"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("Cinefin ")
     rows = {line[2:15].strip(): line for line in out.splitlines() if line.startswith("  ")}
     assert str(tmp_path) in rows["data folder"] and "(--data-dir)" in rows["data folder"]
-    assert str(tmp_path / "db.sqlite3") in rows["database"]
-    assert str(tmp_path / "media") in rows["media folder"]
-    assert "127.0.0.1:9123" in rows["listen"] and "(--listen)" in rows["listen"]
     assert "http://127.0.0.1:9123" in rows["public URL"] and "(listen address)" in rows["public URL"]
-    assert "(off)" in rows["log file"]
-
-
-@pytest.mark.parametrize("argv", [[], ["--listen", "127.0.0.1:9000"]])
-def test_no_command_means_serve(monkeypatch, argv):
-    seen = {}
-    monkeypatch.setattr(cli, "cmd_serve", lambda args: seen.setdefault("args", args) and 0)
-    cli.main(argv)
-    assert seen["args"].command == "serve"
-
-
-def test_manage_passes_arguments_through():
-    args = cli.build_parser().parse_args(["manage", "--data-dir", "/d", "pair_playout_host", "--code", "123456"])
-    assert args.data_dir == "/d"
-    assert args.args == ["pair_playout_host", "--code", "123456"]

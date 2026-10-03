@@ -6,7 +6,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
-from cinefin.api.exceptions import ConflictError, NotFoundError, ValidationError
+from cinefin.api.exceptions import ConflictError, ValidationError, get_or_404
 from cinefin.api.models import Programme, ProgrammeSchedule
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 from cinefin.api.services import preshow
@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProgrammeBasicSchema(Schema):
-    id: int = Field(..., description="Programme ID")
-    name: str = Field(..., description="Programme name")
-    runtime: int = Field(..., description="Programme runtime in minutes")
+    id: int
+    name: str
+    runtime: int
     formatted_runtime: str | None = Field(None, description="Human-readable formatted runtime")
-    description: str | None = Field(None, description="Programme description")
+    description: str | None = None
 
 
 class LeadInStepSchema(Schema):
@@ -28,46 +28,36 @@ class LeadInStepSchema(Schema):
 
 
 class ScheduleSchema(Schema):
-    id: int = Field(..., description="Schedule ID")
-    programme: ProgrammeBasicSchema = Field(..., description="Associated programme details")
+    id: int
+    programme: ProgrammeBasicSchema
     start_time: str = Field(..., description="When the lead-in begins (ISO)")
     play_time: str = Field(..., description="When the programme plays: start_time + lead-in (ISO)")
     lead_in: int = Field(0, description="Seconds between the lead-in starting and the programme playing")
     preshow: list[LeadInStepSchema] = Field(
         default_factory=list, description="The lead-in's ordered steps: commands plus the one cue step"
     )
-    runtime: int = Field(..., description="Programme runtime in minutes")
+    runtime: int
     status: str = Field(..., description="Schedule status (scheduled, running, completed, cancelled, failed, missed)")
     last_error: str | None = Field(None, description="Reason the run failed, if any")
-    created_at: str = Field(..., description="Schedule creation timestamp in ISO format")
+    created_at: str
     end_time: str | None = Field(None, description="When the screening ends: play_time + runtime (ISO)")
 
 
 class ScheduleListFilters(Schema):
-    status: str | None = Field(None, description="Filter by schedule status")
-    programme_id: int | None = Field(None, description="Filter by programme ID")
+    status: str | None = None
+    programme_id: int | None = None
     date_from: str | None = Field(None, description="Filter schedules from this date (ISO format)")
     date_to: str | None = Field(None, description="Filter schedules to this date (ISO format)")
-    show_past: bool = Field(False, description="Include past schedules in results")
+    show_past: bool = False
 
 
 class ScheduleListDataSchema(Schema):
-    schedules: list[ScheduleSchema] = Field(..., description="List of scheduled programmes")
-    count: int = Field(..., description="Total number of schedules returned")
+    schedules: list[ScheduleSchema]
+    count: int
 
 
 class ScheduleListResponseSchema(SuccessResponseSchema):
-    data: ScheduleListDataSchema = Field(..., description="Schedule list data")
-
-
-class CreateScheduleSchema(Schema):
-    programme_id: int = Field(..., description="ID of programme to schedule")
-    start_time: str = Field(..., description="When the lead-in begins, in ISO format")
-    timezone: str = Field("UTC", description="Timezone for the start time")
-    lead_in: int = Field(0, ge=0, description="Seconds between the lead-in starting and the programme playing")
-    preshow: list[LeadInStepSchema] = Field(
-        default_factory=list, description="The lead-in's ordered steps; none = just the cue"
-    )
+    data: ScheduleListDataSchema
 
 
 class UpdateScheduleSchema(Schema):
@@ -79,24 +69,28 @@ class UpdateScheduleSchema(Schema):
     )
 
 
+class CreateScheduleSchema(UpdateScheduleSchema):
+    programme_id: int
+
+
 class ScheduleDataSchema(Schema):
-    schedule: ScheduleSchema = Field(..., description="Schedule details")
+    schedule: ScheduleSchema
 
 
 class ScheduleCreateResponseSchema(SuccessResponseSchema):
-    data: ScheduleDataSchema = Field(..., description="Created schedule data")
+    data: ScheduleDataSchema
 
 
 class RunnerStatusSchema(Schema):
-    running: bool = Field(..., description="Whether the schedule runner appears to be alive")
-    pid: int | None = Field(None, description="Process id hosting the runner thread")
+    running: bool
+    pid: int | None = None
     last_beat: str | None = Field(None, description="Last heartbeat (ISO)")
-    age_seconds: float | None = Field(None, description="Seconds since last heartbeat")
-    tick_seconds: int | None = Field(None, description="Runner poll interval")
+    age_seconds: float | None = None
+    tick_seconds: int | None = None
 
 
 class RunnerStatusResponseSchema(SuccessResponseSchema):
-    data: RunnerStatusSchema = Field(..., description="Runner status")
+    data: RunnerStatusSchema
 
 
 schedules_api = Router()
@@ -116,10 +110,6 @@ def _reject_overlap(schedule: ProgrammeSchedule) -> None:
             error_code="SCHEDULE_OVERLAP",
             details={"schedule_id": clash.id},
         )
-
-
-# Schedule status is owned by the in-process schedule runner
-# (services/schedule_runner.py); the API only reads/writes rows.
 
 
 @schedules_api.get("/runner", response={200: RunnerStatusResponseSchema, 500: ErrorResponseSchema})
@@ -163,6 +153,44 @@ def serialize_schedule(schedule: ProgrammeSchedule) -> ScheduleSchema:
     )
 
 
+def _parse_filter_date(value: str, name: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValidationError(f"Invalid {name} format. Use ISO format.", error_code="INVALID_DATE_FORMAT") from None
+
+
+def _future_start(data: UpdateScheduleSchema) -> datetime:
+    """The schedule's start time in UTC: read in its timezone (an unknown one is UTC), refused unless future."""
+    try:
+        tz = pytz.timezone(data.timezone)
+    except Exception:
+        tz = pytz.UTC
+    try:
+        start = tz.localize(datetime.fromisoformat(data.start_time.replace("Z", ""))).astimezone(pytz.UTC)
+    except ValueError:
+        raise ValidationError("Invalid start_time format. Use ISO format.", error_code="INVALID_DATE_FORMAT") from None
+    if start <= timezone.now():
+        raise ValidationError("Start time must be in the future", error_code="INVALID_START_TIME")
+    return start
+
+
+def _saved(status: int, message: str, schedule: ProgrammeSchedule) -> Status:
+    return Status(
+        status,
+        ScheduleCreateResponseSchema(message=message, data=ScheduleDataSchema(schedule=serialize_schedule(schedule))),
+    )
+
+
+_WRITE_ERRORS = {
+    400: ErrorResponseSchema,
+    404: ErrorResponseSchema,
+    409: ErrorResponseSchema,
+    422: ErrorResponseSchema,
+    500: ErrorResponseSchema,
+}
+
+
 @schedules_api.get(
     "/list",
     response={
@@ -173,46 +201,21 @@ def serialize_schedule(schedule: ProgrammeSchedule) -> ScheduleSchema:
     },
 )
 def list_schedules(request: HttpRequest, filters: ScheduleListFilters = Query(...)):
-    """Get all schedules with filtering."""
     schedules = ProgrammeSchedule.objects.select_related("programme").all()
-
     if not filters.show_past:
         now = timezone.now()
-        past_schedule_ids = []
-
-        for schedule in schedules:
-            if schedule.start_time and schedule.runtime and schedule.end_time() <= now:
-                past_schedule_ids.append(schedule.id)
-
-        if past_schedule_ids:
-            schedules = schedules.exclude(id__in=past_schedule_ids)
-
+        past = [s.id for s in schedules if s.start_time and s.runtime and s.end_time() <= now]
+        if past:
+            schedules = schedules.exclude(id__in=past)
     if filters.status:
         schedules = schedules.filter(status=filters.status)
-
     if filters.programme_id:
         schedules = schedules.filter(programme_id=filters.programme_id)
-
     if filters.date_from:
-        try:
-            date_from_parsed = datetime.fromisoformat(filters.date_from.replace("Z", "+00:00"))
-            schedules = schedules.filter(start_time__gte=date_from_parsed)
-        except ValueError:
-            raise ValidationError(
-                "Invalid date_from format. Use ISO format.", error_code="INVALID_DATE_FORMAT"
-            ) from None
-
+        schedules = schedules.filter(start_time__gte=_parse_filter_date(filters.date_from, "date_from"))
     if filters.date_to:
-        try:
-            date_to_parsed = datetime.fromisoformat(filters.date_to.replace("Z", "+00:00"))
-            schedules = schedules.filter(start_time__lte=date_to_parsed)
-        except ValueError:
-            raise ValidationError("Invalid date_to format. Use ISO format.", error_code="INVALID_DATE_FORMAT") from None
-
-    schedules = schedules.order_by("start_time")
-
-    schedules_data = [serialize_schedule(schedule) for schedule in schedules]
-
+        schedules = schedules.filter(start_time__lte=_parse_filter_date(filters.date_to, "date_to"))
+    schedules_data = [serialize_schedule(s) for s in schedules.order_by("start_time")]
     return Status(
         200,
         ScheduleListResponseSchema(
@@ -222,121 +225,40 @@ def list_schedules(request: HttpRequest, filters: ScheduleListFilters = Query(..
     )
 
 
-@schedules_api.post(
-    "/create",
-    response={
-        201: ScheduleCreateResponseSchema,
-        400: ErrorResponseSchema,
-        404: ErrorResponseSchema,
-        409: ErrorResponseSchema,
-        422: ErrorResponseSchema,
-        500: ErrorResponseSchema,
-    },
-)
+@schedules_api.post("/create", response={201: ScheduleCreateResponseSchema, **_WRITE_ERRORS})
 def create_schedule(request: HttpRequest, data: CreateScheduleSchema):
-    try:
-        programme = Programme.objects.get(id=data.programme_id)
-    except Programme.DoesNotExist:
-        raise NotFoundError("Programme not found", error_code="PROGRAMME_NOT_FOUND") from None
-
-    runtime = programme.get_runtime()
-
-    try:
-        tz = pytz.timezone(data.timezone)
-    except Exception:
-        tz = pytz.UTC
-
-    try:
-        naive_dt = datetime.fromisoformat(data.start_time.replace("Z", ""))
-        local_dt = tz.localize(naive_dt)
-    except ValueError:
-        raise ValidationError("Invalid start_time format. Use ISO format.", error_code="INVALID_DATE_FORMAT") from None
-
-    start_time_dt = local_dt.astimezone(pytz.UTC)
-
-    if start_time_dt <= timezone.now():
-        raise ValidationError("Start time must be in the future", error_code="INVALID_START_TIME")
-
+    programme = get_or_404(Programme, data.programme_id, "Programme not found", "PROGRAMME_NOT_FOUND")
     schedule = ProgrammeSchedule(
         programme=programme,
-        start_time=start_time_dt,
-        runtime=runtime,
+        start_time=_future_start(data),
+        runtime=programme.get_runtime(),
         lead_in=data.lead_in,
         preshow=preshow.clean([step.dict() for step in data.preshow]),
     )
     _reject_overlap(schedule)
     schedule.save()
-
-    return Status(
-        201,
-        ScheduleCreateResponseSchema(
-            message="Schedule created successfully", data=ScheduleDataSchema(schedule=serialize_schedule(schedule))
-        ),
-    )
+    return _saved(201, "Schedule created successfully", schedule)
 
 
 @schedules_api.delete(
     "/{schedule_id}", response={200: MessageResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema}
 )
 def delete_schedule(request: HttpRequest, schedule_id: int):
-    try:
-        schedule = ProgrammeSchedule.objects.get(id=schedule_id)
-    except ProgrammeSchedule.DoesNotExist:
-        raise NotFoundError("Schedule not found", error_code="SCHEDULE_NOT_FOUND") from None
-
-    schedule.delete()
-
+    get_or_404(ProgrammeSchedule, schedule_id, "Schedule not found", "SCHEDULE_NOT_FOUND").delete()
     return Status(200, MessageResponseSchema(message="Schedule deleted successfully"))
 
 
-@schedules_api.put(
-    "/{schedule_id}",
-    response={
-        200: ScheduleCreateResponseSchema,
-        400: ErrorResponseSchema,
-        404: ErrorResponseSchema,
-        409: ErrorResponseSchema,
-        422: ErrorResponseSchema,
-        500: ErrorResponseSchema,
-    },
-)
+@schedules_api.put("/{schedule_id}", response={200: ScheduleCreateResponseSchema, **_WRITE_ERRORS})
 def update_schedule(request: HttpRequest, schedule_id: int, data: UpdateScheduleSchema):
-    try:
-        schedule = ProgrammeSchedule.objects.get(id=schedule_id)
-    except ProgrammeSchedule.DoesNotExist:
-        raise NotFoundError("Schedule not found", error_code="SCHEDULE_NOT_FOUND") from None
-
+    schedule = get_or_404(ProgrammeSchedule, schedule_id, "Schedule not found", "SCHEDULE_NOT_FOUND")
     if schedule.status != "scheduled":
         raise ValidationError("Can only update scheduled items", error_code="INVALID_SCHEDULE_STATUS")
-
-    try:
-        tz = pytz.timezone(data.timezone)
-    except Exception:
-        tz = pytz.UTC
-
-    try:
-        naive_dt = datetime.fromisoformat(data.start_time.replace("Z", ""))
-        local_dt = tz.localize(naive_dt)
-    except ValueError:
-        raise ValidationError("Invalid start_time format. Use ISO format.", error_code="INVALID_DATE_FORMAT") from None
-
-    new_start_time_dt = local_dt.astimezone(pytz.UTC)
-
-    if new_start_time_dt <= timezone.now():
-        raise ValidationError("Start time must be in the future", error_code="INVALID_START_TIME")
-
-    # Refresh the runtime snapshot too — the programme's blocks may have changed,
-    # and a stale runtime drives end_time() (and the past-schedule filter) wrongly.
-    schedule.start_time = new_start_time_dt
+    schedule.start_time = _future_start(data)
+    # Refresh the runtime snapshot: the programme's blocks may have changed, and a stale
+    # runtime drives end_time() (and the past-schedule filter) wrongly.
     schedule.runtime = schedule.programme.get_runtime()
     schedule.lead_in = data.lead_in
     schedule.preshow = preshow.clean([step.dict() for step in data.preshow])
     _reject_overlap(schedule)
     schedule.save(update_fields=["start_time", "runtime", "lead_in", "preshow"])
-
-    return Status(
-        200,
-        ScheduleCreateResponseSchema(
-            message="Schedule updated successfully", data=ScheduleDataSchema(schedule=serialize_schedule(schedule))
-        ),
-    )
+    return _saved(200, "Schedule updated successfully", schedule)

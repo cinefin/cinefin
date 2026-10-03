@@ -1,9 +1,6 @@
 <script lang="ts">
-	// Library source — the ONE server films come from. A library takes a single
-	// server: two sources would race for the same film (both plugins match on
-	// tmdbid globally), so the last sync would silently overwrite the other's
-	// file path, resolution and tracks. Swapping servers is Remove-then-Add.
-	import { onDestroy } from 'svelte';
+	// The ONE server films come from: two would race for the same film (both match on tmdbid), the
+	// last sync silently overwriting the other's paths and tracks. Swapping servers is Remove, then Add.
 	import {
 		ArrowRight,
 		BadgeCheck,
@@ -21,15 +18,14 @@
 		Trash2
 	} from '@lucide/svelte';
 	import { base } from '$app/paths';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
 	import { query } from '$lib/api/query.svelte';
 	import { JobStream, jobIsActive, unwrapLoose, type ApiJob, type JobEvent } from '$lib/jobs';
 	import { showToast } from '$lib/toast.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import { relativeTime } from '$lib/format';
-	import { raw, type SettingsStore } from '$lib/settings/form.svelte';
+	import { attempt, errorText, raw, runCheck, type SettingsStore } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
-	import { fade } from 'svelte/transition';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
@@ -39,15 +35,17 @@
 	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
-	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import CheckResult from './CheckResult.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import Disclosure from './Disclosure.svelte';
+	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import SectionTabs from './SectionTabs.svelte';
+	import TabPanel from './TabPanel.svelte';
 
 	interface Props {
 		store: SettingsStore;
-		confirm: (message: string, opts?: { confirmLabel?: string }) => Promise<boolean>;
+		confirm: ConfirmDialog['confirm'];
 	}
 	let { store, confirm }: Props = $props();
 
@@ -57,32 +55,23 @@
 	];
 	let tab = $state('source');
 
-	// TMDB is the library's metadata source (sync matching + fill-in) and powers trailer discovery;
-	// the key rides the page's main settings form (trailers.tmdb_api_key).
+	// The TMDB key rides the page's Save bar (trailers.tmdb_api_key).
 	let tmdbTesting = $state(false);
 	let tmdbResult = $state<CheckState>(null);
 
 	async function testTmdb() {
 		tmdbTesting = true;
 		tmdbResult = { state: 'pending', message: 'Testing…' };
-		try {
-			const res = await raw(
+		tmdbResult = await runCheck(() =>
+			raw(
 				api.POST('/api/v2/settings/test-tmdb/', {
 					body: { api_key: store.trailers.tmdb_api_key.trim() || null }
 				})
-			);
-			tmdbResult = { state: res.ok ? 'ok' : 'error', message: res.message };
-		} catch (e) {
-			tmdbResult = { state: 'error', message: e instanceof Error ? e.message : 'Test failed' };
-		} finally {
-			tmdbTesting = false;
-		}
+			)
+		);
+		tmdbTesting = false;
 	}
 
-	interface SourceType {
-		type_id: string;
-		label: string;
-	}
 	interface Source {
 		id: number;
 		name: string;
@@ -93,12 +82,11 @@
 		last_sync: string | null;
 		movie_count: number;
 	}
-	interface TheSource {
-		source: Source | null;
-		types: SourceType[];
-	}
-
-	const sourceQ = query(() => unwrapLoose<TheSource>(api.GET('/api/v2/sync/source')));
+	const sourceQ = query(() =>
+		unwrapLoose<{ source: Source | null; types: { type_id: string; label: string }[] }>(
+			api.GET('/api/v2/sync/source')
+		)
+	);
 	const source = $derived(sourceQ.data?.source ?? null);
 	const types = $derived(sourceQ.data?.types ?? []);
 
@@ -116,14 +104,12 @@
 			onProgress: apply,
 			onComplete: (event) => {
 				apply(event);
-				// The receipt and "last sync" both come from the DB, and the log
-				// only arrives with the full row.
+				// The receipt, "last sync" and the log come with the full row.
 				void loadCurrentJob();
 				void sourceQ.refresh();
 				invalidate(['sync', 'movies']);
 			},
-			// Reconnects reconcile against the DB: a run that finished while the
-			// stream was down never sends a complete event on the new connection.
+			// A run that finished while the stream was down never sends its complete event.
 			onOpen: () => void loadCurrentJob()
 		}
 	);
@@ -131,7 +117,6 @@
 		stream.open();
 		return () => stream.close();
 	});
-	onDestroy(() => stream.close());
 
 	async function loadCurrentJob() {
 		try {
@@ -140,29 +125,21 @@
 			);
 			job = data.jobs?.[0] ?? null;
 		} catch {
-			// The last run is garnish; the card works without it.
+			// Garnish: the card works without the last run.
 		}
 	}
 
 	const receipt = $derived.by(() => {
 		const counts = job?.counts;
 		if (!counts) return '';
-		const parts: string[] = [];
-		for (const [key, label] of [
-			['added', 'added'],
-			['updated', 'updated'],
-			['removed', 'removed'],
-			['unmatched', 'unmatched'],
-			['failed', 'failed']
-		] as const) {
-			const value = (counts as Record<string, number>)[key];
-			if (value) parts.push(`${value} ${label}`);
-		}
+		const parts = ['added', 'updated', 'removed', 'unmatched', 'failed']
+			.map((key) => [(counts as Record<string, number>)[key], key] as const)
+			.filter(([n]) => n)
+			.map(([n, key]) => `${n} ${key}`);
 		return parts.length ? parts.join(' · ') : 'nothing changed';
 	});
 
-	// ── What changed on the last run ─────────────────────────────────────────
-	// The run receipt (Job.counts.changes) carries up to 50 titles per bucket.
+	// What the last run changed: Job.counts.changes carries up to 50 titles per bucket.
 	let changesOpen = $state(false);
 	const CHANGE_GROUPS = [
 		{ key: 'added', label: 'Added', icon: FilePlus2, link: true },
@@ -177,98 +154,89 @@
 			(g) => g.titles.length
 		);
 	});
-	const hasChanges = $derived(changeGroups.length > 0);
 
 	let busy = $state('');
 
+	// Runs one of the card's actions, marking it busy until it settles.
+	async function busyWith(key: string, fail: string, fn: () => Promise<unknown>) {
+		busy = key;
+		await attempt(fn, fail);
+		busy = '';
+	}
+
+	const films = (n: number) => `${n} ${n === 1 ? 'film' : 'films'}`;
+
 	async function syncNow(deep = false) {
 		if (!source) return;
-		busy = deep ? 'deep' : 'sync';
-		try {
+		const source_id = source.id;
+		await busyWith(deep ? 'deep' : 'sync', 'Could not start the sync', async () => {
 			await unwrapLoose(
 				api.POST('/api/v2/sync/sources/{source_id}/runs', {
-					params: { path: { source_id: source.id } },
+					params: { path: { source_id } },
 					body: { operation: 'sync', params: deep ? { deep: true } : {}, max_attempts: 1 }
 				})
 			);
 			showToast(deep ? 'Full re-scan started' : 'Sync started', 'success');
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not start the sync', 'error');
-		} finally {
-			busy = '';
-		}
+		});
 	}
 
 	async function cancelRun() {
 		if (!source) return;
-		try {
-			await unwrapLoose(
-				api.DELETE('/api/v2/sync/sources/{source_id}/runs/current', {
-					params: { path: { source_id: source.id } }
-				})
-			);
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not cancel', 'error');
-		}
+		const path = { source_id: source.id };
+		await attempt(
+			() =>
+				unwrapLoose(
+					api.DELETE('/api/v2/sync/sources/{source_id}/runs/current', { params: { path } })
+				),
+			'Could not cancel'
+		);
 	}
 
 	async function findCertificates() {
-		busy = 'ratings';
-		try {
+		await busyWith('ratings', 'Could not start the lookup', async () => {
 			await unwrap(api.POST('/api/v2/trailers/ratings/update', { body: { scope: 'movies' } }));
 			showToast('Looking up missing certificates', 'success');
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not start the lookup', 'error');
-		} finally {
-			busy = '';
-		}
+		});
 	}
 
 	async function testConnection() {
 		if (!source) return;
-		busy = 'test';
-		try {
+		const source_id = source.id;
+		await busyWith('test', 'Could not reach the server', async () => {
 			const data = await unwrapLoose<{ ok: boolean; message: string }>(
-				api.POST('/api/v2/sync/sources/{source_id}/test', {
-					params: { path: { source_id: source.id } }
-				})
+				api.POST('/api/v2/sync/sources/{source_id}/test', { params: { path: { source_id } } })
 			);
 			showToast(
 				data.message || (data.ok ? 'Connected' : 'Could not connect'),
 				data.ok ? 'success' : 'error'
 			);
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not reach the server', 'error');
-		} finally {
-			busy = '';
-		}
+		});
 	}
 
-	// Removal opens a dialog so the operator can also delete the source's films
-	// (otherwise they stay, orphaned) — see confirmRemoveSource.
+	// Removal asks in a dialog, which can also delete the source's films (else they stay, orphaned).
 	let removeOpen = $state(false);
 	let removeAlsoMovies = $state(false);
 	let removing = $state(false);
 
 	function removeSource() {
-		if (!source) return;
 		removeAlsoMovies = false;
-		removeOpen = true;
+		removeOpen = !!source;
 	}
 
 	async function confirmRemoveSource() {
 		if (!source) return;
+		const source_id = source.id;
 		removing = true;
-		try {
+		await attempt(async () => {
 			const res = await unwrapLoose<{ movies_deleted?: number }>(
 				api.DELETE('/api/v2/sync/sources/{source_id}', {
-					params: { path: { source_id: source.id }, query: { delete_movies: removeAlsoMovies } }
+					params: { path: { source_id }, query: { delete_movies: removeAlsoMovies } }
 				})
 			);
 			const n = res?.movies_deleted ?? 0;
 			showToast(
 				removeAlsoMovies && n > 0
-					? `Library source removed and ${n} ${n === 1 ? 'film' : 'films'} deleted`
+					? `Library source removed and ${films(n)} deleted`
 					: 'Library source removed',
 				'success'
 			);
@@ -276,20 +244,17 @@
 			void sourceQ.load();
 			invalidate('sync');
 			if (removeAlsoMovies) invalidate('movies');
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not remove the source', 'error');
-		} finally {
-			removing = false;
-		}
+		}, 'Could not remove the source');
+		removing = false;
 	}
 
-	// Full wipe: delete every film in the library (any source, incl. orphans).
+	// Deletes every film in the library (any source, orphans too).
 	async function clearLibrary() {
 		let preview: { total: number; in_use: number };
 		try {
 			preview = await unwrap(api.GET('/api/v2/movies/clear-library'));
 		} catch (e) {
-			showToast(toApiError(e).message || 'Could not read the library', 'error');
+			showToast(errorText(e, 'Could not read the library'), 'error');
 			return;
 		}
 		if (preview.total === 0) {
@@ -301,41 +266,35 @@
 				? ` ${preview.in_use} ${preview.in_use === 1 ? 'is' : 'are'} used in programmes and will be removed from them.`
 				: '';
 		const ok = await confirm(
-			`Delete all ${preview.total} ${preview.total === 1 ? 'film' : 'films'} from the library?${used} This cannot be undone.`,
+			`Delete all ${films(preview.total)} from the library?${used} This cannot be undone.`,
 			{ confirmLabel: 'Delete all' }
 		);
 		if (!ok) return;
-		try {
+		await attempt(async () => {
 			const data = await unwrap(api.POST('/api/v2/movies/clear-library'));
-			showToast(`Deleted ${data.deleted} ${data.deleted === 1 ? 'film' : 'films'}`, 'success');
+			showToast(`Deleted ${films(data.deleted)}`, 'success');
 			invalidate('movies');
 			void sourceQ.load();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not clear the library', 'error');
-		}
+		}, 'Could not clear the library');
 	}
 
-	// Sync-now caret menu + the separate "More" menu (spec: two groups).
+	// The Sync now caret's menu, and the separate More menu.
+	const idle = $derived(busy === '');
 	const syncMenuItems = $derived<MenuItem[]>([
 		{
 			label: 'Full re-scan',
 			icon: RotateCw,
 			onclick: () => void syncNow(true),
-			disabled: running || busy !== ''
+			disabled: running || !idle
 		}
 	]);
 	const moreItems = $derived<MenuItem[]>([
-		{
-			label: 'Test connection',
-			icon: Plug,
-			onclick: () => void testConnection(),
-			disabled: busy !== ''
-		},
+		{ label: 'Test connection', icon: Plug, onclick: () => void testConnection(), disabled: !idle },
 		{
 			label: 'Find certificates',
 			icon: BadgeCheck,
 			onclick: () => void findCertificates(),
-			disabled: busy !== ''
+			disabled: !idle
 		},
 		{ separator: true },
 		{ label: 'Edit source', icon: Pencil, onclick: openEdit, disabled: running },
@@ -344,15 +303,9 @@
 			icon: Trash2,
 			danger: true,
 			onclick: () => void clearLibrary(),
-			disabled: running || busy !== ''
+			disabled: running || !idle
 		},
-		{
-			label: 'Remove source',
-			icon: Trash2,
-			danger: true,
-			onclick: () => removeSource(),
-			disabled: running
-		}
+		{ label: 'Remove source', icon: Trash2, danger: true, onclick: removeSource, disabled: running }
 	]);
 
 	let formOpen = $state(false);
@@ -363,28 +316,23 @@
 	let fLibs = $state<string[]>([]);
 	let saving = $state(false);
 
-	// Libraries come from probing the server. `available` is null until a probe
-	// runs; `manual` is the typed-names fallback for when it can't be reached.
+	// `available` (from probing the server) is null until a probe runs; `manual` is the typed-names
+	// fallback for when it can't be reached.
 	let available = $state<string[] | null>(null);
 	let probing = $state(false);
 	let probeMsg = $state('');
 	let manual = $state(false);
 	let manualText = $state('');
 
-	function splitLibs(csv: string): string[] {
-		return csv
+	const splitLibs = (csv: string) =>
+		csv
 			.split(',')
 			.map((s) => s.trim())
 			.filter(Boolean);
-	}
 
-	// The whole picklist: what the server reported plus anything already chosen
-	// (so a saved library the server no longer lists never silently drops).
-	const libOptions = $derived.by(() => {
-		const set = new Set<string>(available ?? []);
-		for (const l of fLibs) set.add(l);
-		return [...set];
-	});
+	// What the server reported plus anything already chosen, so a saved library it no longer lists
+	// never silently drops.
+	const libOptions = $derived([...new Set([...(available ?? []), ...fLibs])]);
 
 	function resetLibs(csv: string) {
 		fLibs = splitLibs(csv);
@@ -398,15 +346,18 @@
 		fLibs = fLibs.includes(name) ? fLibs.filter((l) => l !== name) : [...fLibs, name];
 	}
 
+	function serverMissing(): boolean {
+		const missing = !fUrl.trim()
+			? 'The server URL is required'
+			: !source && !fToken.trim()
+				? 'An API token is required'
+				: '';
+		if (missing) showToast(missing, 'error');
+		return !!missing;
+	}
+
 	async function fetchLibraries() {
-		if (!fUrl.trim()) {
-			showToast('The server URL is required', 'error');
-			return;
-		}
-		if (!source && !fToken.trim()) {
-			showToast('An API token is required', 'error');
-			return;
-		}
+		if (serverMissing()) return;
 		probing = true;
 		probeMsg = '';
 		try {
@@ -430,47 +381,37 @@
 			probeMsg = available.length ? '' : 'The server reported no movie libraries.';
 		} catch (e) {
 			available = null;
-			probeMsg = toApiError(e).message || 'Could not reach the server';
+			probeMsg = errorText(e, 'Could not reach the server');
 		} finally {
 			probing = false;
 		}
 	}
 
-	function openAdd(typeId: string) {
-		fType = typeId;
-		fName = types.find((t) => t.type_id === typeId)?.label ?? typeId;
-		fUrl = '';
+	function openForm(type: string, name: string, url = '', libraries = 'Movies') {
+		fType = type;
+		fName = name;
+		fUrl = url;
 		fToken = '';
-		resetLibs('Movies');
+		resetLibs(libraries);
 		formOpen = true;
 	}
 
+	const openAdd = (typeId: string) =>
+		openForm(typeId, types.find((t) => t.type_id === typeId)?.label ?? typeId);
+
 	function openEdit() {
-		if (!source) return;
-		fType = source.sync_type;
-		fName = source.name;
-		fUrl = source.url;
-		fToken = '';
-		resetLibs(source.libraries);
-		formOpen = true;
+		if (source) openForm(source.sync_type, source.name, source.url, source.libraries);
 	}
 
 	async function save() {
-		if (!fUrl.trim()) {
-			showToast('The server URL is required', 'error');
-			return;
-		}
-		if (!source && !fToken.trim()) {
-			showToast('An API token is required', 'error');
-			return;
-		}
+		if (serverMissing()) return;
 		const libraries = (manual ? splitLibs(manualText) : fLibs).join(',');
 		if (!libraries) {
 			showToast('Choose at least one library', 'error');
 			return;
 		}
 		saving = true;
-		try {
+		await attempt(async () => {
 			if (source) {
 				await unwrapLoose(
 					api.PATCH('/api/v2/sync/sources/{source_id}', {
@@ -502,30 +443,15 @@
 			formOpen = false;
 			void sourceQ.load();
 			invalidate('sync');
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not save the source', 'error');
-		} finally {
-			saving = false;
-		}
+		}, 'Could not save the source');
+		saving = false;
 	}
 </script>
 
-<Tabs
-	tabs={TABS}
-	value={tab}
-	label="Library settings"
-	onselect={(id) => (tab = id)}
-	panelId={(id) => `lt-${id}`}
-/>
+<SectionTabs tabs={TABS} bind:value={tab} label="Library settings" prefix="lt" />
 
 {#if tab === 'source'}
-	<div
-		role="tabpanel"
-		id="lt-source"
-		aria-labelledby="tab-source"
-		class="mt-4"
-		in:fade={{ duration: 120 }}
-	>
+	<TabPanel prefix="lt" tab="source" class="mt-4">
 		{#if sourceQ.loading}
 			<Spinner label="Loading the library source…" />
 		{:else if sourceQ.error}
@@ -681,7 +607,7 @@
 							<span>{source.last_sync ? relativeTime(source.last_sync) : 'never'}</span>
 							<span class="text-faint">·</span>
 							<span class="font-mono text-xs">{receipt}</span>
-							{#if hasChanges}
+							{#if changeGroups.length}
 								<button
 									type="button"
 									class="ml-1 inline-flex items-center gap-1 text-xs text-accent hover:underline"
@@ -699,9 +625,6 @@
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2 border-t border-border p-3">
-					<!-- Split button: Sync now (background incremental) + a caret for the
-					     re-scan variant. A separate "More" menu holds the rest, so the row
-					     stays one line instead of six wrapping buttons. -->
 					<div class="inline-flex items-stretch">
 						<Button
 							variant="primary"
@@ -734,15 +657,9 @@
 				{/if}
 			</section>
 		{/if}
-	</div>
+	</TabPanel>
 {:else if tab === 'metadata'}
-	<div
-		role="tabpanel"
-		id="lt-metadata"
-		aria-labelledby="tab-metadata"
-		class="mt-4 max-w-xl"
-		in:fade={{ duration: 120 }}
-	>
+	<TabPanel prefix="lt" tab="metadata" class="mt-4 max-w-xl">
 		<Field label="TMDB API key" forId="set-tmdb-key" dirty={store.isDirty('trailers.tmdb_api_key')}>
 			<div class="flex gap-2">
 				<Input
@@ -783,10 +700,9 @@
 				higher setting is only used when a better source exists.
 			{/snippet}
 		</Field>
-	</div>
+	</TabPanel>
 {/if}
 
-<!-- What changed on the last completed sync (Job.counts.changes). -->
 <Dialog bind:open={changesOpen} title="Changes since last sync" size="lg">
 	{#if source}
 		<p class="mb-4 text-sm text-muted">
@@ -847,8 +763,7 @@
 			<label class="flex items-start gap-2">
 				<input type="checkbox" bind:checked={removeAlsoMovies} class="mt-0.5" />
 				<span>
-					Also delete its {source.movie_count}
-					{source.movie_count === 1 ? 'film' : 'films'} from the library
+					Also delete its {films(source.movie_count)} from the library
 				</span>
 			</label>
 			<p class="text-xs text-muted">

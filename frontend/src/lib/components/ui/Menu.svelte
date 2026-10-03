@@ -1,5 +1,4 @@
 <script lang="ts" module>
-	import type { Component } from 'svelte';
 	import type { LucideIcon } from '@lucide/svelte';
 
 	export type MenuItem =
@@ -15,20 +14,17 @@
 </script>
 
 <script lang="ts">
-	/**
-	 * Menu — a button that opens a small popover of actions (spec §06: 2px
-	 * corners, quiet fills, a surface rung on hover; no movement). Closes on
-	 * outside click, Escape, or choosing an item. Used on its own ("More ▾") and
-	 * as the caret half of a split button (`caretOnly`, attached to a primary).
-	 */
+	// A button that opens a small popover of actions; closes on outside click, Escape or a choice.
+	// Used on its own ("More ▾") and as the caret half of a split button (`caretOnly`).
 	import { ChevronDown } from '@lucide/svelte';
+	import { buttonClasses, type ButtonVariant } from './button-classes';
 
 	interface Props {
 		items: MenuItem[];
 		/** Trigger label; omit with `caretOnly` for the split-button caret. */
 		label?: string;
 		icon?: LucideIcon;
-		variant?: 'primary' | 'default' | 'ghost' | 'danger';
+		variant?: ButtonVariant;
 		size?: 'sm' | 'md';
 		/** Which edge the popover aligns to. */
 		align?: 'left' | 'right';
@@ -72,23 +68,8 @@
 		item.onclick();
 	}
 
-	const base =
-		'inline-flex items-center justify-center gap-1.5 rounded-md font-medium select-none ' +
-		'transition-colors active:brightness-90 disabled:opacity-45 disabled:pointer-events-none whitespace-nowrap';
-	const sizes: Record<string, string> = {
-		sm: 'h-7 px-2.5 text-xs',
-		md: 'h-8 px-3.5 text-[0.84375rem]'
-	};
-	const variants: Record<string, string> = {
-		primary: 'bg-accent text-on-accent hover:bg-accent-hover',
-		default:
-			'bg-surface-2 text-text border border-border-strong hover:bg-surface-3 active:bg-shell active:brightness-100',
-		ghost: 'text-muted hover:text-text hover:bg-surface-2',
-		danger:
-			'bg-transparent text-danger border border-border-strong hover:bg-danger/10 hover:border-danger/60'
-	};
 	const caretPad = $derived(caretOnly ? (size === 'sm' ? 'px-1.5' : 'px-2') : '');
-	const triggerCls = $derived(`${base} ${sizes[size]} ${variants[variant]} ${caretPad} ${cls}`);
+	const triggerCls = $derived(`${buttonClasses(variant, size)} ${caretPad} ${cls}`);
 </script>
 
 <svelte:window onclick={onWindowClick} onkeydown={onKeydown} />

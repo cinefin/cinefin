@@ -2,22 +2,19 @@
 	import { RotateCcw, SlidersHorizontal } from '@lucide/svelte';
 	import type { KioskController } from './controller.svelte';
 
-	interface Props {
-		kiosk: KioskController;
-		oncursor: (visible: boolean) => void;
-	}
-	let { kiosk, oncursor }: Props = $props();
+	let { kiosk, oncursor }: { kiosk: KioskController; oncursor: (visible: boolean) => void } =
+		$props();
 
 	const PICKER_REVEAL_MS = 4000;
 	const PICKER_IDLE_CLOSE_MS = 30000;
 
 	const layouts = [
-		{ id: 'auto', label: 'Auto - picks by schedule', glyph: 'glyph-auto', cells: 4, wide: true },
-		{ id: 'wall', label: 'Poster wall', glyph: 'glyph-wall', cells: 6, wide: false },
-		{ id: 'spotlight', label: 'Spotlight', glyph: 'glyph-spotlight', cells: 1, wide: false },
-		{ id: 'split', label: 'Split', glyph: 'glyph-split', cells: 2, wide: false },
-		{ id: 'board', label: 'Schedule board', glyph: 'glyph-board', cells: 4, wide: false },
-		{ id: 'tonight', label: 'Tonight', glyph: 'glyph-tonight', cells: 1, wide: false }
+		{ id: 'auto', label: 'Auto - picks by schedule', cells: 4 },
+		{ id: 'wall', label: 'Poster wall', cells: 6 },
+		{ id: 'spotlight', label: 'Spotlight', cells: 1 },
+		{ id: 'split', label: 'Split', cells: 2 },
+		{ id: 'board', label: 'Schedule board', cells: 4 },
+		{ id: 'tonight', label: 'Tonight', cells: 1 }
 	];
 
 	let btnVisible = $state(false);
@@ -64,15 +61,11 @@
 	}
 
 	$effect(() => {
-		const opts = { passive: true } as const;
-		document.addEventListener('pointermove', reveal, opts);
-		document.addEventListener('pointerdown', reveal, opts);
-		document.addEventListener('touchstart', reveal, opts);
+		const events = ['pointermove', 'pointerdown', 'touchstart'] as const;
+		for (const ev of events) document.addEventListener(ev, reveal, { passive: true });
 		document.addEventListener('keydown', onKeydown);
 		return () => {
-			document.removeEventListener('pointermove', reveal);
-			document.removeEventListener('pointerdown', reveal);
-			document.removeEventListener('touchstart', reveal);
+			for (const ev of events) document.removeEventListener(ev, reveal);
 			document.removeEventListener('keydown', onKeydown);
 			if (revealTimer) clearTimeout(revealTimer);
 			if (idleTimer) clearTimeout(idleTimer);
@@ -107,6 +100,47 @@
 	<SlidersHorizontal size={17} />
 </button>
 
+{#snippet dwell(key: 'spotlightSecs' | 'wallPageSecs', label: string, aria: string)}
+	<div class="picker-field">
+		<span>{label}</span>
+		<div class="picker-times">
+			<input
+				class="picker-num"
+				type="number"
+				min="5"
+				inputmode="numeric"
+				aria-label={aria}
+				value={kiosk.prefs[key]}
+				onchange={(e) => setDwell(key, e.currentTarget.value)}
+			/>
+			<span class="picker-unit">s</span>
+		</div>
+	</div>
+{/snippet}
+
+{#snippet toggle(key: 'takeover' | 'night', label: string)}
+	<label class="picker-toggle">
+		<input
+			type="checkbox"
+			checked={kiosk.prefs[key]}
+			onchange={(e) => {
+				kiosk.setPref(key, e.currentTarget.checked);
+				armIdleClose();
+			}}
+		/>
+		<span>{label}</span>
+	</label>
+{/snippet}
+
+{#snippet time(key: 'nightStart' | 'nightEnd', aria: string)}
+	<input
+		type="time"
+		aria-label={aria}
+		value={kiosk.prefs[key]}
+		onchange={(e) => setNightTime(key, e.currentTarget.value)}
+	/>
+{/snippet}
+
 {#if open}
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
@@ -126,11 +160,11 @@
 					<button
 						type="button"
 						class="picker-choice"
-						class:choice-auto={l.wide}
+						class:choice-auto={l.id === 'auto'}
 						class:active={kiosk.layout === l.id}
 						onclick={() => pickLayout(l.id)}
 					>
-						<span class="choice-glyph {l.glyph}" aria-hidden="true">
+						<span class="choice-glyph glyph-{l.id}" aria-hidden="true">
 							{#each Array(l.cells), i (i)}<i></i>{/each}
 						</span>
 						<span class="choice-label">{l.label}</span>
@@ -138,75 +172,17 @@
 				{/each}
 			</div>
 			<div class="picker-divider"></div>
-			<div class="picker-field">
-				<span>Spotlight dwell</span>
-				<div class="picker-times">
-					<input
-						class="picker-num"
-						type="number"
-						min="5"
-						inputmode="numeric"
-						aria-label="Spotlight slide dwell in seconds"
-						value={kiosk.prefs.spotlightSecs}
-						onchange={(e) => setDwell('spotlightSecs', e.currentTarget.value)}
-					/>
-					<span class="picker-unit">s</span>
-				</div>
-			</div>
-			<div class="picker-field">
-				<span>Poster-wall page</span>
-				<div class="picker-times">
-					<input
-						class="picker-num"
-						type="number"
-						min="5"
-						inputmode="numeric"
-						aria-label="Poster-wall page dwell in seconds"
-						value={kiosk.prefs.wallPageSecs}
-						onchange={(e) => setDwell('wallPageSecs', e.currentTarget.value)}
-					/>
-					<span class="picker-unit">s</span>
-				</div>
-			</div>
+			{@render dwell('spotlightSecs', 'Spotlight dwell', 'Spotlight slide dwell in seconds')}
+			{@render dwell('wallPageSecs', 'Poster-wall page', 'Poster-wall page dwell in seconds')}
 			<div class="picker-divider"></div>
-			<label class="picker-toggle">
-				<input
-					type="checkbox"
-					checked={kiosk.prefs.takeover}
-					onchange={(e) => {
-						kiosk.setPref('takeover', e.currentTarget.checked);
-						armIdleClose();
-					}}
-				/>
-				<span>Now Showing takeover</span>
-			</label>
-			<label class="picker-toggle">
-				<input
-					type="checkbox"
-					checked={kiosk.prefs.night}
-					onchange={(e) => {
-						kiosk.setPref('night', e.currentTarget.checked);
-						armIdleClose();
-					}}
-				/>
-				<span>Night hours</span>
-			</label>
+			{@render toggle('takeover', 'Now Showing takeover')}
+			{@render toggle('night', 'Night hours')}
 			<div class="picker-field">
 				<span>Quiet</span>
 				<div class="picker-times">
-					<input
-						type="time"
-						aria-label="Night hours start"
-						value={kiosk.prefs.nightStart}
-						onchange={(e) => setNightTime('nightStart', e.currentTarget.value)}
-					/>
+					{@render time('nightStart', 'Night hours start')}
 					<span>&ndash;</span>
-					<input
-						type="time"
-						aria-label="Night hours end"
-						value={kiosk.prefs.nightEnd}
-						onchange={(e) => setNightTime('nightEnd', e.currentTarget.value)}
-					/>
+					{@render time('nightEnd', 'Night hours end')}
 				</div>
 			</div>
 			<div class="picker-divider"></div>

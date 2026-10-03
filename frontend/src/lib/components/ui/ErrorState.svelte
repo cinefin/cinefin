@@ -23,9 +23,6 @@
 	}: Props = $props();
 </script>
 
-<!-- Same shape as EmptyState (centred, plain bordered panel); the danger
-     tint and the icon carry the "this failed" signal, and the region's own
-     error message is the text — no invented label. -->
 <div
 	class="flex flex-col items-center border border-danger/40 bg-danger/5 px-4 text-center
 		{compact ? 'py-4' : 'py-8'} {cls}"

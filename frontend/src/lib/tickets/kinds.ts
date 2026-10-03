@@ -90,55 +90,32 @@ interface Kind {
 	inCell: boolean;
 }
 
+const kind = (label: string, icon: LucideIcon, inCell: boolean, make: Kind['make']): Kind => ({
+	label,
+	icon,
+	inCell,
+	make
+});
+
 export const KINDS: Record<string, Kind> = {
-	text: {
-		label: 'Text',
-		icon: Type,
-		inCell: true,
-		make: () => ({ type: 'text', content: 'Text' })
-	},
-	image: { label: 'Image', icon: Image, inCell: true, make: () => ({ type: 'image' }) },
-	rating: {
-		label: 'Rating symbol',
-		icon: BadgeCheck,
-		inCell: true,
-		make: () => ({ type: 'rating', width: 25 })
-	},
-	qr: {
-		label: 'QR code',
-		icon: QrCode,
-		inCell: true,
-		make: () => ({ type: 'qr', mode: 'fun', width: 50 })
-	},
-	barcode: {
-		label: 'Barcode',
-		icon: Barcode,
-		inCell: false,
-		make: () => ({ type: 'barcode', content: '{ticket_no}' })
-	},
-	columns: {
-		label: 'Columns',
-		icon: Columns2,
-		inCell: false,
-		make: () => ({
-			type: 'columns',
-			widths: [1, 2],
-			cells: [
-				[{ type: 'qr', mode: 'fun', width: 100 }],
-				[
-					{ type: 'text', content: '{film_list}', align: 'left', bold: true },
-					{ type: 'text', content: 'Seat {seat}', align: 'left' }
-				]
+	text: kind('Text', Type, true, () => ({ type: 'text', content: 'Text' })),
+	image: kind('Image', Image, true, () => ({ type: 'image' })),
+	rating: kind('Rating symbol', BadgeCheck, true, () => ({ type: 'rating', width: 25 })),
+	qr: kind('QR code', QrCode, true, () => ({ type: 'qr', mode: 'fun', width: 50 })),
+	barcode: kind('Barcode', Barcode, false, () => ({ type: 'barcode', content: '{ticket_no}' })),
+	columns: kind('Columns', Columns2, false, () => ({
+		type: 'columns',
+		widths: [1, 2],
+		cells: [
+			[{ type: 'qr', mode: 'fun', width: 100 }],
+			[
+				{ type: 'text', content: '{film_list}', align: 'left', bold: true },
+				{ type: 'text', content: 'Seat {seat}', align: 'left' }
 			]
-		})
-	},
-	rule: { label: 'Divider', icon: Minus, inCell: true, make: () => ({ type: 'rule' }) },
-	spacer: {
-		label: 'Spacer',
-		icon: ArrowUpDown,
-		inCell: true,
-		make: () => ({ type: 'spacer', lines: 1 })
-	}
+		]
+	})),
+	rule: kind('Divider', Minus, true, () => ({ type: 'rule' })),
+	spacer: kind('Spacer', ArrowUpDown, true, () => ({ type: 'spacer', lines: 1 }))
 };
 
 export const kindOf = (el: TicketElement) => KINDS[el.type] ?? KINDS.text;

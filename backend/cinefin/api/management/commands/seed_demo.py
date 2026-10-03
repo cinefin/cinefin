@@ -127,15 +127,6 @@ class Command(BaseCommand):
         return removed
 
     def _seed(self, movie_count: int) -> dict:
-        counts = {
-            "movies": 0,
-            "bumpers": 0,
-            "templates": 0,
-            "programmes": 0,
-            "schedules": 0,
-            "tickets": 0,
-        }
-
         Settings.set("cinema.name", "The Demo Roxy")
         Settings.set("setup.completed", True)
 
@@ -166,31 +157,27 @@ class Command(BaseCommand):
                 sync_source=source,
                 date_added=timezone.now(),
             )
-            genres = [Genre.objects.get_or_create(name=g)[0] for g in genre_names]
-            movie.genres.set(genres)
+            movie.genres.set([Genre.objects.get_or_create(name=g)[0] for g in genre_names])
             movies.append(movie)
-            counts["movies"] += 1
 
-        bumpers = []
-        for name, duration in _DEMO_BUMPERS:
-            bumper = Bumper.objects.create(
+        bumpers = [
+            Bumper.objects.create(
                 title=f"{DEMO_PREFIX}{name}",
                 file_path=f"/demo/bumpers/{name.lower().replace(' ', '_')}.mp4",
                 duration=duration,
             )
-            bumpers.append(bumper)
-            counts["bumpers"] += 1
-
+            for name, duration in _DEMO_BUMPERS
+        ]
         templates = self._make_templates(bumpers)
-        counts["templates"] = len(templates)
-
         programmes = self._make_programmes(templates, movies, bumpers)
-        counts["programmes"] = len(programmes)
-
-        counts["schedules"] = self._make_schedules(programmes)
-        counts["tickets"] = self._make_tickets(programmes, movies)
-
-        return counts
+        return {
+            "movies": len(movies),
+            "bumpers": len(bumpers),
+            "templates": len(templates),
+            "programmes": len(programmes),
+            "schedules": self._make_schedules(programmes),
+            "tickets": self._make_tickets(programmes, movies),
+        }
 
     def _make_templates(self, bumpers) -> list:
         specs = [
@@ -275,38 +262,23 @@ class Command(BaseCommand):
             timezone.timedelta(days=-2),  # past
             timezone.timedelta(days=-7),  # past
         ]
-        made = 0
         for idx, offset in enumerate(offsets):
             programme = programmes[idx % len(programmes)]
-            start = now + offset
-            status = "completed" if offset.days < 0 else "scheduled"
             ProgrammeSchedule.objects.create(
                 programme=programme,
-                start_time=start,
+                start_time=now + offset,
                 runtime=programme.get_total_runtime_minutes() or 120,
-                status=status,
+                status="completed" if offset.days < 0 else "scheduled",
             )
-            made += 1
-        return made
+        return len(offsets)
 
     def _make_tickets(self, programmes, movies) -> int:
-        made = 0
         for i in range(6):
+            seat = f"{chr(ord('A') + i)}{i + 1}"
             if i % 2 == 0 and programmes:
                 programme = programmes[i % len(programmes)]
-                TicketIssue.issue(
-                    kind=TicketIssue.KIND_PROGRAMME,
-                    programme=programme,
-                    title=programme.name,
-                    seat=f"{chr(ord('A') + i)}{i + 1}",
-                )
+                TicketIssue.issue(kind=TicketIssue.KIND_PROGRAMME, programme=programme, title=programme.name, seat=seat)
             else:
                 movie = movies[i % len(movies)]
-                TicketIssue.issue(
-                    kind=TicketIssue.KIND_MOVIE,
-                    movie=movie,
-                    title=movie.title,
-                    seat=f"{chr(ord('A') + i)}{i + 1}",
-                )
-            made += 1
-        return made
+                TicketIssue.issue(kind=TicketIssue.KIND_MOVIE, movie=movie, title=movie.title, seat=seat)
+        return 6

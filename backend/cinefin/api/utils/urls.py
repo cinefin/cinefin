@@ -1,20 +1,10 @@
-"""Resolving Cinefin's own base URL for building streamed-media links.
-
-The base must be reachable by the remote playout host. Precedence: the
-``playout.server_url`` application setting, else the ``CINEFIN_SERVER_URL``
-Django setting/env.
-"""
+"""Cinefin's own base URL (reachable by the playout host) for building streamed-media links."""
 
 
 def cinefin_base_url() -> str:
-    """Configured streaming base URL, without a trailing slash.
-
-    A settings/DB lookup must never raise into URL building, so failures fall
-    back to the Django setting.
-    """
+    """``playout.server_url``, else the ``CINEFIN_SERVER_URL`` Django setting, without a trailing slash."""
     from django.conf import settings as django_settings
 
-    configured = ""
     try:
         from cinefin.api.models import Settings
 

@@ -64,16 +64,10 @@
 				.catch(() => [])
 		]);
 		if (term !== q.trim()) return;
-		hits = [
-			...films.map((m) => ({ kind: 'movie' as const, id: m.id, title: m.title, year: m.year })),
-			...trailers.map((t) => ({
-				kind: 'trailer' as const,
-				id: t.id,
-				title: t.title,
-				year: t.year
-			})),
-			...media.map((m) => ({ kind: 'media' as const, id: m.id, title: m.title }))
-		];
+		const as =
+			(kind: Kind) =>
+			({ id, title, year }: Omit<Hit, 'kind'>): Hit => ({ kind, id, title, year });
+		hits = [...films.map(as('movie')), ...trailers.map(as('trailer')), ...media.map(as('media'))];
 		searching = false;
 	}
 

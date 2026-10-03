@@ -27,11 +27,22 @@
 		rectangle: 'bg-warning/15 text-warning',
 		image: 'bg-surface-3 text-muted'
 	};
-
-	const iconBtn =
-		'inline-flex h-6 w-6 items-center justify-center rounded-sm text-faint ' +
-		'hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-35';
 </script>
+
+{#snippet action(Icon: typeof Copy, title: string, run: () => void, disabled = false, cls = '')}
+	<button
+		type="button"
+		class="inline-flex h-6 w-6 items-center justify-center rounded-sm text-faint hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-35 {cls}"
+		{title}
+		{disabled}
+		onclick={(e) => {
+			e.stopPropagation();
+			run();
+		}}
+	>
+		<Icon size={12} />
+	</button>
+{/snippet}
 
 {#if rows.length === 0}
 	<EmptyState
@@ -74,53 +85,24 @@
 						</p>
 					</div>
 					<div class="flex shrink-0 items-center gap-0.5">
-						<button
-							type="button"
-							class={iconBtn}
-							title="Duplicate (Ctrl+D)"
-							onclick={(e) => {
-								e.stopPropagation();
-								editor.setSelection([index]);
-								editor.duplicateSelected();
-							}}
-						>
-							<Copy size={12} />
-						</button>
-						<button
-							type="button"
-							class={iconBtn}
-							title="Move up"
-							disabled={index === 0}
-							onclick={(e) => {
-								e.stopPropagation();
-								editor.moveElement(index, -1);
-							}}
-						>
-							<ArrowUp size={12} />
-						</button>
-						<button
-							type="button"
-							class={iconBtn}
-							title="Move down"
-							disabled={index === rows.length - 1}
-							onclick={(e) => {
-								e.stopPropagation();
-								editor.moveElement(index, 1);
-							}}
-						>
-							<ArrowDown size={12} />
-						</button>
-						<button
-							type="button"
-							class="{iconBtn} hover:text-danger"
-							title="Delete"
-							onclick={(e) => {
-								e.stopPropagation();
-								editor.deleteElement(index);
-							}}
-						>
-							<Trash2 size={12} />
-						</button>
+						{@render action(Copy, 'Duplicate (Ctrl+D)', () => {
+							editor.setSelection([index]);
+							editor.duplicateSelected();
+						})}
+						{@render action(ArrowUp, 'Move up', () => editor.moveElement(index, -1), index === 0)}
+						{@render action(
+							ArrowDown,
+							'Move down',
+							() => editor.moveElement(index, 1),
+							index === rows.length - 1
+						)}
+						{@render action(
+							Trash2,
+							'Delete',
+							() => editor.deleteElement(index),
+							false,
+							'hover:text-danger'
+						)}
 					</div>
 				</div>
 			</li>

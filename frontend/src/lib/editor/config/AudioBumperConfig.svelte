@@ -4,76 +4,45 @@
 	import ConfigField from '../ConfigField.svelte';
 	import ConfigForm from '../ConfigForm.svelte';
 	import ConfigSelect from '../ConfigSelect.svelte';
-	import type { EditorBlock, EditorContext } from '../types';
+	import { featureOptions, type ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
+	let { block, ctx, commit }: ConfigProps = $props();
 
-	let { block, ctx, commit }: Props = $props();
+	const template = $derived(ctx.mode === 'template');
 
-	const featureOptions = $derived(
-		ctx.mode === 'template'
-			? Array.from({ length: Math.max(ctx.featureCount, 0) }, (_, i) => ({
-					value: String(i + 1),
-					label: `Feature ${i + 1}`
-				}))
-			: ctx.programmeMovies.map((m, i) => ({
-					value: String(m.id),
-					label: `Feature ${i + 1} (${m.title})`
-				}))
-	);
-
-	const selectedValue = $derived(
-		ctx.mode === 'template'
-			? block.content.bound_to_feature
-				? String(block.content.bound_to_feature)
-				: ''
-			: block.content.reference_movie_id
-				? String(block.content.reference_movie_id)
-				: ''
-	);
-
-	function chooseFeature(v: string): void {
+	function setOverride(picked: { id: number; title: string } | null): void {
 		commit(() => {
-			if (ctx.mode === 'template') {
-				block.content.bound_to_feature = v === '' ? null : parseInt(v, 10);
-			} else {
-				block.content.reference_movie_id = v === '' ? null : parseInt(v, 10);
-			}
+			block.content.bumper_id = picked?.id ?? null;
+			block.content.bumper_title = picked?.title ?? null;
 		});
 	}
 
 	async function pickOverride(): Promise<void> {
 		const picked = await ctx.pickBumper();
-		if (!picked) return;
-		commit(() => {
-			block.content.bumper_id = picked.id;
-			block.content.bumper_title = picked.title;
-		});
-	}
-
-	function clearOverride(): void {
-		commit(() => {
-			block.content.bumper_id = null;
-			block.content.bumper_title = null;
-		});
+		if (picked) setOverride(picked);
 	}
 </script>
 
 <ConfigForm>
 	<ConfigField label="For feature">
 		<ConfigSelect
-			value={selectedValue}
-			options={featureOptions}
+			value={template ? block.content.bound_to_feature : block.content.reference_movie_id}
+			options={template
+				? featureOptions(ctx.featureCount)
+				: ctx.programmeMovies.map((m, i) => ({
+						value: String(m.id),
+						label: `Feature ${i + 1} (${m.title})`
+					}))}
 			placeholder="Choose a feature…"
-			onchange={chooseFeature}
+			onnumber={(v) =>
+				commit(() => {
+					if (template) block.content.bound_to_feature = v;
+					else block.content.reference_movie_id = v;
+				})}
 		/>
 	</ConfigField>
 
-	{#if ctx.mode !== 'template'}
+	{#if !template}
 		<ConfigField label="Clip">
 			{#if block.content.bumper_id}
 				<span class="truncate text-sm" title={block.content.bumper_title || ''}>
@@ -86,12 +55,12 @@
 	{/if}
 
 	{#snippet actions()}
-		{#if ctx.mode !== 'template'}
+		{#if !template}
 			{#if block.content.bumper_id}
 				<Button size="sm" onclick={() => void pickOverride()}>
 					<ArrowLeftRight size={12} /> Change
 				</Button>
-				<Button size="sm" onclick={clearOverride}>
+				<Button size="sm" onclick={() => setOverride(null)}>
 					<X size={12} /> Back to auto
 				</Button>
 			{:else}

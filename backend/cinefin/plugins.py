@@ -193,13 +193,12 @@ def plugins_dir() -> Path:
 def _plugin_paths(root: Path) -> list[Path]:
     if not root.is_dir():
         return []
-    paths = []
-    for path in sorted(root.iterdir()):
-        if path.name.startswith(("_", ".", "test_")):
-            continue
-        if (path.is_file() and path.suffix == ".py") or (path.is_dir() and (path / "__init__.py").is_file()):
-            paths.append(path)
-    return paths
+    return [
+        path
+        for path in sorted(root.iterdir())
+        if not path.name.startswith(("_", ".", "test_"))
+        and ((path.is_file() and path.suffix == ".py") or (path.is_dir() and (path / "__init__.py").is_file()))
+    ]
 
 
 def _import_contrib(path: Path) -> None:

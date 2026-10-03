@@ -1,3 +1,15 @@
+<script lang="ts" module>
+	/** "2 items are unreachable and will be skipped: a; b" (the first three named). */
+	export function skippedText(warnings: unknown[]): string {
+		const n = warnings.length;
+		return (
+			`${n} item${n === 1 ? ' is' : 's are'} unreachable and will be skipped: ` +
+			warnings.slice(0, 3).join('; ') +
+			(n > 3 ? '…' : '')
+		);
+	}
+</script>
+
 <script lang="ts">
 	// Cue a programme: the one picker, opened from the playout bar and the remote on standby.
 	import { api, unwrap } from '$lib/api/client';
@@ -44,15 +56,7 @@
 		cueing = id;
 		try {
 			const warnings = await playout.cue(id);
-			if (warnings.length) {
-				const n = warnings.length;
-				showToast(
-					`Cued. ${n} item${n === 1 ? ' is' : 's are'} unreachable and will be skipped: ` +
-						warnings.slice(0, 3).join('; ') +
-						(n > 3 ? '…' : ''),
-					'warning'
-				);
-			}
+			if (warnings.length) showToast(`Cued. ${skippedText(warnings)}`, 'warning');
 			open = false;
 			oncued?.();
 		} catch (e) {

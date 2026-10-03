@@ -4,10 +4,7 @@
 	import Posters from './Posters.svelte';
 	import type { KioskController } from './controller.svelte';
 
-	interface Props {
-		kiosk: KioskController;
-	}
-	let { kiosk }: Props = $props();
+	let { kiosk }: { kiosk: KioskController } = $props();
 
 	const p = $derived(kiosk.playout);
 	const films = $derived(p ? kiosk.takeoverFilms(p) : []);

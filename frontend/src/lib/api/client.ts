@@ -111,25 +111,3 @@ export async function unwrap<T>(
 	}
 	return result.data.data as T;
 }
-
-/**
- * Typed fetch for the plain-Django JSON views outside the Ninja schema (e.g. /system/update-check).
- * Same credentials/CSRF as `api`. Not for /api/v2/ paths — those are typed, go through `api`.
- */
-export async function fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-	const headers = new Headers(init.headers);
-	headers.set('X-Requested-With', 'XMLHttpRequest');
-	const method = (init.method ?? 'GET').toUpperCase();
-	if (!SAFE_METHODS.has(method)) {
-		const token = getCsrfToken();
-		if (token) headers.set('X-CSRFToken', token);
-	}
-	let response: Response;
-	try {
-		response = await fetch(path, { credentials: 'same-origin', ...init, headers });
-	} catch (e) {
-		throw toApiError(e);
-	}
-	if (!response.ok) throw new ApiError(`Request failed (${response.status})`, response.status);
-	return (await response.json()) as T;
-}

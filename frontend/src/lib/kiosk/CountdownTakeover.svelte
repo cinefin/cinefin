@@ -5,25 +5,10 @@
 	import type { KioskController } from './controller.svelte';
 	import { fmtClock } from './time';
 
-	interface Props {
-		kiosk: KioskController;
-	}
-	let { kiosk }: Props = $props();
+	let { kiosk }: { kiosk: KioskController } = $props();
 
 	const screening = $derived(kiosk.countdownTarget);
-	const feats = $derived(screening ? kiosk.screeningFeatures(screening) : []);
-	const single = $derived(feats.length === 1 ? feats[0] : null);
-	const title = $derived(single ? single.title : (screening?.programme ?? ''));
-	const billTitles = $derived(feats.map((f) => f.title).join('  +  '));
-	const subLine = $derived(
-		single
-			? single.title !== screening?.programme
-				? (screening?.programme ?? '')
-				: ''
-			: feats.length > 1
-				? billTitles
-				: ''
-	);
+	const { feats, single, title, sub: subLine } = $derived(kiosk.bill(screening));
 	const clockText = $derived(screening ? kiosk.countdownClock(screening) : '');
 </script>
 

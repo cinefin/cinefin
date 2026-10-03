@@ -57,13 +57,9 @@ class PlayoutAgentService:
         return bool(base)
 
     @classmethod
-    def _request(
-        cls, method, path, json_body=None, timeout=ACTION_TIMEOUT, base_override=None, token_override=None
-    ) -> dict:
-        if base_override is not None:
-            base, token = base_override.rstrip("/"), (token_override or "")
-        else:
-            base, token = cls.resolve()
+    def _request(cls, method, path, json_body=None, timeout=ACTION_TIMEOUT, host=None) -> dict:
+        """Call the agent of ``host``, else of the active host."""
+        base, token = cls.host_target(host) if host is not None else cls.resolve()
         if not base:
             raise UnprocessableEntityError(
                 "No playout host is configured — add one on the Playout settings page",
@@ -150,8 +146,7 @@ class PlayoutAgentService:
         if host is None or host.kind != PlayoutHost.KIND_AGENT or not host.token:
             return False
         try:
-            base, token = cls.host_target(host)
-            cls._request("POST", "/unpair", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+            cls._request("POST", "/unpair", timeout=STATUS_TIMEOUT, host=host)
             return True
         except UnprocessableEntityError as e:
             logger.info("Unpairing %s skipped: %s", host.name, e.message)
@@ -174,66 +169,46 @@ class PlayoutAgentService:
     @classmethod
     def get_host_config(cls, host) -> dict:
         """The named host's launch config: autostart + graphics + audio."""
-        base, token = cls.host_target(host)
-        return cls._request("GET", "/hostconfig", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+        return cls._request("GET", "/hostconfig", timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
     def put_host_config(cls, host, config: dict) -> dict:
         """Replace the named host's launch config (agent validates + persists). Returns restart_required."""
-        base, token = cls.host_target(host)
-        return cls._request(
-            "PUT", "/hostconfig", json_body=config, timeout=ACTION_TIMEOUT, base_override=base, token_override=token
-        )
+        return cls._request("PUT", "/hostconfig", json_body=config, host=host)
 
     @classmethod
     def get_hardware(cls, host) -> dict:
         """The host's real device lists. Enumerated on demand, so slow — hence the longer timeout."""
-        base, token = cls.host_target(host)
-        return cls._request("GET", "/hardware", timeout=ACTION_TIMEOUT, base_override=base, token_override=token)
-
-    @classmethod
-    def get_hostconfig(cls) -> dict:
-        return cls._request("GET", "/hostconfig", timeout=STATUS_TIMEOUT)
+        return cls._request("GET", "/hardware", host=host)
 
     @classmethod
     def put_standby(cls, host, spec: dict) -> dict:
         """Send the host its standby spec (``services/standby.py``). Returns its standby status."""
-        base, token = cls.host_target(host)
-        return cls._request(
-            "PUT", "/standby", json_body=spec, timeout=STATUS_TIMEOUT, base_override=base, token_override=token
-        )
+        return cls._request("PUT", "/standby", json_body=spec, timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
     def enter_standby(cls, host) -> dict:
         """Put the host's player on standby now. Returns its standby status."""
-        base, token = cls.host_target(host)
-        return cls._request("POST", "/standby", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+        return cls._request("POST", "/standby", timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
     def test_card(cls, host, on: bool) -> dict:
-        """Show or hide the host's test card (its name, output and speaker boxes). Returns ``on``, ``off_in_s``."""
-        base, token = cls.host_target(host)
-        return cls._request(
-            "POST", "/testcard", json_body={"on": on}, timeout=STATUS_TIMEOUT, base_override=base, token_override=token
-        )
+        """Show or hide the host's test card. Returns ``on``, ``off_in_s``."""
+        return cls._request("POST", "/testcard", json_body={"on": on}, timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
     def test_sound(cls, host) -> dict:
-        """Play the host's left-then-right test tone. Returns its sequence; ConflictError while one plays or
-        when the player is not on standby."""
-        base, token = cls.host_target(host)
-        return cls._request("POST", "/testsound", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+        """Play the host's left-then-right test tone (ConflictError while one plays or off standby)."""
+        return cls._request("POST", "/testsound", timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
     def restart_host(cls, host) -> dict:
         """Restart the named host's mpv, so a changed launch config applies."""
-        base, token = cls.host_target(host)
-        return cls._request("POST", "/mpv/restart", base_override=base, token_override=token)
+        return cls._request("POST", "/mpv/restart", host=host)
 
     @classmethod
     def host_status(cls, host) -> dict:
-        base, token = cls.host_target(host)
-        return cls._request("GET", "/status", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+        return cls._request("GET", "/status", timeout=STATUS_TIMEOUT, host=host)
 
     @classmethod
     def start_mpv(cls) -> dict:

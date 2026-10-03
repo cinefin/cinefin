@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import type { SettingsStore } from './form.svelte';
 
 	interface Props {
 		label?: string;
@@ -7,6 +8,9 @@
 		hint?: string;
 		dirty?: boolean;
 		error?: string | null;
+		/** A settings-store field: its unsaved mark and save error come from the store. */
+		store?: SettingsStore;
+		field?: string;
 		class?: string;
 		children: Snippet;
 		hintSnippet?: Snippet;
@@ -16,12 +20,16 @@
 		label,
 		forId,
 		hint,
-		dirty = false,
-		error = null,
+		store,
+		field,
 		class: cls = '',
 		children,
-		hintSnippet
+		hintSnippet,
+		...own
 	}: Props = $props();
+
+	const dirty = $derived(own.dirty ?? (!!field && !!store?.isDirty(field)));
+	const error = $derived(own.error ?? (field ? store?.errorFor(field) : null));
 </script>
 
 <div class={cls}>

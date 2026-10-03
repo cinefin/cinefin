@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
 	import {
 		Check,
 		CircleCheck,
@@ -13,7 +12,6 @@
 		Square,
 		Trash2
 	} from '@lucide/svelte';
-	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
@@ -22,7 +20,7 @@
 	import { showToast } from '$lib/toast.svelte';
 	import { playout } from '$lib/stores/playout.svelte';
 	import { itemTypeLabel } from '$lib/item-types';
-	import { type SettingsStore } from '$lib/settings/form.svelte';
+	import { attempt, errorText, type SettingsStore } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
 	import type { PlayoutStatus } from '$lib/playout/phase';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -31,14 +29,17 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
-	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import Banner from '$lib/components/ui/Banner.svelte';
 	import AddPlayerWizard from '$lib/playout/AddPlayerWizard.svelte';
 	import CheckResult from './CheckResult.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import HostConfigPanel from './HostConfigPanel.svelte';
+	import SectionTabs from './SectionTabs.svelte';
+	import TabPanel from './TabPanel.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
+	import StoreToggle from '$lib/settings/StoreToggle.svelte';
+	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	interface Props {
@@ -47,8 +48,6 @@
 	}
 	let { store, confirm }: Props = $props();
 
-	// Players: each paired machine and its own screen and sound. Presentation:
-	// what every player shows (standby, subtitles) and where it streams from.
 	const TABS = [
 		{ id: 'players', label: 'Players' },
 		{ id: 'presentation', label: 'Presentation' }
@@ -57,9 +56,7 @@
 
 	const hosts = query(() => unwrap(api.GET('/api/v2/playout/hosts')));
 	const activeHost = $derived(hosts.data?.find((h) => h.is_active) ?? null);
-	const isAgent = $derived(activeHost?.kind !== 'local_socket');
 
-	// Live "what's on the player right now", from the shared playout feed.
 	$effect(() => playout.subscribe());
 	const liveProg = $derived(playout.status?.programme ?? null);
 	const idle = $derived(!liveProg);
@@ -72,32 +69,18 @@
 		return { label: liveProg?.name ?? 'On air', detail };
 	});
 
-	type AgentStatus = Awaited<ReturnType<typeof loadAgentStatusRaw>>;
-	let agentStatus = $state<AgentStatus | null>(null);
+	const fetchAgentStatus = () => unwrap(api.GET('/api/v2/playout/agent/status'));
+	let agentStatus = $state<Awaited<ReturnType<typeof fetchAgentStatus>> | null>(null);
 	let agentChecked = $state(false);
 
-	function loadAgentStatusRaw() {
-		return unwrap(api.GET('/api/v2/playout/agent/status'));
-	}
-
 	async function loadAgentStatus() {
-		if (!activeHost) {
-			agentStatus = null;
-			agentChecked = true;
-			return;
-		}
-		try {
-			agentStatus = await loadAgentStatusRaw();
-		} catch {
-			// Supplementary — the status lamp just reads "unreachable".
-			agentStatus = null;
-		}
+		// Supplementary: a failed probe just reads "Unreachable".
+		agentStatus = activeHost ? await fetchAgentStatus().catch(() => null) : null;
 		agentChecked = true;
 	}
 
-	type LampColour = 'green' | 'red' | 'amber' | 'neutral';
 	interface HostState {
-		colour: LampColour;
+		colour: 'green' | 'red' | 'amber' | 'neutral';
 		label: string;
 		pending: boolean;
 		detail?: string;
@@ -113,31 +96,24 @@
 			};
 		}
 		if (agentStatus.mpv_running) {
-			const bits = [
-				agentStatus.mpv_pid ? `pid ${agentStatus.mpv_pid}` : null,
-				agentStatus.mpv_mode || null
-			]
-				.filter(Boolean)
-				.join(' · ');
+			const { mpv_pid, mpv_mode } = agentStatus;
+			const bits = [mpv_pid && `pid ${mpv_pid}`, mpv_mode].filter(Boolean).join(' · ');
 			return { colour: 'green', label: 'Running', pending: false, detail: bits || undefined };
 		}
 		return { colour: 'amber', label: 'Stopped', pending: false };
 	});
 
-	// Re-probe when the active host (by id) changes, incl. the initial load.
+	// Re-probe when the active host changes (incl. the first load); until its own status arrives
+	// its lamp reads "Checking", not the previous host's result.
 	let lastActiveId = -1;
 	$effect(() => {
 		if (hosts.loading) return;
 		const id = activeHost?.id ?? 0;
 		if (id === lastActiveId) return;
 		lastActiveId = id;
-		// A different host: its lamp reads "Checking" until its own status arrives,
-		// not the previous host's result (or "Unreachable" for none).
 		agentChecked = false;
 		void loadAgentStatus();
 	});
-
-	// Re-probe on the real-time `invalidate` channel rather than polling.
 	$effect(() => onInvalidate('agent', () => void loadAgentStatus()));
 
 	async function reloadAll() {
@@ -146,27 +122,22 @@
 	}
 
 	let mpvBusy = $state<string | null>(null);
+	const MPV_ACTIONS = [
+		{ action: 'restart', Icon: RotateCw, label: 'Restart' },
+		{ action: 'stop', Icon: Square, label: 'Stop' }
+	] as const;
 
 	async function controlMpv(action: 'start' | 'stop' | 'restart') {
 		mpvBusy = action;
-		try {
-			if (action === 'start') await unwrap(api.POST('/api/v2/playout/agent/start'));
-			else if (action === 'stop') await unwrap(api.POST('/api/v2/playout/agent/stop'));
-			else await unwrap(api.POST('/api/v2/playout/agent/restart'));
-			showToast(
-				`Player ${action === 'stop' ? 'stopped' : action === 'start' ? 'started' : 'restarted'}`,
-				'success'
-			);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : `Could not ${action} the player`, 'error');
-		} finally {
-			mpvBusy = null;
-		}
+		await attempt(async () => {
+			await unwrap(api.POST(`/api/v2/playout/agent/${action}`));
+			showToast(`Player ${action === 'stop' ? 'stopped' : `${action}ed`}`, 'success');
+		}, `Could not ${action} the player`);
+		mpvBusy = null;
 		await loadAgentStatus();
 	}
 
-	// Soft reset: clear any loaded programme and drop back to the paused ident.
-	// Destructive when a show is on air, so it asks first.
+	// Clears any loaded programme, so it asks first when one is on air.
 	async function goToStandby() {
 		if (!idle) {
 			const ok = await confirm(
@@ -176,20 +147,16 @@
 			if (!ok) return;
 		}
 		mpvBusy = 'reset';
-		try {
+		await attempt(async () => {
 			await mutate(api.POST('/api/v2/playout/reset'));
 			showToast('The player is on standby', 'success');
 			void playout.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not reach the player', 'error');
-		} finally {
-			mpvBusy = null;
-		}
+		}, 'Could not reach the player');
+		mpvBusy = null;
 	}
 
+	// Switching hosts stops whatever is on air, so it asks first when a programme is loaded.
 	async function activateHost(id: number) {
-		// Switching hosts stops whatever is on air — confirm first if a
-		// programme is loaded/running.
 		try {
 			const status = await unwrapLoose<PlayoutStatus>(api.GET('/api/v2/playout/status'));
 			const prog = status?.programme;
@@ -203,68 +170,53 @@
 		} catch {
 			// Status unavailable — proceed; the backend still unloads on switch.
 		}
-		try {
+		await attempt(async () => {
 			await unwrap(
-				api.POST('/api/v2/playout/hosts/{host_id}/activate', {
-					params: { path: { host_id: id } }
-				})
+				api.POST('/api/v2/playout/hosts/{host_id}/activate', { params: { path: { host_id: id } } })
 			);
 			showToast('Playout host activated', 'success');
 			await reloadAll();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not activate host', 'error');
-		}
+		}, 'Could not activate host');
 	}
 
 	async function removeHost(id: number, name: string) {
-		if (
-			!(await confirm(
-				`Remove "${name}"? Its player forgets this Cinefin and shows a pairing code again.`,
-				{ confirmLabel: 'Remove' }
-			))
-		)
-			return;
-		try {
+		const ok = await confirm(
+			`Remove "${name}"? Its player forgets this Cinefin and shows a pairing code again.`,
+			{ confirmLabel: 'Remove' }
+		);
+		if (!ok) return;
+		await attempt(async () => {
 			await mutate(
 				api.DELETE('/api/v2/playout/hosts/{host_id}', { params: { path: { host_id: id } } })
 			);
 			showToast('Playout host removed', 'success');
 			await reloadAll();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not remove host', 'error');
-		}
+		}, 'Could not remove host');
 	}
 
 	let refreshing = $state(false);
 
 	async function refreshActiveHost() {
 		if (!activeHost) return;
+		const host_id = activeHost.id;
 		refreshing = true;
-		try {
+		await attempt(async () => {
 			await unwrap(
-				api.POST('/api/v2/playout/hosts/{host_id}/refresh', {
-					params: { path: { host_id: activeHost.id } }
-				})
+				api.POST('/api/v2/playout/hosts/{host_id}/refresh', { params: { path: { host_id } } })
 			);
-			await hosts.refresh();
-			void loadAgentStatus();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Host did not answer', 'error');
-		} finally {
-			refreshing = false;
-		}
+			await reloadAll();
+		}, 'Host did not answer');
+		refreshing = false;
 	}
 
-	// The player shown on the right of the Players tab. Defaults to the active
-	// host (else the first).
+	// The player shown beside the list: by default the active one, else the first.
 	let selectedId = $state<number | null>(null);
 	const selected = $derived.by(() => {
 		const list = hosts.data ?? [];
 		return list.find((h) => h.id === selectedId) ?? activeHost ?? list[0] ?? null;
 	});
 
-	// Adding a playout agent is the Add a player wizard (also used to pair a
-	// known player again, starting at its Pair step).
+	// The Add a player wizard, also used to pair a known player again (from its Pair step).
 	let wizardOpen = $state(false);
 	let wizardStart = $state<{ base_url: string; name: string } | undefined>();
 
@@ -280,23 +232,21 @@
 		await reloadAll();
 	}
 
-	// The status line over standby, per player (pushed to it with its spec).
 	async function setShowStatus(id: number, on: boolean) {
-		try {
-			await unwrap(
-				api.PATCH('/api/v2/playout/hosts/{host_id}', {
-					params: { path: { host_id: id } },
-					body: { show_status: on }
-				})
-			);
-			await hosts.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not save', 'error');
-			await hosts.refresh();
-		}
+		await attempt(
+			() =>
+				unwrap(
+					api.PATCH('/api/v2/playout/hosts/{host_id}', {
+						params: { path: { host_id: id } },
+						body: { show_status: on }
+					})
+				),
+			'Could not save'
+		);
+		await hosts.refresh();
 	}
 
-	// This dialog edits a host, or adds a local mpv the operator runs themselves.
+	// The edit dialog (players are added with the wizard).
 	let hostOpen = $state(false);
 	let editingHostId = $state<number | null>(null);
 	let hKind = $state('local_socket');
@@ -305,72 +255,48 @@
 	let hSocket = $state('');
 	let hostSaveResult = $state<CheckState>(null);
 
-	function openHostDialog(
-		host: {
-			id: number;
-			name: string;
-			kind: string;
-			base_url: string;
-			socket_path: string;
-		} | null
-	) {
-		editingHostId = host?.id ?? null;
-		hKind = host?.kind ?? 'local_socket';
-		hName = host?.name ?? '';
-		hUrl = host?.base_url ?? '';
-		hSocket = host?.socket_path ?? '';
+	function openHostDialog(host: NonNullable<typeof selected>) {
+		editingHostId = host.id;
+		hKind = host.kind;
+		hName = host.name;
+		hUrl = host.base_url;
+		hSocket = host.socket_path;
 		hostSaveResult = null;
 		hostOpen = true;
 	}
 
 	async function saveHost() {
 		const name = hName.trim();
-		if (!name) {
-			hostSaveResult = { state: 'error', message: 'Enter a name' };
+		const socket = hKind === 'local_socket';
+		const target = (socket ? hSocket : hUrl).trim();
+		const noTarget = socket ? 'Enter the mpv socket path' : "Enter the player's address";
+		const missing = !name ? 'Enter a name' : !target ? noTarget : null;
+		if (missing) {
+			hostSaveResult = { state: 'error', message: missing };
 			return;
 		}
-		let body: Record<string, unknown>;
-		if (hKind === 'local_socket') {
-			const socket_path = hSocket.trim();
-			if (!socket_path) {
-				hostSaveResult = { state: 'error', message: 'Enter the mpv socket path' };
-				return;
-			}
-			body = { name, kind: 'local_socket', socket_path };
-		} else {
-			const base_url = hUrl.trim();
-			if (!base_url) {
-				hostSaveResult = { state: 'error', message: "Enter the player's address" };
-				return;
-			}
-			body = { name, base_url };
-		}
+		const body = socket
+			? { name, kind: 'local_socket', socket_path: target }
+			: { name, base_url: target };
+		if (editingHostId == null) return;
 		try {
-			if (editingHostId != null) {
-				await unwrap(
-					api.PATCH('/api/v2/playout/hosts/{host_id}', {
-						params: { path: { host_id: editingHostId } },
-						body
-					})
-				);
-			} else {
-				await unwrap(api.POST('/api/v2/playout/hosts', { body }));
-			}
+			await unwrap(
+				api.PATCH('/api/v2/playout/hosts/{host_id}', {
+					params: { path: { host_id: editingHostId } },
+					body
+				})
+			);
 			hostOpen = false;
-			showToast(editingHostId != null ? 'Host updated' : 'Local mpv added', 'success');
+			showToast('Host updated', 'success');
 			await reloadAll();
 		} catch (e) {
-			hostSaveResult = {
-				state: 'error',
-				message: e instanceof Error ? e.message : 'Could not save the host'
-			};
+			hostSaveResult = { state: 'error', message: errorText(e, 'Could not save the host') };
 		}
 	}
 
 	let standbyPreviewing = $state(false);
 
-	// Your own ident freezes on its hold point (a property of the media item,
-	// saved at once, not with the page).
+	// Your own ident freezes on its hold point (a property of the media item, saved at once).
 	const ownIdent = $derived(
 		store.bumpers.find((b) => String(b.id) === store.main.default_cinema_ident) ?? null
 	);
@@ -383,7 +309,7 @@
 			return;
 		}
 		const bumper = ownIdent;
-		try {
+		await attempt(async () => {
 			await unwrap(
 				api.PUT('/api/v2/media/{media_id}', {
 					params: { path: { media_id: bumper.id } },
@@ -395,23 +321,18 @@
 				value === null ? 'Standby holds the last frame' : `Standby holds at ${value}s`,
 				'success'
 			);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not save the hold point', 'error');
-		}
+		}, 'Could not save the hold point');
 	}
 
-	// Standby plays the saved ident, so an unsaved choice is saved first.
+	// Standby plays the saved ident (the button is off while the choice is unsaved).
 	async function previewStandby() {
 		standbyPreviewing = true;
-		try {
+		await attempt(async () => {
 			await mutate(api.POST('/api/v2/settings/preview-standby/'));
 			showToast('The player is on standby', 'success');
 			void playout.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not preview standby', 'error');
-		} finally {
-			standbyPreviewing = false;
-		}
+		}, 'Could not preview standby');
+		standbyPreviewing = false;
 	}
 
 	// The subtitle preview: a 16:9 frame drawn from the current (unsaved) values.
@@ -433,9 +354,36 @@
 		].join('; ');
 	});
 
-	const subtitleInputCls =
-		'h-9 w-full rounded-md border border-border-strong bg-surface-2 px-1.5 text-sm text-text focus:border-accent-dim';
+	const SUBTITLE_NUMBERS = [
+		storeField('subtitle_font_size', 'Size', 'set-subtitle-size'),
+		storeField('subtitle_position', 'Position', 'set-subtitle-position'),
+		storeField('subtitle_margin_y', 'Margin', 'set-subtitle-margin')
+	];
+	const SUBTITLE_BACKGROUND = storeField(
+		'subtitle_border_style',
+		'Background',
+		'set-subtitle-border',
+		{
+			input: 'w-full',
+			options: [
+				['outline-and-shadow', 'Outline & shadow'],
+				['opaque-box', 'Opaque box'],
+				['background-box', 'Background box']
+			]
+		}
+	);
+	const SUBTITLE_COLOURS = [
+		storeField('subtitle_color', 'Text', 'set-subtitle-color'),
+		storeField('subtitle_back_color', 'Box / shadow', 'set-subtitle-back-color')
+	];
 </script>
+
+{#snippet heading(title: string, text: string)}
+	<div>
+		<h3 class="text-sm font-medium">{title}</h3>
+		<p class="mt-0.5 text-xs text-muted">{text}</p>
+	</div>
+{/snippet}
 
 <div class="space-y-4">
 	{#if hosts.loading}
@@ -443,24 +391,11 @@
 	{:else if hosts.error}
 		<ErrorState error={hosts.error} retry={() => void hosts.load()} />
 	{:else}
-		<Tabs
-			tabs={TABS}
-			value={tab}
-			label="Playout settings"
-			onselect={(id) => (tab = id)}
-			panelId={(id) => `pt-${id}`}
-		/>
+		<SectionTabs tabs={TABS} bind:value={tab} label="Playout settings" prefix="pt" />
 
 		{#if tab === 'players'}
-			<div
-				role="tabpanel"
-				id="pt-players"
-				aria-labelledby="tab-players"
-				class="mt-4"
-				in:fade={{ duration: 120 }}
-			>
+			<TabPanel prefix="pt" tab="players" class="mt-4">
 				{#if !hosts.data?.length}
-					<!-- ── First run: no players yet ──────────────────────────────── -->
 					<section class="max-w-2xl space-y-4">
 						<div>
 							<h3 class="text-base font-medium">Add your first player</h3>
@@ -474,17 +409,11 @@
 							<Plus size={14} /> Add a player
 						</Button>
 						<p class="border-t border-border pt-3 text-xs text-muted">
-							Running mpv yourself?
-							<button
-								type="button"
-								class="underline hover:text-text"
-								onclick={() => openHostDialog(null)}>Add a local mpv</button
-							>
+							Running mpv yourself? Add a player and choose a local mpv socket.
 						</p>
 					</section>
 				{:else}
 					<div class="grid gap-6 md:grid-cols-[13rem_minmax(0,1fr)]">
-						<!-- ── The players ───────────────────────────────────────────── -->
 						<nav aria-label="Players" class="flex flex-col gap-1">
 							{#each hosts.data as h (h.id)}
 								{@const on = selected?.id === h.id}
@@ -524,7 +453,6 @@
 								{@const isSocket = selected.kind === 'local_socket'}
 								{@const isActive = selected.is_active}
 								<div class="space-y-5">
-									<!-- ── The player ────────────────────────────────────────── -->
 									<section class="space-y-2">
 										<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
 											<h3 class="text-lg font-medium">{selected.name}</h3>
@@ -611,20 +539,16 @@
 												</Button>
 												{#if !isSocket && agentStatus?.reachable}
 													{#if agentStatus.mpv_running}
-														<Button
-															size="sm"
-															disabled={mpvBusy !== null}
-															onclick={() => controlMpv('restart')}
-														>
-															<RotateCw size={13} /> Restart
-														</Button>
-														<Button
-															size="sm"
-															disabled={mpvBusy !== null}
-															onclick={() => controlMpv('stop')}
-														>
-															<Square size={13} /> Stop
-														</Button>
+														{#each MPV_ACTIONS as b (b.action)}
+															<Button
+																size="sm"
+																disabled={mpvBusy !== null}
+																onclick={() => controlMpv(b.action)}
+															>
+																<b.Icon size={13} />
+																{b.label}
+															</Button>
+														{/each}
 													{:else}
 														<Button
 															size="sm"
@@ -655,19 +579,18 @@
 										{/if}
 									</section>
 
-									<!-- ── Screen and sound ──────────────────────────────────── -->
 									<section class="border border-border bg-surface-1">
 										<div class="px-4 pt-4">
-											<h3 class="text-sm font-medium">Screen and sound</h3>
-											<p class="mt-0.5 text-xs text-muted">
-												{isSocket
+											{@render heading(
+												'Screen and sound',
+												isSocket
 													? 'You run this mpv, so set its screen and sound with its own options when you launch it.'
-													: 'Applies when the player restarts.'}
-											</p>
+													: 'Applies when the player restarts.'
+											)}
 										</div>
 										{#if !isSocket}
 											{#key selected.id}
-												<HostConfigPanel hostId={selected.id} kind={selected.kind} />
+												<HostConfigPanel hostId={selected.id} />
 											{/key}
 										{:else}
 											<div class="pb-4"></div>
@@ -675,7 +598,6 @@
 									</section>
 
 									{#if !isSocket}
-										<!-- ── Standby ───────────────────────────────────────────── -->
 										<section class="border border-border bg-surface-1 p-4">
 											<Toggle
 												label="Show the status line on standby"
@@ -687,15 +609,14 @@
 										</section>
 									{/if}
 
-									<!-- ── Remove ────────────────────────────────────────────── -->
 									<section class="flex items-center gap-3 border-t border-border pt-4">
 										<div class="mr-auto">
-											<h3 class="text-sm font-medium">Remove this player</h3>
-											<p class="mt-0.5 text-xs text-muted">
-												{isSocket
+											{@render heading(
+												'Remove this player',
+												isSocket
 													? 'Cinefin stops using this mpv.'
-													: 'It forgets this Cinefin and shows a pairing code again.'}
-											</p>
+													: 'It forgets this Cinefin and shows a pairing code again.'
+											)}
 										</div>
 										<Button variant="danger" onclick={() => removeHost(selected.id, selected.name)}>
 											<Trash2 size={13} /> Remove
@@ -706,31 +627,17 @@
 						</div>
 					</div>
 				{/if}
-			</div>
+			</TabPanel>
 		{:else if tab === 'presentation'}
-			<div
-				role="tabpanel"
-				id="pt-presentation"
-				aria-labelledby="tab-presentation"
-				class="mt-4 space-y-6"
-				in:fade={{ duration: 120 }}
-			>
+			<TabPanel prefix="pt" tab="presentation" class="mt-4 space-y-6">
 				<p class="-mt-1 text-sm text-muted">These apply to every player.</p>
 
-				<!-- ── Idle screen ───────────────────────────────────────────────── -->
 				<section class="space-y-3 border border-border bg-surface-1 p-4">
-					<div>
-						<h3 class="text-sm font-medium">Idle screen</h3>
-						<p class="mt-0.5 text-xs text-muted">
-							Standby: played once, then held on screen whenever no programme is playing.
-						</p>
-					</div>
-					<Field
-						label="Ident"
-						forId="set-default-ident"
-						dirty={store.isDirty('default_cinema_ident')}
-						error={store.errorFor('default_cinema_ident')}
-					>
+					{@render heading(
+						'Idle screen',
+						'Standby: played once, then held on screen whenever no programme is playing.'
+					)}
+					<Field label="Ident" forId="set-default-ident" {store} field="default_cinema_ident">
 						<div class="flex max-w-xl gap-2">
 							<Select
 								id="set-default-ident"
@@ -775,107 +682,29 @@
 					{/if}
 				</section>
 
-				<!-- ── Subtitles ─────────────────────────────────────────────────── -->
 				<section class="space-y-4 border border-border bg-surface-1 p-4">
-					<div>
-						<h3 class="text-sm font-medium">Subtitles</h3>
-						<p class="mt-0.5 text-xs text-muted">Applied live when you save, no restart.</p>
-					</div>
+					{@render heading('Subtitles', 'Applied live when you save, no restart.')}
 					<div class="grid gap-6 lg:grid-cols-2">
 						<div class="space-y-4">
 							<div class="grid grid-cols-3 gap-3">
-								<Field
-									label="Size"
-									forId="set-subtitle-size"
-									dirty={store.isDirty('subtitle_font_size')}
-									error={store.errorFor('subtitle_font_size')}
-								>
-									<Input
-										id="set-subtitle-size"
-										type="number"
-										bind:value={store.main.subtitle_font_size}
-									/>
-								</Field>
-								<Field
-									label="Position"
-									forId="set-subtitle-position"
-									dirty={store.isDirty('subtitle_position')}
-									error={store.errorFor('subtitle_position')}
-								>
-									<Input
-										id="set-subtitle-position"
-										type="number"
-										bind:value={store.main.subtitle_position}
-									/>
-								</Field>
-								<Field
-									label="Margin"
-									forId="set-subtitle-margin"
-									dirty={store.isDirty('subtitle_margin_y')}
-									error={store.errorFor('subtitle_margin_y')}
-								>
-									<Input
-										id="set-subtitle-margin"
-										type="number"
-										bind:value={store.main.subtitle_margin_y}
-									/>
-								</Field>
+								{#each SUBTITLE_NUMBERS as f (f.id)}
+									<StoreField {store} {...f} type="number" />
+								{/each}
 							</div>
-							<Field
-								label="Background"
-								forId="set-subtitle-border"
-								dirty={store.isDirty('subtitle_border_style')}
-								error={store.errorFor('subtitle_border_style')}
-							>
-								<Select
-									id="set-subtitle-border"
-									bind:value={store.main.subtitle_border_style}
-									class="w-full"
-								>
-									<option value="outline-and-shadow">Outline &amp; shadow</option>
-									<option value="opaque-box">Opaque box</option>
-									<option value="background-box">Background box</option>
-								</Select>
-							</Field>
+							<StoreField {store} {...SUBTITLE_BACKGROUND} />
 							<div class="grid grid-cols-2 gap-3">
-								<Field
-									label="Text"
-									forId="set-subtitle-color"
-									dirty={store.isDirty('subtitle_color')}
-									error={store.errorFor('subtitle_color')}
-								>
-									<input
-										id="set-subtitle-color"
+								{#each SUBTITLE_COLOURS as f (f.id)}
+									<StoreField
+										{store}
+										{...f}
 										type="color"
-										bind:value={store.main.subtitle_color}
-										class={subtitleInputCls}
+										input="h-9 w-full rounded-md border border-border-strong bg-surface-2 px-1.5 text-sm text-text focus:border-accent-dim"
 									/>
-								</Field>
-								<Field
-									label="Box / shadow"
-									forId="set-subtitle-back-color"
-									dirty={store.isDirty('subtitle_back_color')}
-									error={store.errorFor('subtitle_back_color')}
-								>
-									<input
-										id="set-subtitle-back-color"
-										type="color"
-										bind:value={store.main.subtitle_back_color}
-										class={subtitleInputCls}
-									/>
-								</Field>
+								{/each}
 							</div>
 							<div class="space-y-2.5">
-								<Toggle
-									label="Keep inside the picture"
-									bind:checked={store.main.subtitle_use_margins}
-									dirty={store.isDirty('subtitle_use_margins')}
-								/>
-								<Toggle
-									label="Bold"
-									bind:checked={store.main.subtitle_bold}
-									dirty={store.isDirty('subtitle_bold')}
-								/>
+								<StoreToggle {store} field="subtitle_use_margins" label="Keep inside the picture" />
+								<StoreToggle {store} field="subtitle_bold" label="Bold" />
 							</div>
 						</div>
 						<div>
@@ -893,7 +722,6 @@
 					</div>
 				</section>
 
-				<!-- ── Streaming address ─────────────────────────────────────────── -->
 				<section class="space-y-3 border border-border bg-surface-1 p-4">
 					<div>
 						<h3 class="text-sm font-medium">Streaming address</h3>
@@ -902,29 +730,21 @@
 							Blank uses the <code class="font-mono">CINEFIN_SERVER_URL</code> default.
 						</p>
 					</div>
-					<Field
+					<StoreField
+						{store}
+						field="playout_server_url"
 						label="Address"
-						forId="set-server-url"
-						dirty={store.isDirty('playout_server_url')}
-						error={store.errorFor('playout_server_url')}
-					>
-						<Input
-							id="set-server-url"
-							bind:value={store.main.playout_server_url}
-							placeholder="http://cinefin.local:8000"
-							class="max-w-xl font-mono"
-						/>
-					</Field>
+						id="set-server-url"
+						placeholder="http://cinefin.local:8000"
+						input="max-w-xl font-mono"
+					/>
 				</section>
-			</div>
+			</TabPanel>
 		{/if}
 	{/if}
 </div>
 
-<Dialog
-	bind:open={hostOpen}
-	title={editingHostId != null ? `Edit ${hName || 'host'}` : 'Add a local mpv'}
->
+<Dialog bind:open={hostOpen} title={`Edit ${hName || 'host'}`}>
 	<div class="space-y-3">
 		<Field label="Name" forId="set-host-name">
 			<Input id="set-host-name" bind:value={hName} placeholder="Booth PC" />
@@ -957,7 +777,8 @@
 <Dialog
 	bind:open={wizardOpen}
 	title={wizardStart ? `Pair ${wizardStart.name} again` : 'Add a player'}
-	size="3xl"
+	size="4xl"
+	flush
 >
 	{#if wizardOpen}
 		<AddPlayerWizard
@@ -965,6 +786,7 @@
 			onpaired={() => void reloadAll()}
 			onfinish={onWizardFinish}
 			oncancel={() => (wizardOpen = false)}
+			compact
 		/>
 	{/if}
 </Dialog>

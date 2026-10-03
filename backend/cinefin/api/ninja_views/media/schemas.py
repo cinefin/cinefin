@@ -2,28 +2,28 @@ from ninja import Field, Schema
 
 
 class TagSchema(Schema):
-    id: int = Field(description="Tag unique identifier")
-    name: str = Field(description="Tag name")
+    id: int
+    name: str
     color: str | None = Field(None, description="Optional badge colour as #RRGGBB (null = neutral)")
     count: int | None = Field(None, description="Number of media items carrying this tag, when computed")
 
 
 class FileInfoSchema(Schema):
-    size: int | None = Field(None, description="File size in bytes")
-    mime_type: str | None = Field(None, description="MIME type of the file")
+    size: int | None = Field(None, description="Bytes")
+    mime_type: str | None = None
     exists: bool = Field(..., description="Whether the file exists on disk")
 
 
 class MediaItemSchema(Schema):
-    id: int = Field(description="Media unique identifier")
-    title: str = Field(description="Media title")
-    duration: float | None = Field(None, description="Duration in seconds")
-    file_path: str = Field(description="Path to media file")
-    file_url: str | None = Field(None, description="URL to access the file")
-    screenshot_url: str | None = Field(None, description="URL to screenshot/thumbnail")
-    file_info: FileInfoSchema = Field(description="File system information")
-    tags: list[TagSchema] = Field(description="Associated tags")
-    upload_date: str | None = Field(None, description="Upload timestamp in ISO format")
+    id: int
+    title: str
+    duration: float | None = Field(None, description="Seconds")
+    file_path: str
+    file_url: str | None = None
+    screenshot_url: str | None = None
+    file_info: FileInfoSchema
+    tags: list[TagSchema]
+    upload_date: str | None = Field(None, description="ISO timestamp")
     audio_format: str | None = Field(None, description="Audio format this intro announces, if any")
     hold_point: float | None = Field(
         None, description="As the ident: where standby freezes, in seconds (null = last frame)"
@@ -31,12 +31,12 @@ class MediaItemSchema(Schema):
 
 
 class MediaPaginationSchema(Schema):
-    page: int = Field(description="Current page number")
-    per_page: int = Field(description="Items per page")
-    total: int = Field(description="Total number of items")
-    total_pages: int = Field(description="Total number of pages")
-    has_previous: bool = Field(description="Whether there is a previous page")
-    has_next: bool = Field(description="Whether there is a next page")
+    page: int
+    per_page: int
+    total: int
+    total_pages: int
+    has_previous: bool
+    has_next: bool
 
 
 class MediaFiltersSchema(Schema):
@@ -48,26 +48,26 @@ class MediaFiltersSchema(Schema):
 
 
 class MediaListDataSchema(Schema):
-    media: list[MediaItemSchema] = Field(description="List of media items")
-    pagination: MediaPaginationSchema = Field(description="Pagination information")
-    filters: MediaFiltersSchema = Field(description="Available filters")
+    media: list[MediaItemSchema]
+    pagination: MediaPaginationSchema
+    filters: MediaFiltersSchema
 
 
 class MediaListResponseSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: MediaListDataSchema = Field(description="Media list data")
+    success: bool
+    message: str
+    data: MediaListDataSchema
 
 
 class CreateMediaSchema(Schema):
-    title: str = Field(description="Media title")
-    file_path: str = Field(description="Path to existing media file")
-    tag_names: list[str] | None = Field(default=[], description="List of tag names to associate")
+    title: str
+    file_path: str = Field(description="Path to an existing media file")
+    tag_names: list[str] | None = []
 
 
 class UpdateMediaSchema(Schema):
-    title: str | None = Field(None, description="Updated media title")
-    tag_names: list[str] | None = Field(None, description="Updated list of tag names")
+    title: str | None = None
+    tag_names: list[str] | None = None
     audio_format: str | None = Field(None, description="Audio format this intro announces ('' to clear)")
     hold_point: float | None = Field(
         None, ge=0, description="As the ident: where standby freezes, in seconds; send null for its last frame"
@@ -75,135 +75,120 @@ class UpdateMediaSchema(Schema):
 
 
 class MediaCreateDataSchema(Schema):
-    id: int = Field(description="Created media ID")
-    title: str = Field(description="Media title")
-    duration: float | None = Field(None, description="Media duration in seconds")
-    file_path: str = Field(description="Path to media file")
-    file_url: str | None = Field(None, description="URL to access the file")
-    screenshot_url: str | None = Field(None, description="URL to screenshot/thumbnail")
-    screenshot_generated: bool = Field(description="Whether screenshot was generated")
-    tags: list[TagSchema] = Field(description="Associated tags")
-    upload_date: str | None = Field(None, description="Upload timestamp")
+    id: int
+    title: str
+    duration: float | None = Field(None, description="Seconds")
+    file_path: str
+    file_url: str | None = None
+    screenshot_url: str | None = None
+    screenshot_generated: bool
+    tags: list[TagSchema]
+    upload_date: str | None = None
 
 
 class MediaCreateResponseSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: MediaCreateDataSchema = Field(description="Created media data")
+    success: bool
+    message: str
+    data: MediaCreateDataSchema
 
 
-class MediaDetailDataSchema(Schema):
-    id: int = Field(description="Media ID")
-    title: str = Field(description="Media title")
-    duration: float | None = Field(None, description="Duration in seconds")
-    file_path: str = Field(description="Path to media file")
-    file_url: str | None = Field(None, description="URL to access the file")
-    screenshot_url: str | None = Field(None, description="URL to screenshot/thumbnail")
-    file_info: FileInfoSchema = Field(description="File system information")
-    tags: list[TagSchema] = Field(description="Associated tags")
-    upload_date: str | None = Field(None, description="Upload timestamp in ISO format")
-    audio_format: str | None = Field(None, description="Audio format this intro announces, if any")
-    hold_point: float | None = Field(
-        None, description="As the ident: where standby freezes, in seconds (null = last frame)"
-    )
+class MediaDetailDataSchema(MediaItemSchema):
+    pass
 
 
 class MediaDetailSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: MediaDetailDataSchema = Field(description="Media details")
+    success: bool
+    message: str
+    data: MediaDetailDataSchema
 
 
 class TagListDataSchema(Schema):
-    tags: list[TagSchema] = Field(description="List of tags")
-    pagination: MediaPaginationSchema = Field(description="Pagination information")
+    tags: list[TagSchema]
+    pagination: MediaPaginationSchema
 
 
 class TagListResponseSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: TagListDataSchema = Field(description="Tag list data")
+    success: bool
+    message: str
+    data: TagListDataSchema
 
 
 class TagCreateSchema(Schema):
-    name: str = Field(description="Tag name")
+    name: str
     color: str | None = Field(None, description="Optional badge colour as #RRGGBB")
 
 
 class TagUpdateSchema(Schema):
-    name: str | None = Field(None, description="New tag name")
+    name: str | None = None
     color: str | None = Field(None, description="New badge colour as #RRGGBB, or '' to clear")
 
 
 class TagResponseSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: TagSchema = Field(description="The affected tag")
+    success: bool
+    message: str
+    data: TagSchema
 
 
 class BulkTagSchema(Schema):
-    ids: list[int] = Field(description="Media item IDs to act on")
+    ids: list[int]
     tag: str = Field(description="Tag name to add or remove")
     action: str = Field("add", description="'add' or 'remove'")
 
 
 class BulkTagDataSchema(Schema):
-    updated: int = Field(description="Number of media items changed")
+    updated: int
     missing: list[int] = Field(description="Requested IDs that were not found")
-    action: str = Field(description="Action applied ('add' or 'remove')")
+    action: str
     tag: TagSchema | None = Field(None, description="The tag added/removed (with fresh count)")
 
 
 class BulkTagResponseSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: BulkTagDataSchema = Field(description="Bulk-tag result")
+    success: bool
+    message: str
+    data: BulkTagDataSchema
 
 
 class MediaListFilters(Schema):
     search: str | None = Field(None, description="Search term for title")
-    tags: str | None = Field(
-        None,
-        description="Comma-separated tag names; an item must carry ALL of them (AND) to match",
-    )
-    page: int = Field(1, description="Page number")
-    per_page: int = Field(20, description="Items per page")
-    sort: str | None = Field(None, description="Sort field: title | duration | file_size | upload_date")
-    order: str | None = Field("desc", description="Sort direction: asc | desc")
+    tags: str | None = Field(None, description="Comma-separated tag names; an item carrying any of them matches")
+    page: int = 1
+    per_page: int = 20
+    sort: str | None = Field(None, description="title | duration | file_size | upload_date")
+    order: str | None = Field("desc", description="asc | desc")
 
 
 class TagListFilters(Schema):
     search: str | None = Field(None, description="Search term for tag name")
-    page: int = Field(1, description="Page number")
-    per_page: int = Field(20, description="Items per page")
+    page: int = 1
+    per_page: int = 20
 
 
 class YouTubeDownloadSchema(Schema):
-    url: str = Field(description="YouTube video URL")
-    title: str | None = Field(None, description="Custom title for downloaded video")
-    tag_names: list[str] | None = Field(default=[], description="Tags to assign to downloaded video")
+    url: str
+    title: str | None = None
+    tag_names: list[str] | None = []
 
 
 class YouTubeTaskDataSchema(Schema):
-    task_id: str = Field(description="Unique task identifier for tracking progress")
+    task_id: str
 
 
 class YouTubeTaskResponseSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: YouTubeTaskDataSchema = Field(description="Task information")
+    success: bool
+    message: str
+    data: YouTubeTaskDataSchema
 
 
 class YouTubeProgressDataSchema(Schema):
-    task_id: str = Field(description="Task identifier")
-    status: str = Field(description="Download status (downloading, completed, failed)")
-    progress: float | None = Field(None, description="Download progress percentage (0-100)")
-    filename: str | None = Field(None, description="Downloaded filename")
-    error: str | None = Field(None, description="Error message if failed")
+    task_id: str
+    status: str = Field(description="downloading, completed or failed")
+    progress: float | None = Field(None, description="Percent (0-100)")
+    filename: str | None = None
+    error: str | None = None
     media_id: int | None = Field(None, description="Created media id (when completed)")
 
 
 class YouTubeProgressSchema(Schema):
-    success: bool = Field(description="Request success status")
-    message: str = Field(description="Response message")
-    data: YouTubeProgressDataSchema = Field(description="Progress information")
+    success: bool
+    message: str
+    data: YouTubeProgressDataSchema

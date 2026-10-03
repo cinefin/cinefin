@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 from typing import Any
 
 from django.db.models import Q
@@ -22,97 +23,89 @@ logger = logging.getLogger(__name__)
 
 
 class ProgrammeItemDetailSchema(Schema):
-    id: int = Field(..., description="Programme block ID")
-    order: int = Field(..., description="Item order in programme")
-    type: str = Field(..., description="Item type")
-    title: str = Field(..., description="Item title")
-    duration_seconds: float = Field(..., description="Playback duration in seconds")
+    id: int
+    order: int
+    type: str
+    title: str
+    duration_seconds: float
     details: dict[str, Any] = Field(..., description="Item-specific details")
 
 
 class ProgrammeDetailDataSchema(Schema):
-    programme: "ProgrammeDetailSchema" = Field(..., description="Programme details")
+    programme: "ProgrammeDetailSchema"
 
 
 class ProgrammeDetailSchema(Schema):
-    id: int = Field(..., description="Programme ID")
-    name: str = Field(..., description="Programme name")
-    description: str = Field(..., description="Programme description")
-    total_runtime: float = Field(..., description="Total runtime in minutes")
-    created_at: str = Field(..., description="Creation timestamp in ISO format")
-    updated_at: str = Field(..., description="Last update timestamp in ISO format")
+    id: int
+    name: str
+    description: str
+    total_runtime: float
+    created_at: str
+    updated_at: str
     template_id: int | None = Field(None, description="Template ID if created from template")
     template_name: str | None = Field(None, description="Template name if created from template")
-    total_blocks: int = Field(..., description="Total number of blocks")
+    total_blocks: int
     playlist_stale: bool = Field(..., description="True only when automatic playlist regeneration failed after an edit")
     title_template_id: int | None = Field(None, description="Title template ID for the programme title card")
     title_background_type: str = Field(..., description="Title card background type: color, image, or video")
     title_background_color: str = Field(..., description="Title card background color (hex)")
     title_background_file: str = Field(..., description="Title card background image/video path")
-    title_fade_in: float = Field(..., description="Title card fade in duration in seconds")
-    title_fade_out: float = Field(..., description="Title card fade out duration in seconds")
+    title_fade_in: float
+    title_fade_out: float
     title_hold: bool = Field(False, description="When cued, play the title's fade-in, then hold")
-    title_file_generated: bool = Field(..., description="Whether a title card file has been generated")
+    title_file_generated: bool
     title_length: int | None = Field(None, description="How long the title card runs, in seconds (None = no title)")
-    items: list[ProgrammeItemDetailSchema] = Field(..., description="List of programme items")
+    items: list[ProgrammeItemDetailSchema]
 
 
 class ProgrammeDetailResponseSchema(SuccessResponseSchema):
-    data: ProgrammeDetailDataSchema = Field(..., description="Programme detail data")
+    data: ProgrammeDetailDataSchema
 
 
 class ProgrammeListItemSchema(Schema):
-    id: int = Field(..., description="Programme ID")
-    name: str = Field(..., description="Programme name")
-    description: str = Field(..., description="Programme description")
-    total_runtime: float = Field(..., description="Total runtime in minutes")
-    total_blocks: int = Field(..., description="Total number of blocks")
-    created_at: str = Field(..., description="Creation timestamp in ISO format")
+    id: int
+    name: str
+    description: str
+    total_runtime: float
+    total_blocks: int
+    created_at: str
     last_played_at: str | None = Field(None, description="When playback last started, ISO format (null = never)")
     template_name: str | None = Field(None, description="Template name if created from template")
     playlist_stale: bool = Field(..., description="True only when automatic playlist regeneration failed after an edit")
-    movies: list[MovieInfoSchema] = Field(..., description="Featured movies in this programme")
+    movies: list[MovieInfoSchema]
     composition: dict[str, int] = Field(
         ..., description="Block count per item type (content_type -> count), for the list's type chips"
     )
 
 
 class ProgrammeListResponseDataSchema(Schema):
-    programmes: list[ProgrammeListItemSchema] = Field(..., description="List of programmes")
-    total: int = Field(..., description="Total number of programmes")
+    programmes: list[ProgrammeListItemSchema]
+    total: int
 
 
 class ProgrammeListResponseSchema(SuccessResponseSchema):
-    data: ProgrammeListResponseDataSchema = Field(..., description="Programme list data")
-
-
-class ActiveProgrammeResponseDataSchema(Schema):
-    active_programme: ProgrammeListItemSchema | None = Field(None, description="Currently active programme")
-
-
-class ActiveProgrammeResponseSchema(SuccessResponseSchema):
-    data: ActiveProgrammeResponseDataSchema = Field(..., description="Active programme data")
+    data: ProgrammeListResponseDataSchema
 
 
 class ProgrammeListFilters(Schema):
-    search: str | None = Field(None, description="Search term for programme name or description")
+    search: str | None = None
 
 
 class ProgrammeDuplicateDataSchema(Schema):
-    id: int = Field(..., description="ID of the new programme")
-    name: str = Field(..., description="Name of the new programme")
+    id: int
+    name: str
 
 
 class ProgrammeDuplicateResponseSchema(SuccessResponseSchema):
-    data: ProgrammeDuplicateDataSchema = Field(..., description="New programme data")
+    data: ProgrammeDuplicateDataSchema
 
 
 class BulkProgrammeIdsSchema(Schema):
-    ids: list[int] = Field(description="Programme IDs to act on")
+    ids: list[int]
 
 
 class BulkDeleteDataSchema(Schema):
-    deleted: int = Field(description="Number of programmes deleted")
+    deleted: int
     missing: list[int] = Field(description="Requested IDs that were not found")
 
 
@@ -133,26 +126,26 @@ class BlockTracksUpdateSchema(Schema):
 
 
 class BlockTracksDataSchema(Schema):
-    block_id: int = Field(..., description="Programme block that was updated")
-    audio_track_index: int | None = Field(None, description="Audio track index now stored on the block")
-    subtitle_track_index: int | None = Field(None, description="Subtitle track index now stored on the block")
+    block_id: int
+    audio_track_index: int | None = None
+    subtitle_track_index: int | None = None
     playlist_items_updated: int = Field(
         ..., description="Generated playlist items whose MoviePlayback was updated in step with the block"
     )
 
 
 class BlockTracksResponseSchema(SuccessResponseSchema):
-    data: BlockTracksDataSchema = Field(..., description="The stored track selection")
+    data: BlockTracksDataSchema
 
 
 class UpdateProgrammeSchema(Schema):
-    name: str | None = Field(None, description="Updated programme name")
-    description: str | None = Field(None, description="Updated programme description")
-    items: list[dict[str, Any]] | None = Field(None, description="Updated list of programme items")
-    title_template_id: int | None = Field(None, description="Title template ID for programme title card")
+    name: str | None = None
+    description: str | None = None
+    items: list[dict[str, Any]] | None = None
+    title_template_id: int | None = None
     title_background_type: str | None = Field(None, description="Background type: color, image, or video")
     title_background_color: str | None = Field(None, description="Background color (hex format)")
-    title_background_file: str | None = Field(None, description="Path to background image or video file")
+    title_background_file: str | None = None
     title_fade_in: float | None = Field(None, description="Fade in duration in seconds (0 = no fade)", ge=0, le=10)
     title_fade_out: float | None = Field(None, description="Fade out duration in seconds (0 = no fade)", ge=0, le=10)
     title_hold: bool | None = Field(None, description="When cued, play the title's fade-in, then hold")
@@ -174,58 +167,43 @@ def list_programmes(request: HttpRequest, filters: ProgrammeListFilters = Query(
     for programme in programmes:
         # Walk prefetched blocks in Python: .filter()/.count() would bypass the prefetch cache.
         blocks = list(programme.blocks.all())
-        composition: dict[str, int] = {}
-        for block in blocks:
-            key = block.content_type or "system"
-            composition[key] = composition.get(key, 0) + 1
+        composition = dict(Counter(block.content_type or "system" for block in blocks))
 
-        movies_info = []
-        for block in (b for b in blocks if b.content_type == "movie"):
-            movie = block.content_object
-            if movie and hasattr(movie, "title"):
-                movie_info = MovieInfoSchema(
-                    id=movie.id,
-                    title=movie.title,
-                    year=getattr(movie, "year", None),
-                    certification=getattr(movie, "certification", None),
-                    # MovieInfoSchema runtime is in MINUTES (Movie.runtime), not seconds.
-                    runtime=getattr(movie, "runtime", None),
-                    thumbnail_url=getattr(movie, "thumbnail_url", None),
-                )
-                movies_info.append(movie_info)
+        movies_info = [
+            # MovieInfoSchema runtime is in MINUTES (Movie.runtime), not seconds.
+            MovieInfoSchema(
+                id=b.movie.id,
+                title=b.movie.title,
+                year=b.movie.year,
+                certification=b.movie.certification,
+                runtime=b.movie.runtime,
+                thumbnail_url=b.movie.thumbnail_url,
+            )
+            for b in blocks
+            if b.content_type == "movie" and b.movie
+        ]
 
-        programme_data = ProgrammeListItemSchema(
-            id=programme.id,
-            name=programme.name,
-            description=programme.description or "",
-            total_runtime=programme.get_total_runtime_minutes() or 0.0,
-            total_blocks=len(blocks),
-            created_at=programme.created_at.isoformat(),
-            last_played_at=programme.last_played_at.isoformat() if programme.last_played_at else None,
-            template_name=programme.template.name if programme.template else None,
-            playlist_stale=programme.playlist_stale,
-            movies=movies_info,
-            composition=composition,
+        programmes_data.append(
+            ProgrammeListItemSchema(
+                id=programme.id,
+                name=programme.name,
+                description=programme.description or "",
+                total_runtime=programme.get_total_runtime_minutes() or 0.0,
+                total_blocks=len(blocks),
+                created_at=programme.created_at.isoformat(),
+                last_played_at=programme.last_played_at.isoformat() if programme.last_played_at else None,
+                template_name=programme.template.name if programme.template else None,
+                playlist_stale=programme.playlist_stale,
+                movies=movies_info,
+                composition=composition,
+            )
         )
-        programmes_data.append(programme_data)
 
     return Status(
         200,
         ProgrammeListResponseSchema(
             message="Programmes retrieved successfully",
             data=ProgrammeListResponseDataSchema(programmes=programmes_data, total=len(programmes_data)),
-        ),
-    )
-
-
-@management_api.get("/active", response={200: ActiveProgrammeResponseSchema, 500: ErrorResponseSchema})
-def get_active_programme(request: HttpRequest):
-    # Stub: no active-programme tracking implemented yet.
-    return Status(
-        200,
-        ActiveProgrammeResponseSchema(
-            message="Active programme status retrieved successfully",
-            data=ActiveProgrammeResponseDataSchema(active_programme=None),
         ),
     )
 
@@ -271,10 +249,9 @@ def bulk_delete_programmes(request: HttpRequest, payload: BulkProgrammeIdsSchema
     "/{programme_id}", response={200: ProgrammeDetailResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema}
 )
 def get_programme_detail(request: HttpRequest, programme_id: int):
-    try:
-        programme = Programme.objects.select_related("template").get(pk=programme_id)
-    except Programme.DoesNotExist:
-        raise NotFoundError("Programme not found", error_code="PROGRAMME_NOT_FOUND") from None
+    programme = Programme.objects.select_related("template").filter(pk=programme_id).first()
+    if programme is None:
+        raise NotFoundError("Programme not found", error_code="PROGRAMME_NOT_FOUND")
 
     blocks = programme.blocks.all().order_by("order")
 
@@ -471,15 +448,16 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
                 "filter_text": filter_text,
             }
 
-        item_data = ProgrammeItemDetailSchema(
-            id=block.id,
-            order=block.order,
-            type=block.content_type,
-            title=block_title,
-            duration_seconds=block_runtime,
-            details=block_details,
+        items_data.append(
+            ProgrammeItemDetailSchema(
+                id=block.id,
+                order=block.order,
+                type=block.content_type,
+                title=block_title,
+                duration_seconds=block_runtime,
+                details=block_details,
+            )
         )
-        items_data.append(item_data)
 
     programme_detail = ProgrammeDetailSchema(
         id=programme.id,
@@ -523,20 +501,7 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
     },
 )
 def update_programme(request: HttpRequest, programme_id: int, data: UpdateProgrammeSchema):
-    ProgrammeService.update_programme(
-        programme_id=programme_id,
-        name=data.name,
-        description=data.description,
-        items=data.items,
-        title_template_id=data.title_template_id,
-        title_background_type=data.title_background_type,
-        title_background_color=data.title_background_color,
-        title_background_file=data.title_background_file,
-        title_fade_in=data.title_fade_in,
-        title_fade_out=data.title_fade_out,
-        title_hold=data.title_hold,
-    )
-
+    ProgrammeService.update_programme(programme_id=programme_id, **data.dict())
     return get_programme_detail(request, programme_id)
 
 
@@ -551,10 +516,13 @@ def update_programme(request: HttpRequest, programme_id: int, data: UpdateProgra
 )
 def update_block_tracks(request: HttpRequest, programme_id: int, block_id: int, data: BlockTracksUpdateSchema):
     """Set the audio/subtitle track for a feature block; only fields present in the body change."""
-    try:
-        block = ProgrammeBlock.objects.select_related("movie", "programme").get(pk=block_id, programme_id=programme_id)
-    except ProgrammeBlock.DoesNotExist:
-        raise NotFoundError("Programme block not found", error_code="BLOCK_NOT_FOUND") from None
+    block = (
+        ProgrammeBlock.objects.select_related("movie", "programme")
+        .filter(pk=block_id, programme_id=programme_id)
+        .first()
+    )
+    if block is None:
+        raise NotFoundError("Programme block not found", error_code="BLOCK_NOT_FOUND")
 
     if block.content_type != "movie":
         raise ValidationError("Track selection applies to feature blocks only", error_code="BLOCK_NOT_A_FEATURE")
@@ -567,47 +535,31 @@ def update_block_tracks(request: HttpRequest, programme_id: int, block_id: int, 
     if not fields:
         raise ValidationError("No track selection given", error_code="NO_TRACKS_GIVEN")
 
-    if "audio_track_index" in fields and data.audio_track_index is not None:
-        count = movie.audio_tracks.count()
-        # A film with no track data still accepts index 0 (what "default" resolves to).
-        limit = count or 1
-        if data.audio_track_index >= limit:
-            raise ValidationError(
-                f"Audio track {data.audio_track_index} does not exist "
-                f"({movie.title} has {count} audio track{'' if count == 1 else 's'})",
-                error_code="AUDIO_TRACK_OUT_OF_RANGE",
-            )
-        block.audio_track_index = data.audio_track_index
-    elif "audio_track_index" in fields:
-        block.audio_track_index = None
-
-    if "subtitle_track_index" in fields and data.subtitle_track_index is not None:
-        count = movie.subtitle_tracks.count()
-        if data.subtitle_track_index >= count:
-            raise ValidationError(
-                f"Subtitle track {data.subtitle_track_index} does not exist "
-                f"({movie.title} has {count} subtitle track{'' if count == 1 else 's'})",
-                error_code="SUBTITLE_TRACK_OUT_OF_RANGE",
-            )
-        block.subtitle_track_index = data.subtitle_track_index
-    elif "subtitle_track_index" in fields:
-        block.subtitle_track_index = None
-
     update_fields = [f for f in ("audio_track_index", "subtitle_track_index") if f in fields]
+    for field in update_fields:
+        kind = field.split("_")[0]
+        index = getattr(data, field)
+        if index is not None:
+            count = getattr(movie, f"{kind}_tracks").count()
+            # A film with no audio track data still accepts audio index 0 (what "default" resolves to).
+            if index >= (count or 1 if kind == "audio" else count):
+                raise ValidationError(
+                    f"{kind.capitalize()} track {index} does not exist "
+                    f"({movie.title} has {count} {kind} track{'' if count == 1 else 's'})",
+                    error_code=f"{kind.upper()}_TRACK_OUT_OF_RANGE",
+                )
+        setattr(block, field, index)
     block.save(update_fields=update_fields)
 
-    # The generated playlist points at MoviePlayback wrappers, and that is what
-    # mpv_service reads when the item loads — keep them in step so the change
-    # takes effect on the next play without a regeneration.
+    # mpv_service reads the generated playlist's MoviePlayback wrappers when the item
+    # loads: keep them in step so the change applies on the next play without a regeneration.
     playbacks_updated = 0
     for item in block.playlist_items.filter(content_type="movie").select_related("movie_playback"):
         playback = item.movie_playback
         if playback is None:
             continue
-        if "audio_track_index" in fields:
-            playback.audio_track_index = block.audio_track_index
-        if "subtitle_track_index" in fields:
-            playback.subtitle_track_index = block.subtitle_track_index
+        for field in update_fields:
+            setattr(playback, field, getattr(block, field))
         playback.save(update_fields=update_fields)
         playbacks_updated += 1
 
@@ -635,14 +587,7 @@ def update_block_tracks(request: HttpRequest, programme_id: int, block_id: int, 
     response={200: MessageResponseSchema, 404: ErrorResponseSchema, 422: ErrorResponseSchema, 500: ErrorResponseSchema},
 )
 def run_programme(request: HttpRequest, programme_id: int):
-    """
-    Run a programme via the MPV service.
-
-    This will start playback of the programme's playlist.
-    """
-    # Use service layer for business logic
     result = ProgrammeService.run_programme(programme_id)
-
     return Status(200, MessageResponseSchema(message=result["message"]))
 
 
@@ -651,14 +596,8 @@ def run_programme(request: HttpRequest, programme_id: int):
     response={201: ProgrammeDuplicateResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema},
 )
 def duplicate_programme(request: HttpRequest, programme_id: int):
-    """
-    Create a copy of an existing programme, including all of its blocks.
-
-    The copy is named "<name> (copy)" and gets its own freshly generated
-    playlist.
-    """
+    """Copy a programme and its blocks as "<name> (copy)", with its own playlist."""
     copy = ProgrammeService.duplicate_programme(programme_id)
-
     return Status(
         201,
         ProgrammeDuplicateResponseSchema(
@@ -672,10 +611,5 @@ def duplicate_programme(request: HttpRequest, programme_id: int):
     "/{programme_id}", response={200: MessageResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema}
 )
 def delete_programme(request: HttpRequest, programme_id: int):
-    """
-    Delete a programme and all its associated blocks.
-    """
-    # Use service layer for business logic
     result = ProgrammeService.delete_programme(programme_id)
-
     return Status(200, MessageResponseSchema(message=result["message"]))

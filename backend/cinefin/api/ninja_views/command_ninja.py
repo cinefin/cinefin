@@ -1,11 +1,7 @@
-"""
-Command API using Django Ninja — CRUD and execution for provider-based
-commands, plus the provider catalogue (the contrib plugins, see
-cinefin.plugins) the SPA renders its forms from.
+"""Command API: CRUD and execution for provider-based commands, plus the provider catalogue
+(the contrib plugins, see cinefin.plugins) the SPA renders its forms from.
 
-Execution goes through services/command_runner, which captures the output
-and logs the outcome. Runs are not persisted, so there is no history
-endpoint: /test and /execute hand their result straight back to the caller.
+Runs are not persisted: /test and /execute hand their result straight back to the caller.
 """
 
 import logging
@@ -16,18 +12,10 @@ from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
 
 from cinefin import plugins
-from cinefin.api.exceptions import ConflictError, NotFoundError, ValidationError
-from cinefin.api.models import (
-    Command,
-    ProgrammeBlock,
-    ProgrammeTemplateItem,
-)
-from cinefin.api.schemas.base import (
-    ErrorResponseSchema,
-    MessageResponseSchema,
-    SuccessResponseSchema,
-)
-from cinefin.api.services import command_runner
+from cinefin.api.exceptions import ConflictError, ValidationError, get_or_404
+from cinefin.api.models import Command, ProgrammeBlock, ProgrammeSchedule, ProgrammeTemplateItem
+from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
+from cinefin.api.services import command_runner, preshow
 
 logger = logging.getLogger(__name__)
 
@@ -35,22 +23,19 @@ logger = logging.getLogger(__name__)
 Provider = str
 
 
-# Schema definitions
 class CommandUsageSchema(Schema):
     """Where a command is referenced — shown in the UI and delete confirms."""
 
-    programmes: int = Field(description="Programmes with a block running this command")
-    templates: int = Field(description="Templates with an item running this command")
+    programmes: int
+    templates: int
     credits: int = Field(description="Blocks/items using it as a credits command")
     preshow: bool = Field(description="Whether an upcoming screening's lead-in runs it")
 
 
 class CommandSchema(Schema):
-    """Command information schema."""
-
-    id: int = Field(description="Command unique identifier")
-    name: str = Field(description="Command name")
-    provider: Provider = Field(description="Execution provider id")
+    id: int
+    name: str
+    provider: Provider
     provider_label: str = Field(description="Provider display name (the id, if the provider is not loaded)")
     provider_icon: str = Field(description="Provider icon name (lucide)")
     summary: str = Field(description="One-line description of the command's target, from its provider")
@@ -61,35 +46,28 @@ class CommandSchema(Schema):
 
 
 class CreateCommandSchema(Schema):
-    """Schema for creating new commands."""
-
-    name: str = Field(description="Command name", min_length=1, max_length=255)
-    provider: Provider = Field(default="rest", description="Execution provider")
+    name: str = Field(min_length=1, max_length=255)
+    provider: Provider = "rest"
     config: dict[str, Any] = Field(default_factory=dict, description="Provider-specific configuration")
     duration: float | None = Field(default=0.0, description="Duration in seconds that this command takes to execute")
 
 
 class UpdateCommandSchema(Schema):
-    """Schema for updating existing commands."""
-
-    name: str | None = Field(default=None, description="Command name", min_length=1, max_length=255)
-    provider: Provider | None = Field(default=None, description="Execution provider")
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    provider: Provider | None = None
     config: dict[str, Any] | None = Field(default=None, description="Provider-specific configuration")
     duration: float | None = Field(default=None, description="Duration in seconds that this command takes to execute")
 
 
 class TestCommandSchema(Schema):
-    """Schema for testing a command configuration without saving it."""
-
-    provider: Provider = Field(default="rest", description="Execution provider")
+    provider: Provider = "rest"
     config: dict[str, Any] = Field(default_factory=dict, description="Provider-specific configuration")
 
 
 class CommandResultSchema(Schema):
-    """The outcome of one execution. Not stored — this is the only place it
-    is reported, so the caller that asked for the run gets its output here."""
+    """The outcome of one execution (not stored: this is the only place it is reported)."""
 
-    ok: bool = Field(description="Whether the command succeeded")
+    ok: bool
     detail: str = Field(description="Outcome summary, e.g. 'HTTP 200' or 'timeout'")
     output: str = Field(description="Captured output (truncated)")
 
@@ -111,10 +89,10 @@ class ProviderSchema(Schema):
     label: str
     icon: str
     description: str
-    source: str = Field(description="The contrib plugin file it came from")
+    source: str
     enabled: bool = Field(description="False = hidden from the command picker and refuses to run")
     has_suggestions: bool = Field(description="Whether the command dialog should fetch autocomplete suggestions")
-    has_settings_test: bool = Field(description="Whether the provider can test its settings")
+    has_settings_test: bool
     has_discover: bool = Field(description="Whether the provider can discover its settings on the network")
     builtin: bool = Field(description="Its commands are built in: none can be created for it")
     fields: list[ProviderFieldSchema] = Field(description="Per-command configuration fields")
@@ -122,13 +100,13 @@ class ProviderSchema(Schema):
 
 
 class PluginFailureSchema(Schema):
-    source: str = Field(description="The contrib plugin file that failed to load")
+    source: str
     error: str
 
 
 class ProviderListDataSchema(Schema):
     providers: list[ProviderSchema]
-    failures: list[PluginFailureSchema] = Field(description="Contrib plugins that failed to load")
+    failures: list[PluginFailureSchema]
 
 
 class ProviderListResponseSchema(SuccessResponseSchema):
@@ -181,18 +159,13 @@ class DiscoverResponseSchema(SuccessResponseSchema):
     data: DiscoverDataSchema
 
 
-# Response schemas
 class CommandListDataSchema(Schema):
-    commands: list[CommandSchema] = Field(description="List of commands")
-    total: int = Field(description="Total number of commands")
+    commands: list[CommandSchema]
+    total: int
 
 
 class CommandListResponseSchema(SuccessResponseSchema):
     data: CommandListDataSchema
-
-
-class CommandDetailResponseSchema(SuccessResponseSchema):
-    data: CommandSchema
 
 
 class CommandCreateResponseSchema(SuccessResponseSchema):
@@ -200,20 +173,18 @@ class CommandCreateResponseSchema(SuccessResponseSchema):
 
 
 class RunResultDataSchema(Schema):
-    result: CommandResultSchema = Field(description="The outcome of this execution")
+    result: CommandResultSchema
 
 
 class RunResultResponseSchema(SuccessResponseSchema):
     data: RunResultDataSchema
 
 
-# Query parameter schemas
 class CommandListFilters(Schema):
-    type: Provider | None = Field(default=None, description="Filter by provider")
-    search: str | None = Field(default=None, description="Search in command names")
+    type: Provider | None = None
+    search: str | None = None
 
 
-# Create the command router
 command_api = Router()
 
 
@@ -256,9 +227,6 @@ def _command_usage(commands: list[Command]) -> dict[int, CommandUsageSchema]:
     ) + Counter(
         ProgrammeTemplateItem.objects.filter(credits_command_id__in=ids).values_list("credits_command_id", flat=True)
     )
-    from cinefin.api.models import ProgrammeSchedule
-    from cinefin.api.services import preshow
-
     preshow_ids = {
         cid
         for steps in ProgrammeSchedule.objects.filter(status="scheduled").values_list("preshow", flat=True)
@@ -314,14 +282,12 @@ def _result_response(message: str, result: command_runner.CommandResult) -> Stat
 
 @command_api.get("/list", response={200: CommandListResponseSchema, 500: ErrorResponseSchema})
 def list_commands(request: HttpRequest, filters: CommandListFilters = Query(...)):
-    """List all commands with optional filtering."""
     commands = Command.objects.all().order_by("name")
 
     if filters.type:
         commands = commands.filter(provider=filters.type)
     if filters.search:
         commands = commands.filter(name__icontains=filters.search)
-
     commands = list(commands)
     usage = _command_usage(commands)
     serialized = [serialize_command(cmd, usage) for cmd in commands]
@@ -412,7 +378,7 @@ def update_provider_settings(request: HttpRequest, provider_id: str, data: Provi
 
 
 class ProviderEnabledSchema(Schema):
-    enabled: bool = Field(description="True to enable the plugin, False to disable it")
+    enabled: bool
 
 
 @command_api.post("/providers/{provider_id}/enabled", response={200: MessageResponseSchema, 400: ErrorResponseSchema})
@@ -471,7 +437,6 @@ def test_command(request: HttpRequest, data: TestCommandSchema):
 
     temp_command = Command(name="Test Command", provider=data.provider, config=data.config)
     result = command_runner.execute(temp_command, trigger="test", wait=True)
-
     return _result_response(f"Command test {'succeeded' if result.ok else 'failed'} ({result.detail})", result)
 
 
@@ -479,7 +444,6 @@ def test_command(request: HttpRequest, data: TestCommandSchema):
     "/create", response={201: CommandCreateResponseSchema, 400: ErrorResponseSchema, 500: ErrorResponseSchema}
 )
 def create_command(request: HttpRequest, data: CreateCommandSchema):
-    """Create a new command."""
     name = data.name.strip()
     if not name:
         raise ValidationError("Command name is required")
@@ -490,30 +454,10 @@ def create_command(request: HttpRequest, data: CreateCommandSchema):
     _validate_config(data.provider, data.config)
 
     command = Command.objects.create(
-        name=name,
-        provider=data.provider,
-        config=data.config,
-        duration=data.duration or 0.0,
+        name=name, provider=data.provider, config=data.config, duration=data.duration or 0.0
     )
-
     return Status(
         201, CommandCreateResponseSchema(message="Command created successfully", data=serialize_command(command))
-    )
-
-
-@command_api.get(
-    "/{command_id}", response={200: CommandDetailResponseSchema, 404: ErrorResponseSchema, 500: ErrorResponseSchema}
-)
-def get_command_detail(request: HttpRequest, command_id: int):
-    """Get detailed information about a specific command."""
-    try:
-        command = Command.objects.get(pk=command_id)
-    except Command.DoesNotExist:
-        raise NotFoundError("Command not found") from None
-
-    return Status(
-        200,
-        CommandDetailResponseSchema(message="Command details retrieved successfully", data=serialize_command(command)),
     )
 
 
@@ -527,12 +471,7 @@ def get_command_detail(request: HttpRequest, command_id: int):
     },
 )
 def update_command(request: HttpRequest, command_id: int, data: UpdateCommandSchema):
-    """Update an existing command."""
-    try:
-        command = Command.objects.get(pk=command_id)
-    except Command.DoesNotExist:
-        raise NotFoundError("Command not found") from None
-
+    command = get_or_404(Command, command_id, "Command not found")
     locked = plugins.is_builtin(command.provider)
     if locked and (
         (data.name is not None and data.name.strip() != command.name)
@@ -561,7 +500,6 @@ def update_command(request: HttpRequest, command_id: int, data: UpdateCommandSch
         command.duration = data.duration
 
     command.save()
-
     return Status(
         200, CommandCreateResponseSchema(message="Command updated successfully", data=serialize_command(command))
     )
@@ -572,18 +510,11 @@ def update_command(request: HttpRequest, command_id: int, data: UpdateCommandSch
     response={200: MessageResponseSchema, 404: ErrorResponseSchema, 409: ErrorResponseSchema, 500: ErrorResponseSchema},
 )
 def delete_command(request: HttpRequest, command_id: int):
-    """Delete a command."""
-    try:
-        command = Command.objects.get(pk=command_id)
-    except Command.DoesNotExist:
-        raise NotFoundError("Command not found") from None
-
+    command = get_or_404(Command, command_id, "Command not found")
     if plugins.is_builtin(command.provider):
         raise ConflictError("A built-in command can't be deleted")
-    command_name = command.name
     command.delete()
-
-    return Status(200, MessageResponseSchema(message=f'Command "{command_name}" deleted successfully'))
+    return Status(200, MessageResponseSchema(message=f'Command "{command.name}" deleted successfully'))
 
 
 @command_api.post(
@@ -592,11 +523,7 @@ def delete_command(request: HttpRequest, command_id: int):
 )
 def execute_command(request: HttpRequest, command_id: int):
     """Execute a command (runs synchronously, returns its outcome and output)."""
-    try:
-        command = Command.objects.get(pk=command_id)
-    except Command.DoesNotExist:
-        raise NotFoundError("Command not found") from None
-
+    command = get_or_404(Command, command_id, "Command not found")
     result = command_runner.execute(command, trigger="remote", wait=True)
 
     return _result_response(

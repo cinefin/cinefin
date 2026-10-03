@@ -21,7 +21,7 @@ def parse_options(options: str) -> dict[str, str]:
 
 
 class FakeMPVAgent(StubAgent):
-    def __init__(self, durations=None):
+    def __init__(self):
         # State must exist before super().__init__ starts the server thread.
         self.playlist: list[str] = []
         self.entry_options: list[dict] = []  # per-file options, parallel to playlist
@@ -31,9 +31,7 @@ class FakeMPVAgent(StubAgent):
         self.pos: int | None = None
         self.paused = False
         self.time_pos = 0.0
-        self.durations = durations or {}
         self.props: dict[str, object] = {}
-        self.track_list: list[dict] = []
         self._observers: dict[int, str] = {}
         self._state_lock = threading.RLock()
         # Frames are pushed from both the connection thread and the test thread;
@@ -92,14 +90,13 @@ class FakeMPVAgent(StubAgent):
             if name == "time-pos":
                 return self.time_pos if self.pos is not None else None
             if name == "duration":
-                current = self.current_file
-                return self.durations.get(current, DEFAULT_DURATION) if current else None
+                return DEFAULT_DURATION if self.current_file else None
             if name in ("path", "stream-open-filename", "filename"):
                 return self.current_file
             if name == "idle-active":
                 return self.pos is None
             if name == "track-list":
-                return self.track_list
+                return []
             if name == "loop-file":
                 return self.props.get("loop-file", "no")
             if name == "eof-reached":
@@ -158,13 +155,6 @@ class FakeMPVAgent(StubAgent):
                 target = (self.pos or 0) + 1
             if can_advance:
                 self._set_pos(target)
-        elif name == "playlist-prev":
-            reply()
-            with self._state_lock:
-                can_retreat = self.pos is not None and self.pos > 0
-                target = (self.pos or 1) - 1
-            if can_retreat:
-                self._set_pos(target)
         elif name == "playlist-clear":
             # mpv keeps the currently playing entry.
             with self._state_lock:
@@ -203,14 +193,6 @@ class FakeMPVAgent(StubAgent):
         elif name == "playlist-play-index":
             reply()
             self._set_pos(int(cmd[1]))
-        elif name == "stop":
-            reply()
-            with self._state_lock:
-                self.playlist = []
-                self.entry_options = []
-                self.pos = None
-            self._emit_property("playlist-pos", -1)
-            self._emit_property("idle-active", True)
         else:
             reply(cmd)
 

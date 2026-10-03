@@ -18,8 +18,6 @@ export class BlockEditor<M = Record<string, unknown>> {
 	// uids of blocks whose config panels are open. Starts empty on load (the
 	// list reads first); a block you add opens. Keyed by uid so it survives moves.
 	expanded = $state<SvelteSet<string>>(new SvelteSet());
-	canUndo = $state(false);
-	canRedo = $state(false);
 
 	#undo: Snapshot<M>[] = [];
 	#redo: Snapshot<M>[] = [];
@@ -36,6 +34,14 @@ export class BlockEditor<M = Record<string, unknown>> {
 		return `blk_${this.#uid++}`;
 	}
 
+	scrollTo(index: number): void {
+		setTimeout(() => {
+			document
+				.querySelector(`[data-block-index="${index}"]`)
+				?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		}, 50);
+	}
+
 	markDirty(): void {
 		this.dirty = true;
 	}
@@ -48,7 +54,6 @@ export class BlockEditor<M = Record<string, unknown>> {
 		this.expanded = new SvelteSet();
 		this.#undo = [];
 		this.#redo = [];
-		this.#syncFlags();
 	}
 
 	#capture(): Snapshot<M> {
@@ -67,21 +72,10 @@ export class BlockEditor<M = Record<string, unknown>> {
 		if (this.selected !== null && this.selected >= this.blocks.length) this.selected = null;
 	}
 
-	#syncFlags(): void {
-		this.canUndo = this.#undo.length > 0;
-		this.canRedo = this.#redo.length > 0;
-	}
-
 	pushUndo(): void {
 		this.#undo.push(this.#capture());
 		if (this.#undo.length > UNDO_LIMIT) this.#undo.shift();
 		this.#redo = [];
-		this.#syncFlags();
-	}
-
-	discardLast(): void {
-		this.#undo.pop();
-		this.#syncFlags();
 	}
 
 	undo(): boolean {
@@ -89,7 +83,6 @@ export class BlockEditor<M = Record<string, unknown>> {
 		if (!snapshot) return false;
 		this.#redo.push(this.#capture());
 		this.#restore(snapshot);
-		this.#syncFlags();
 		return true;
 	}
 
@@ -98,7 +91,6 @@ export class BlockEditor<M = Record<string, unknown>> {
 		if (!snapshot) return false;
 		this.#undo.push(this.#capture());
 		this.#restore(snapshot);
-		this.#syncFlags();
 		return true;
 	}
 
@@ -169,10 +161,6 @@ export class BlockEditor<M = Record<string, unknown>> {
 		this.markDirty();
 		this.selected = null;
 		if (removed) this.expanded.delete(removed.uid);
-	}
-
-	toggleSelect(index: number): void {
-		this.selected = this.selected === index ? null : index;
 	}
 
 	// Opening also selects the block so Alt+arrow moves the one you're working on.

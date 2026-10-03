@@ -5,7 +5,7 @@
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import { blockSummary, blockTitle } from './display';
 	import type { BlockEditor } from './editor.svelte';
-	import type { EditorBlock, EditorContext } from './types';
+	import type { ConfigProps, EditorBlock, EditorContext } from './types';
 	import AudioBumperConfig from './config/AudioBumperConfig.svelte';
 	import BumperConfig from './config/BumperConfig.svelte';
 	import CertificationConfig from './config/CertificationConfig.svelte';
@@ -28,35 +28,21 @@
 
 	let { block, index, total, ctx, editor, error = null, onremove }: Props = $props();
 
-	type ConfigComponent = Component<{
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}>;
+	type ConfigComponent = Component<ConfigProps>;
 
+	const SHARED: Record<string, ConfigComponent> = {
+		trailer_rule: TrailerRuleConfig,
+		command: CommandConfig,
+		// `random_bumper` maps here defensively: legacy values the adapter didn't normalise still open this panel.
+		bumper: BumperConfig,
+		random_bumper: BumperConfig,
+		trailer: TrailerConfig,
+		certification: CertificationConfig,
+		audio_bumper: AudioBumperConfig
+	};
 	const CONFIGS: Record<string, Record<string, ConfigComponent>> = {
-		programme: {
-			movie: MovieConfig,
-			trailer_rule: TrailerRuleConfig,
-			command: CommandConfig,
-			// `random_bumper` maps here defensively: legacy values the adapter didn't normalise still open this panel.
-			bumper: BumperConfig,
-			random_bumper: BumperConfig,
-			trailer: TrailerConfig,
-			random_movie: RandomMovieConfig,
-			certification: CertificationConfig,
-			audio_bumper: AudioBumperConfig
-		},
-		template: {
-			feature: FeatureConfig,
-			trailer_rule: TrailerRuleConfig,
-			command: CommandConfig,
-			bumper: BumperConfig,
-			random_bumper: BumperConfig,
-			trailer: TrailerConfig,
-			certification: CertificationConfig,
-			audio_bumper: AudioBumperConfig
-		}
+		programme: { ...SHARED, movie: MovieConfig, random_movie: RandomMovieConfig },
+		template: { ...SHARED, feature: FeatureConfig }
 	};
 
 	const ConfigPanel = $derived(CONFIGS[ctx.mode][block.type]);
@@ -69,9 +55,7 @@
 
 	let headerEl = $state<HTMLDivElement>();
 
-	function commit(mutate: () => void): void {
-		editor.commit(mutate);
-	}
+	const commit = (mutate: () => void) => editor.commit(mutate);
 
 	function toggle(): void {
 		if (canExpand) editor.toggleExpand(index);
@@ -97,9 +81,30 @@
 		headerEl?.focus();
 	}
 
-	const actionBtn =
-		'inline-flex h-6 w-6 items-center justify-center rounded-sm text-faint transition-colors ' +
-		'hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30';
+	const actions = $derived([
+		{
+			title: 'Move up',
+			Icon: ChevronUp,
+			size: 14,
+			disabled: index === 0,
+			run: () => editor.move(index, -1)
+		},
+		{
+			title: 'Move down',
+			Icon: ChevronDown,
+			size: 14,
+			disabled: index === total - 1,
+			run: () => editor.move(index, 1)
+		},
+		{
+			title: 'Duplicate',
+			Icon: Copy,
+			size: 13,
+			disabled: false,
+			run: () => editor.duplicate(index)
+		},
+		{ title: 'Remove', Icon: X, size: 14, disabled: false, run: () => onremove(index) }
+	]);
 	const tall = 'row-start-1 row-span-2 @md:row-span-1';
 </script>
 
@@ -151,40 +156,20 @@
 		</span>
 
 		<div class="col-start-4 {tall} flex items-center justify-end gap-0.5">
-			<button
-				type="button"
-				class={actionBtn}
-				disabled={index === 0}
-				title="Move up"
-				onclick={() => editor.move(index, -1)}
-			>
-				<ChevronUp size={14} />
-			</button>
-			<button
-				type="button"
-				class={actionBtn}
-				disabled={index === total - 1}
-				title="Move down"
-				onclick={() => editor.move(index, 1)}
-			>
-				<ChevronDown size={14} />
-			</button>
-			<button
-				type="button"
-				class={actionBtn}
-				title="Duplicate"
-				onclick={() => editor.duplicate(index)}
-			>
-				<Copy size={13} />
-			</button>
-			<button
-				type="button"
-				class="{actionBtn} hover:text-danger"
-				title="Remove"
-				onclick={() => onremove(index)}
-			>
-				<X size={14} />
-			</button>
+			{#each actions as a (a.title)}
+				<button
+					type="button"
+					class="inline-flex h-6 w-6 items-center justify-center rounded-sm text-faint transition-colors hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30 {a.title ===
+					'Remove'
+						? 'hover:text-danger'
+						: ''}"
+					disabled={a.disabled}
+					title={a.title}
+					onclick={a.run}
+				>
+					<a.Icon size={a.size} />
+				</button>
+			{/each}
 			{#if canExpand}
 				<ChevronDown
 					size={14}

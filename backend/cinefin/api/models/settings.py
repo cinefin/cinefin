@@ -10,11 +10,8 @@ class Settings(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
-    # Ordered tuples are the source of truth; the sets are derived so they can't drift.
     RATINGS_BBFC_ORDER = ("U", "PG", "12", "12A", "15", "18", "R18")
     RATINGS_MPAA_ORDER = ("G", "PG", "PG-13", "R", "NC-17")
-    RATINGS_BBFC = set(RATINGS_BBFC_ORDER)
-    RATINGS_MPAA = set(RATINGS_MPAA_ORDER)
     VALID_RATINGS_SYSTEMS = ("BBFC", "MPAA")
 
     DEFAULTS = {
@@ -41,7 +38,7 @@ class Settings(models.Model):
             "kiosk_public": True,
         },
         "setup": {
-            # Until True, installer redirect middleware sends all requests to /installer/.
+            # Until True, the installer redirect middleware sends every page to the setup wizard.
             "completed": False,
             # Wizard step (2-5) to resume after `completed` flips. 0 = finished.
             "wizard_step": 0,
@@ -116,36 +113,30 @@ class Settings(models.Model):
         verbose_name_plural = "Settings"
 
     def __str__(self):
-        cinema_name = self.get("cinema.name")
-        return f"Settings - {cinema_name}"
+        return f"Settings - {self.get('cinema.name')}"
 
-    @classmethod
-    def _get_default(cls, key: str):
-        keys = key.split(".")
-        value = cls.DEFAULTS
-        for k in keys:
-            if isinstance(value, dict):
-                value = value.get(k, {})
-            else:
+    @staticmethod
+    def _lookup(data, key: str):
+        for k in key.split("."):
+            if not isinstance(data, dict):
                 return None
-        return value if value != {} else None
+            data = data.get(k)
+        return data
 
     @classmethod
     def _get_instance(cls):
         # deepcopy: a shallow copy would share nested dicts/lists with DEFAULTS,
         # so Settings.set would silently rewrite the class-level defaults.
-        instance, created = cls.objects.get_or_create(id=1, defaults={"data": copy.deepcopy(cls.DEFAULTS)})
-        return instance
+        return cls.objects.get_or_create(id=1, defaults={"data": copy.deepcopy(cls.DEFAULTS)})[0]
 
     @classmethod
     def get_ratings_system(cls) -> str:
-        system = cls.get("cinema.ratings_system") or "BBFC"
+        system = cls.get("cinema.ratings_system")
         return system if system in cls.VALID_RATINGS_SYSTEMS else "BBFC"
 
     @classmethod
     def get_valid_ratings(cls, system: str | None = None) -> set:
-        system = system or cls.get_ratings_system()
-        return cls.RATINGS_MPAA if system == "MPAA" else cls.RATINGS_BBFC
+        return set(cls.get_ratings_order(system))
 
     @classmethod
     def get_ratings_order(cls, system: str | None = None) -> tuple:
@@ -154,56 +145,36 @@ class Settings(models.Model):
 
     @classmethod
     def get(cls, key: str = None, default=None):
-        instance = cls._get_instance()
-
+        data = cls._get_instance().data
         if key is None:
-            return cls._merge_with_defaults(instance.data)
-
-        keys = key.split(".")
-        value = instance.data
-
-        for k in keys:
-            if isinstance(value, dict):
-                value = value.get(k)
-                if value is None:
-                    break
-            else:
-                value = None
-                break
-
+            return cls._merge_with_defaults(data)
+        value = cls._lookup(data, key)
         if value is None:
-            default_value = cls._get_default(key)
-            return default if default is not None else default_value
-
+            return default if default is not None else cls._lookup(cls.DEFAULTS, key)
         return value
 
     @classmethod
     def _merge_with_defaults(cls, data: dict) -> dict:
-        result = copy.deepcopy(cls.DEFAULTS)
-
         def merge(base, override):
             for key, value in override.items():
-                if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                if isinstance(base.get(key), dict) and isinstance(value, dict):
                     merge(base[key], value)
                 else:
                     base[key] = value
+            return base
 
-        merge(result, data or {})
-        return result
+        return merge(copy.deepcopy(cls.DEFAULTS), data or {})
 
     @classmethod
     def set(cls, key: str, value):
         instance = cls._get_instance()
-
-        keys = key.split(".")
+        *parents, last = key.split(".")
         data = instance.data
-
-        for k in keys[:-1]:
-            if k not in data or not isinstance(data[k], dict):
+        for k in parents:
+            if not isinstance(data.get(k), dict):
                 data[k] = {}
             data = data[k]
-
-        data[keys[-1]] = value
+        data[last] = value
         instance.save()
 
     @classmethod

@@ -1,21 +1,14 @@
 <script lang="ts">
 	/**
-	 * The user-media tag bar — one persistent, colour-coded surface that does the
-	 * three jobs tags used to scatter across a filter dropdown, a free-text bulk
-	 * box and a modal:
-	 *
-	 *   • Filter (default): click a chip to include its tag (match ANY / OR).
-	 *   • Assign (something selected): the SAME chips tag/untag the selection —
-	 *     a chip reads all / some / none of the picked items and toggles.
-	 *   • Edit: rename inline, recolour from a curated swatch palette, delete,
-	 *     and add new tags — all autosaving, no per-row Save.
-	 *
-	 * The bar owns the tag CRUD + bulk-tag calls; the page passes the facets, the
-	 * active filter, the picked items, and a reload callback.
+	 * The user-media tag bar. Filter (default): a chip includes its tag (match any).
+	 * Assign (something picked): the same chips tag/untag the selection (all/some/none).
+	 * Edit: rename, recolour, delete and add tags, all autosaving. Owns the tag CRUD.
 	 */
 	import { Check, Minus, Pencil, Plus, X } from '@lucide/svelte';
 
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
+	import { actMsg } from '$lib/media/actions';
+	import { mutate } from '$lib/api/mutate';
 	import type { components } from '$lib/api/types.gen';
 	import { showToast } from '$lib/toast.svelte';
 
@@ -37,8 +30,7 @@
 	}
 	let { tags, filter, onfilter, picked, onchanged, onclearpick, confirm }: Props = $props();
 
-	// On-brand swatches (the design-token family hues), readable on the dark
-	// surface. First is the media-family cyan — the sensible default for a bumper.
+	// Token-family hues; the first (media cyan) is the default for a new tag.
 	const SWATCHES = [
 		'#22D3EE',
 		'#3A7BFF',
@@ -50,6 +42,18 @@
 		'#94A3B8'
 	];
 	const NEW = -1; // palette sentinel for the new-tag pill
+
+	const PILL =
+		'inline-flex items-center gap-[0.35rem] rounded-sm border px-[0.6rem] py-[0.2rem] text-[0.75rem]';
+	const CHIP =
+		'font-medium transition-[filter,background-color,border-color] duration-120 ease-[ease] enabled:hover:brightness-115 disabled:opacity-60';
+	// Edit mode: an inline tag editor pill, its delete/add button, and the palette's swatches.
+	const EDIT_PILL =
+		'relative inline-flex items-center gap-[0.35rem] rounded-sm border border-border-strong bg-surface-2 py-[0.15rem] pr-[0.3rem] pl-[0.4rem]';
+	const PILL_BUTTON =
+		'inline-flex size-[1.1rem] items-center justify-center rounded-xs text-faint enabled:hover:bg-surface-3 enabled:hover:text-danger disabled:opacity-40';
+	const SWATCH =
+		'size-[1.1rem] cursor-pointer rounded-xs border border-white/15 hover:brightness-120';
 
 	let editing = $state(false);
 	const assignMode = $derived(picked.length > 0 && !editing);
@@ -64,9 +68,7 @@
 		return n === 0 ? 'none' : n === picked.length ? 'all' : 'some';
 	}
 
-	// Tag chips carry their own colour; "on" (active filter, or fully-applied to
-	// the selection) reads as a stronger fill. Colourless tags fall back to the
-	// neutral surface ladder.
+	// "On" (filtering, or on every picked item) is a stronger fill; colourless tags use the surface ladder.
 	function chipStyle(color: string | null | undefined, on: boolean): string {
 		if (!color) {
 			return on
@@ -90,90 +92,60 @@
 		const ids = picked.map((m) => m.id);
 		const action = assignState(t.name) === 'all' ? 'remove' : 'add';
 		busy = true;
-		try {
+		await actMsg('Could not update tags', async () => {
 			const res = await unwrap(
 				api.POST('/api/v2/media/bulk-tag', { body: { ids, tag: t.name, action } })
 			);
 			const noun = res.updated === 1 ? 'item' : 'items';
-			showToast(
-				`${res.updated} ${noun} ${action === 'add' ? 'tagged' : 'untagged'} “${t.name}”`,
-				'success'
-			);
+			const verb = action === 'add' ? 'tagged' : 'untagged';
+			showToast(`${res.updated} ${noun} ${verb} “${t.name}”`, 'success');
 			await onchanged();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not update tags', 'error');
-		} finally {
-			busy = false;
-		}
+		});
+		busy = false;
 	}
 
 	async function create() {
 		const name = newName.trim();
 		if (!name || busy) return;
 		busy = true;
-		try {
+		await actMsg('Could not create tag', async () => {
 			await unwrap(api.POST('/api/v2/media/tags', { body: { name, color: newColor || null } }));
 			newName = '';
 			paletteFor = null;
 			await onchanged();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not create tag', 'error');
-		} finally {
-			busy = false;
-		}
+		});
+		busy = false;
 	}
 
-	async function rename(t: Tag, next: string) {
+	function update(t: Tag, body: { name: string; color: string }, failure: string) {
+		void actMsg(failure, async () => {
+			const params = { path: { tag_id: t.id } };
+			await unwrap(api.PUT('/api/v2/media/tags/{tag_id}', { params, body }));
+			if (body.name !== t.name && filter.includes(t.name))
+				onfilter(filter.map((n) => (n === t.name ? body.name : n)));
+			await onchanged();
+		});
+	}
+
+	function rename(t: Tag, next: string) {
 		const name = next.trim();
-		if (!name || name === t.name) return;
-		try {
-			await unwrap(
-				api.PUT('/api/v2/media/tags/{tag_id}', {
-					params: { path: { tag_id: t.id } },
-					body: { name, color: t.color || '' }
-				})
-			);
-			if (filter.includes(t.name)) onfilter(filter.map((n) => (n === t.name ? name : n)));
-			await onchanged();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not rename tag', 'error');
-		}
+		if (name && name !== t.name) update(t, { name, color: t.color || '' }, 'Could not rename tag');
 	}
 
-	async function recolor(t: Tag, color: string) {
+	function recolor(t: Tag, color: string) {
 		paletteFor = null;
-		if ((t.color ?? '') === color) return;
-		try {
-			await unwrap(
-				api.PUT('/api/v2/media/tags/{tag_id}', {
-					params: { path: { tag_id: t.id } },
-					body: { name: t.name, color }
-				})
-			);
-			await onchanged();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not recolour tag', 'error');
-		}
+		if ((t.color ?? '') !== color) update(t, { name: t.name, color }, 'Could not recolour tag');
 	}
 
 	async function remove(t: Tag) {
-		if (
-			!(await confirm(
-				`Delete the tag “${t.name}”? It's removed from every item that carries it (the items are kept).`,
-				{ confirmLabel: 'Delete tag' }
-			))
-		)
-			return;
-		try {
-			const res = await api.DELETE('/api/v2/media/tags/{tag_id}', {
-				params: { path: { tag_id: t.id } }
-			});
-			if (res.error !== undefined) throw toApiError(res.error, res.response);
+		const msg = `Delete the tag “${t.name}”? It's removed from every item that carries it (the items are kept).`;
+		if (!(await confirm(msg, { confirmLabel: 'Delete tag' }))) return;
+		await actMsg('Could not delete tag', async () => {
+			const params = { path: { tag_id: t.id } };
+			await mutate(api.DELETE('/api/v2/media/tags/{tag_id}', { params }));
 			if (filter.includes(t.name)) onfilter(filter.filter((n) => n !== t.name));
 			await onchanged();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Could not delete tag', 'error');
-		}
+		});
 	}
 
 	function onRenameKey(e: KeyboardEvent, t: Tag) {
@@ -181,6 +153,32 @@
 		else if (e.key === 'Escape') (e.currentTarget as HTMLInputElement).value = t.name;
 	}
 </script>
+
+{#snippet palette(pick: (color: string) => void, clearable = false)}
+	<div
+		class="absolute top-[calc(100%+4px)] left-0 z-20 flex gap-1 rounded-sm border border-border-strong bg-surface-3 p-[0.35rem]"
+	>
+		{#each SWATCHES as c (c)}
+			<button
+				type="button"
+				class={SWATCH}
+				style="background:{c}"
+				aria-label="Set colour"
+				onclick={() => pick(c)}
+			></button>
+		{/each}
+		{#if clearable}
+			<button
+				type="button"
+				class="{SWATCH} inline-flex items-center justify-center bg-surface-1 text-muted"
+				title="No colour"
+				onclick={() => pick('')}
+			>
+				<X size={11} />
+			</button>
+		{/if}
+	</div>
+{/snippet}
 
 <div class="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
 	{#if assignMode}
@@ -190,10 +188,10 @@
 
 	{#if editing}
 		{#each tags as t (t.id)}
-			<div class="tag-edit">
+			<div class={EDIT_PILL}>
 				<button
 					type="button"
-					class="tag-swatch"
+					class="size-[0.9rem] shrink-0 cursor-pointer rounded-xs border border-border-strong"
 					style="background:{t.color || 'transparent'};border-color:{t.color ||
 						'var(--color-border-strong)'}"
 					title="Recolour"
@@ -201,49 +199,29 @@
 					onclick={() => (paletteFor = paletteFor === t.id ? null : t.id)}
 				></button>
 				<input
-					class="tag-name"
+					class="w-28 border-0 bg-transparent text-[0.75rem] text-text outline-none"
 					value={t.name}
 					aria-label="Rename {t.name}"
-					onblur={(e) => void rename(t, (e.currentTarget as HTMLInputElement).value)}
+					onblur={(e) => rename(t, e.currentTarget.value)}
 					onkeydown={(e) => onRenameKey(e, t)}
 				/>
-				<button type="button" class="tag-del" title="Delete tag" onclick={() => void remove(t)}>
+				<button type="button" class={PILL_BUTTON} title="Delete tag" onclick={() => void remove(t)}>
 					<X size={12} />
 				</button>
-				{#if paletteFor === t.id}
-					<div class="palette">
-						{#each SWATCHES as c (c)}
-							<button
-								type="button"
-								class="sw"
-								style="background:{c}"
-								aria-label="Set colour"
-								onclick={() => void recolor(t, c)}
-							></button>
-						{/each}
-						<button
-							type="button"
-							class="sw sw-none"
-							title="No colour"
-							onclick={() => void recolor(t, '')}
-						>
-							<X size={11} />
-						</button>
-					</div>
-				{/if}
+				{#if paletteFor === t.id}{@render palette((c) => recolor(t, c), true)}{/if}
 			</div>
 		{/each}
 
-		<div class="tag-edit">
+		<div class={EDIT_PILL}>
 			<button
 				type="button"
-				class="tag-swatch"
+				class="size-[0.9rem] shrink-0 cursor-pointer rounded-xs border border-border-strong"
 				style="background:{newColor}"
 				aria-label="New tag colour"
 				onclick={() => (paletteFor = paletteFor === NEW ? null : NEW)}
 			></button>
 			<input
-				class="tag-name"
+				class="w-28 border-0 bg-transparent text-[0.75rem] text-text outline-none"
 				bind:value={newName}
 				placeholder="New tag"
 				onkeydown={(e) => {
@@ -252,7 +230,7 @@
 			/>
 			<button
 				type="button"
-				class="tag-del"
+				class={PILL_BUTTON}
 				title="Add tag"
 				disabled={!newName.trim()}
 				onclick={() => void create()}
@@ -260,20 +238,10 @@
 				<Plus size={12} />
 			</button>
 			{#if paletteFor === NEW}
-				<div class="palette">
-					{#each SWATCHES as c (c)}
-						<button
-							type="button"
-							class="sw"
-							style="background:{c}"
-							aria-label="Set colour"
-							onclick={() => {
-								newColor = c;
-								paletteFor = null;
-							}}
-						></button>
-					{/each}
-				</div>
+				{@render palette((c) => {
+					newColor = c;
+					paletteFor = null;
+				})}
 			{/if}
 		</div>
 	{:else if !tags.length}
@@ -283,7 +251,7 @@
 			{@const st = assignMode ? assignState(t.name) : filter.includes(t.name) ? 'all' : 'none'}
 			<button
 				type="button"
-				class="chip {st === 'some' ? 'chip-partial' : ''}"
+				class="{PILL} {CHIP} {st === 'some' ? 'border-dashed' : ''}"
 				style={chipStyle(t.color, st === 'all')}
 				aria-pressed={st !== 'none'}
 				disabled={busy}
@@ -293,18 +261,22 @@
 						size={12}
 					/>{:else if assignMode && st === 'some'}<Minus size={12} />{/if}
 				{t.name}
-				<span class="count">{t.count ?? 0}</span>
+				<span class="font-mono text-[0.65rem] opacity-70">{t.count ?? 0}</span>
 			</button>
 		{/each}
 	{/if}
 
 	<div class="ml-auto flex items-center gap-1.5">
 		{#if assignMode}
-			<button type="button" class="ghost" onclick={onclearpick}>Clear selection</button>
+			<button
+				type="button"
+				class="{PILL} border-border bg-surface-2 text-muted hover:bg-surface-3 hover:text-text"
+				onclick={onclearpick}>Clear selection</button
+			>
 		{/if}
 		<button
 			type="button"
-			class="ghost"
+			class="{PILL} border-border bg-surface-2 text-muted hover:bg-surface-3 hover:text-text"
 			onclick={() => {
 				editing = !editing;
 				paletteFor = null;
@@ -314,126 +286,3 @@
 		</button>
 	</div>
 </div>
-
-<style>
-	.chip {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		border: 1px solid;
-		border-radius: var(--radius-sm);
-		padding: 0.2rem 0.6rem;
-		font-size: 0.75rem;
-		font-weight: 500;
-		transition:
-			filter 0.12s ease,
-			background-color 0.12s ease,
-			border-color 0.12s ease;
-	}
-	.chip:hover:not(:disabled) {
-		filter: brightness(1.15);
-	}
-	.chip:disabled {
-		opacity: 0.6;
-	}
-	.chip .count {
-		font-family: var(--font-mono, monospace);
-		font-size: 0.65rem;
-		opacity: 0.7;
-	}
-	/* Partially-applied (assign mode): a dashed border reads "some, not all". */
-	.chip-partial {
-		border-style: dashed;
-	}
-
-	.ghost {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius-sm);
-		background: var(--color-surface-2);
-		color: var(--color-muted);
-		padding: 0.2rem 0.6rem;
-		font-size: 0.75rem;
-	}
-	.ghost:hover {
-		color: var(--color-text);
-		background: var(--color-surface-3);
-	}
-
-	/* Edit mode: an inline tag editor pill. */
-	.tag-edit {
-		position: relative;
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-sm);
-		background: var(--color-surface-2);
-		padding: 0.15rem 0.3rem 0.15rem 0.4rem;
-	}
-	.tag-swatch {
-		height: 0.9rem;
-		width: 0.9rem;
-		flex-shrink: 0;
-		border: 1px solid var(--color-border-strong);
-		border-radius: 2px;
-		cursor: pointer;
-	}
-	.tag-name {
-		width: 7rem;
-		border: 0;
-		background: transparent;
-		color: var(--color-text);
-		font-size: 0.75rem;
-		outline: none;
-	}
-	.tag-del {
-		display: inline-flex;
-		height: 1.1rem;
-		width: 1.1rem;
-		align-items: center;
-		justify-content: center;
-		border-radius: 2px;
-		color: var(--color-faint);
-	}
-	.tag-del:hover:not(:disabled) {
-		color: var(--color-danger);
-		background: var(--color-surface-3);
-	}
-	.tag-del:disabled {
-		opacity: 0.4;
-	}
-
-	/* Swatch palette popover under an editor pill. */
-	.palette {
-		position: absolute;
-		top: calc(100% + 4px);
-		left: 0;
-		z-index: 20;
-		display: flex;
-		gap: 0.25rem;
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-sm);
-		background: var(--color-surface-3);
-		padding: 0.35rem;
-	}
-	.sw {
-		height: 1.1rem;
-		width: 1.1rem;
-		border: 1px solid rgb(255 255 255 / 0.15);
-		border-radius: 2px;
-		cursor: pointer;
-	}
-	.sw:hover {
-		filter: brightness(1.2);
-	}
-	.sw-none {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		background: var(--color-surface-1);
-		color: var(--color-muted);
-	}
-</style>

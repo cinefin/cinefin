@@ -1,10 +1,6 @@
 <script lang="ts">
-	/**
-	 * The whole programme as one strip: the title card, when there is one, as its own grey
-	 * pre-show segment set a little apart, then every item in its type colour (the shared
-	 * item-type families), sized by length. The item on screen is lit with its progress.
-	 * With `onjump` (and the server allowing it) a segment jumps there.
-	 */
+	// The whole programme as one strip sized by length: the title card as a grey pre-show
+	// segment set apart, then each item in its type colour; with `onjump`, a segment jumps there.
 	import { formatTime } from '$lib/format';
 	import { itemTypeClasses, itemTypeLabel } from '$lib/item-types';
 	import { can, type PlayoutStatus } from '$lib/playout/phase';

@@ -1,6 +1,5 @@
 <script lang="ts">
-	// The complete film view in the detail drawer (ui/SidePanel). Shared by two hosts (library,
-	// dashboard), so the selection integration (onselect/onfilter) is optional per host.
+	// The film view in the detail drawer; the library and the dashboard host it.
 	import { base } from '$app/paths';
 	import {
 		AudioLines,
@@ -23,8 +22,9 @@
 	import { mutate } from '$lib/api/mutate';
 	import { Query, query } from '$lib/api/query.svelte';
 	import type { components } from '$lib/api/types.gen';
-	import { formatRuntime } from '$lib/format';
+	import { formatRuntime, formatSize } from '$lib/format';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -45,27 +45,21 @@
 		| { kind: 'rating'; value: string };
 
 	interface Props {
-		/** The open film. Changing it swaps the drawer's content in place. */
 		movieId: number;
-		/** Ids of the films the host is listing — powers the prev/next arrows. */
+		/** The host's listed ids, for prev/next. */
 		ids?: number[];
-		/** Whether the film is in the host's selection set (library only). */
 		selected?: boolean;
-		/** Programme wizard hand-off: the current selection (this film is added if absent). */
+		/** The host's selection, handed to the programme wizard with this film. */
 		selectedIds?: number[];
 		onclose: () => void;
 		onstep?: (id: number) => void;
-		/** Given → the Select for programme / Deselect action is offered. */
+		/** Given → Select/Deselect is offered. */
 		onselect?: () => void;
-		/** Given → year/director/genre/rating clicks filter the host list in place. */
+		/** Given → facet clicks filter the host list in place instead of following the link. */
 		onfilter?: (filter: MovieFilter) => void;
-		/** Called after kiosk / certificate edits so the list can refresh silently. */
 		onmutated?: () => void;
-		/** Called after the film was removed from the library. */
 		onremoved?: () => void;
-		/** false when the host keeps the open film in its own history state (the library). */
 		history?: boolean;
-		/** false = overlay even on wide screens (the dashboard isn't a list to browse). */
 		dock?: boolean;
 	}
 
@@ -84,7 +78,6 @@
 		dock = true
 	}: Props = $props();
 
-	// Long track lists collapse to a preview with a toggle so the drawer doesn't run away.
 	const TRACK_PREVIEW = 5;
 	let showAllAudio = $state(false);
 	let showAllSubs = $state(false);
@@ -100,7 +93,7 @@
 		void movie.load();
 	});
 
-	// Supplementary fetches (degrade quietly). Genre names — the detail payload carries IDs only.
+	// Supplementary (degrade quietly); the detail payload carries genre ids only.
 	const genres = query(() => unwrap(api.GET('/api/v2/movies/genres')));
 	const genreNames = $derived.by(() => {
 		const list = genres.data ?? [];
@@ -110,11 +103,11 @@
 	});
 
 	const ratings = query(() => unwrap(api.GET('/api/v2/movies/ratings-options')));
-	const certMismatch = $derived.by(() => {
-		const cert = movie.data?.certification;
-		if (!cert || !ratings.data) return false;
-		return !ratings.data.ratings.includes(cert);
-	});
+	const certMismatch = $derived(
+		!!movie.data?.certification &&
+			!!ratings.data &&
+			!ratings.data.ratings.includes(movie.data.certification)
+	);
 
 	const metaTail = $derived(
 		[
@@ -127,15 +120,9 @@
 			.join(' · ')
 	);
 
-	/** True while a dialog (the remove confirm, the trailer player) is on top of the drawer. */
-	function nestedDialogOpen() {
-		return document.querySelector('dialog[open]') !== null;
-	}
-
-	// Escape cancels an in-progress certificate edit before it closes the drawer:
-	// capture the keydown and swallow the <dialog> close request.
+	// Escape cancels a certificate edit before it closes the drawer (unless a dialog is on top).
 	function onWindowKeydownCapture(e: KeyboardEvent) {
-		if (nestedDialogOpen()) return;
+		if (document.querySelector('dialog[open]')) return;
 		if (e.key === 'Escape' && editingCert) {
 			e.preventDefault();
 			e.stopPropagation();
@@ -143,32 +130,23 @@
 		}
 	}
 
-	// ── Click-to-filter: intercept plain clicks so the host applies the filter
-	// in place; modifier clicks (and hosts without a filter) fall through to the
-	// href (a deep link into the filtered library). ───────────────────────────
+	// Plain clicks filter in place; modifier clicks follow the deep link.
 	function filterClick(e: MouseEvent, filter: MovieFilter) {
 		if (!onfilter || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
 		e.preventDefault();
 		onfilter(filter);
 	}
 
-	// ── Play trailer: the movie carries the id of a playable covering trailer
-	// (file present) when one exists; stream it in a nested overlay, cookie-auth
-	// same-origin like the trailers page. The <video> is torn down on close so
-	// the stream is released. ─────────────────────────────────────────────────
 	let playTrailerOpen = $state(false);
 	const trailerStreamUrl = $derived(
 		movie.data?.trailer_id ? `/stream/trailer/${movie.data.trailer_id}/` : null
 	);
 	$effect(() => {
-		// A different film (or one with no playable trailer) closes the overlay.
 		void movieId;
 		if (!trailerStreamUrl) playTrailerOpen = false;
 	});
 
-	// ── Fetch trailer: start a single-title trailer job and poll it home. The
-	// library has no job console, so the outcome lands as a toast; polling (not
-	// SSE) keeps this a self-contained one-shot. ──────────────────────────────
+	// A single-title trailer job, polled home; the outcome lands as a toast.
 	let trailerFetching = $state(false);
 	async function fetchTrailer() {
 		const m = movie.data;
@@ -199,7 +177,6 @@
 			}
 			if (job.state === 'success') {
 				showToast(`Trailer downloaded for ${m.title}`, 'success');
-				// Re-fetch so trailer_id lands and the Play trailer button appears.
 				if (movieId === id) void movie.refresh();
 				onmutated?.();
 			} else {
@@ -217,29 +194,23 @@
 		}
 	}
 
-	// ── Actions ───────────────────────────────────────────────────────────────
 	let kioskBusy = $state(false);
 	async function toggleKiosk() {
 		if (kioskBusy || !movie.data) return;
 		kioskBusy = true;
-		try {
+		await attempt(async () => {
 			const msg = await mutate(
 				api.POST('/api/v2/movies/{movie_id}/toggle_kiosk', {
 					params: { path: { movie_id: movieId } }
 				})
 			);
-			movie.data.kiosk_display = !movie.data.kiosk_display;
+			movie.data!.kiosk_display = !movie.data!.kiosk_display;
 			showToast(msg ?? 'Kiosk display updated', 'success');
 			onmutated?.();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Failed to toggle kiosk status', 'error');
-		} finally {
-			kioskBusy = false;
-		}
+		}, 'Failed to toggle kiosk status');
+		kioskBusy = false;
 	}
 
-	// Certificate editing — swap the badge for a select of the active system's
-	// valid ratings ('' = Unrated), PATCH on save.
 	let editingCert = $state(false);
 	let certValue = $state('');
 	let certSaving = $state(false);
@@ -258,7 +229,7 @@
 	async function saveCert() {
 		if (certSaving) return;
 		certSaving = true;
-		try {
+		await attempt(async () => {
 			const result = await unwrap(
 				api.PATCH('/api/v2/movies/{movie_id}/certification', {
 					params: { path: { movie_id: movieId } },
@@ -275,14 +246,10 @@
 				'success'
 			);
 			onmutated?.();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Failed to update rating', 'error');
-		} finally {
-			certSaving = false;
-		}
+		}, 'Failed to update rating');
+		certSaving = false;
 	}
 
-	// Remove from library (the file on disk is kept).
 	let confirmDialog: ConfirmDialog;
 	let deleting = $state(false);
 	async function removeMovie() {
@@ -293,32 +260,21 @@
 		);
 		if (!ok) return;
 		deleting = true;
-		try {
+		const title = movie.data.title;
+		await attempt(async () => {
 			await mutate(
 				api.DELETE('/api/v2/movies/{movie_id}', { params: { path: { movie_id: movieId } } })
 			);
-			showToast(`"${movie.data.title}" removed from the library`, 'success');
+			showToast(`"${title}" removed from the library`, 'success');
 			onremoved?.();
-		} catch (e) {
-			showToast(toApiError(e).message || 'Failed to remove movie', 'error');
-		} finally {
-			deleting = false;
-		}
+		}, 'Failed to remove movie');
+		deleting = false;
 	}
 
-	// Programme wizard hand-off: the selection with this film included (on a
-	// host without a selection, just this film).
 	const createHref = $derived.by(() => {
 		const list = selectedIds.includes(movieId) ? selectedIds : [...selectedIds, movieId];
 		return `${base}/programmes/create?movies=${list.join(',')}`;
 	});
-
-	// ── Formatters ────────────────────────────────────────────────────────────
-	function formatSize(bytes: number | null | undefined): string {
-		if (!bytes) return '-';
-		const gb = bytes / 1024 ** 3;
-		return gb >= 1 ? `${gb.toFixed(1)} GB` : `${Math.round(bytes / 1024 ** 2)} MB`;
-	}
 
 	function formatBitrate(bps: number): string {
 		if (bps >= 1e6) return `${(bps / 1e6).toFixed(1)} Mbps`;
@@ -326,8 +282,7 @@
 		return `${bps} bps`;
 	}
 
-	// Text badges, not brand logos — Dolby/DTS marks are trademarks we can't
-	// redistribute.
+	// Text badges, not logos: the Dolby/DTS marks are trademarks.
 	function audioBrand(codec: string): string | null {
 		const c = codec.toLowerCase();
 		if (/truehd|ac3|eac3/.test(c)) return 'Dolby';
@@ -337,6 +292,16 @@
 </script>
 
 <svelte:window onkeydowncapture={onWindowKeydownCapture} />
+
+{#snippet trackIndex(index: number | null | undefined)}
+	<span class="font-mono text-xs whitespace-nowrap text-faint">Track {index ?? 'N/A'}</span>
+{/snippet}
+
+{#snippet more(all: boolean, label: string, toggle: () => void)}
+	<button type="button" class="mt-1.5 text-xs text-accent hover:underline" onclick={toggle}>
+		{all ? 'Show fewer' : label}
+	</button>
+{/snippet}
 
 <SidePanel
 	label={movie.data?.title ?? 'Film'}
@@ -353,8 +318,8 @@
 		<ErrorState error={movie.error} retry={() => void movie.load()} compact />
 	{:else if movie.data}
 		{@const m = movie.data}
+		{@const v = m.video_info}
 
-		<!-- Identity: poster left, metadata right. -->
 		<div class="flex flex-col gap-4 @xs:flex-row @sm:gap-5">
 			<div
 				class="film-grain aspect-[2/3] w-28 shrink-0 overflow-hidden border border-border
@@ -372,8 +337,6 @@
 			<div class="min-w-0 flex-1 space-y-3">
 				<h2 class="text-xl leading-tight font-semibold">{m.title}</h2>
 
-				<!-- Year · director · runtime · added; year and director link back
-					     into the filtered library. -->
 				<p class="text-sm text-muted">
 					{#if m.year}
 						<a
@@ -394,7 +357,6 @@
 					{/if}{#if metaTail}{m.year || m.director ? ' · ' : ''}{metaTail}{/if}
 				</p>
 
-				<!-- Certificate: badge with an edit affordance, or the inline editor. -->
 				<div class="flex flex-wrap items-center gap-1.5">
 					{#if editingCert}
 						<span class="inline-flex items-center gap-1">
@@ -409,7 +371,7 @@
 								variant="ghost"
 								title="Save rating"
 								disabled={certSaving}
-								onclick={() => void saveCert()}
+								onclick={saveCert}
 							>
 								<Check size={14} />
 							</Button>
@@ -520,7 +482,6 @@
 					{/if}
 				</div>
 
-				<!-- A plain on/off control, the app's usual one: an empty box can't be misread as "on". -->
 				<Toggle
 					label="Show on the kiosk display"
 					checked={m.kiosk_display}
@@ -533,9 +494,15 @@
 			</div>
 		</div>
 
-		<!-- Detail sections, full width below the identity block. -->
 		<div class="mt-5 grid gap-x-8 gap-y-5 border-t border-border pt-4 @3xl:grid-cols-2">
-			<!-- File & video technical info -->
+			{#snippet fact(label: string, value: string | false | undefined)}
+				{#if value}
+					<div class="flex justify-between gap-4">
+						<dt class="text-muted">{label}</dt>
+						<dd class="font-mono">{value}</dd>
+					</div>
+				{/if}
+			{/snippet}
 			<section>
 				<h3 class="mb-2 text-sm font-semibold">File</h3>
 				<dl class="space-y-1.5 text-sm">
@@ -547,42 +514,17 @@
 							</dd>
 						</div>
 					{/if}
-					<div class="flex justify-between gap-4">
-						<dt class="text-muted">Size</dt>
-						<dd class="font-mono">{formatSize(m.file_size)}</dd>
-					</div>
-					<div class="flex justify-between gap-4">
-						<dt class="text-muted">Resolution</dt>
-						<dd class="font-mono">
-							{#if m.video_info?.width && m.video_info?.height}
-								{m.video_info.width} × {m.video_info.height}
-							{:else}
-								{m.resolution || '-'}
-							{/if}
-						</dd>
-					</div>
-					{#if m.video_info?.codec}
-						<div class="flex justify-between gap-4">
-							<dt class="text-muted">Codec</dt>
-							<dd class="font-mono">{m.video_info.codec.toUpperCase()}</dd>
-						</div>
-					{/if}
-					{#if m.video_info?.framerate}
-						<div class="flex justify-between gap-4">
-							<dt class="text-muted">Frame rate</dt>
-							<dd class="font-mono">{Number(m.video_info.framerate.toFixed(3))} fps</dd>
-						</div>
-					{/if}
-					{#if m.video_info?.bitrate}
-						<div class="flex justify-between gap-4">
-							<dt class="text-muted">Bitrate</dt>
-							<dd class="font-mono">{formatBitrate(m.video_info.bitrate)}</dd>
-						</div>
-					{/if}
+					{@render fact('Size', formatSize(m.file_size) || '-')}
+					{@render fact(
+						'Resolution',
+						v?.width && v?.height ? `${v.width} × ${v.height}` : m.resolution || '-'
+					)}
+					{@render fact('Codec', v?.codec?.toUpperCase())}
+					{@render fact('Frame rate', !!v?.framerate && `${Number(v.framerate.toFixed(3))} fps`)}
+					{@render fact('Bitrate', !!v?.bitrate && formatBitrate(v.bitrate))}
 				</dl>
 			</section>
 
-			<!-- Certificates per ratings system -->
 			<section>
 				<h3 class="mb-2 text-sm font-semibold">Certificates</h3>
 				{#if Object.keys(m.certificates ?? {}).length}
@@ -603,15 +545,13 @@
 				{/if}
 			</section>
 
-			<!-- Audio tracks -->
 			<section>
 				<h3 class="mb-2 text-sm font-semibold">Audio tracks ({m.audio_tracks.length})</h3>
 				{#if m.audio_tracks.length}
 					<ul class="divide-y divide-border">
 						{#each showAllAudio ? m.audio_tracks : m.audio_tracks.slice(0, TRACK_PREVIEW) as track (track.id)}
 							{@const brand = audioBrand(track.codec)}
-							<!-- Grid, not flex: the language and track number keep their
-								     space, and only the (long) track title truncates. -->
+							<!-- Grid: only the (long) track title truncates. -->
 							<li
 								class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 py-1.5 text-sm"
 							>
@@ -627,27 +567,22 @@
 										</span>
 									{/if}
 								</span>
-								<span class="font-mono text-xs whitespace-nowrap text-faint">
-									Track {track.index ?? 'N/A'}
-								</span>
+								{@render trackIndex(track.index)}
 							</li>
 						{/each}
 					</ul>
 					{#if m.audio_tracks.length > TRACK_PREVIEW}
-						<button
-							type="button"
-							class="mt-1.5 text-xs text-accent hover:underline"
-							onclick={() => (showAllAudio = !showAllAudio)}
-						>
-							{showAllAudio ? 'Show fewer' : `Show all ${m.audio_tracks.length} audio tracks`}
-						</button>
+						{@render more(
+							showAllAudio,
+							`Show all ${m.audio_tracks.length} audio tracks`,
+							() => (showAllAudio = !showAllAudio)
+						)}
 					{/if}
 				{:else}
 					<p class="text-sm text-muted">No audio track information available.</p>
 				{/if}
 			</section>
 
-			<!-- Subtitle tracks -->
 			<section>
 				<h3 class="mb-2 text-sm font-semibold">Subtitles ({m.subtitle_tracks.length})</h3>
 				{#if m.subtitle_tracks.length}
@@ -662,20 +597,16 @@
 									{#if track.forced}<Badge variant="outline">Forced</Badge>{/if}
 									{#if track.sdh}<Badge variant="outline">SDH</Badge>{/if}
 								</span>
-								<span class="font-mono text-xs whitespace-nowrap text-faint">
-									Track {track.index ?? 'N/A'}
-								</span>
+								{@render trackIndex(track.index)}
 							</li>
 						{/each}
 					</ul>
 					{#if m.subtitle_tracks.length > TRACK_PREVIEW}
-						<button
-							type="button"
-							class="mt-1.5 text-xs text-accent hover:underline"
-							onclick={() => (showAllSubs = !showAllSubs)}
-						>
-							{showAllSubs ? 'Show fewer' : `Show all ${m.subtitle_tracks.length} subtitles`}
-						</button>
+						{@render more(
+							showAllSubs,
+							`Show all ${m.subtitle_tracks.length} subtitles`,
+							() => (showAllSubs = !showAllSubs)
+						)}
 					{/if}
 				{:else}
 					<p class="text-sm text-muted">No subtitle track information available.</p>
@@ -683,7 +614,7 @@
 			</section>
 		</div>
 
-		<!-- Rare and destructive: at the end of the film, not beside the everyday actions. -->
+		<!-- Rare and destructive: at the end, not beside the everyday actions. -->
 		<div class="mt-6 border-t border-border pt-4">
 			<button
 				type="button"
@@ -700,8 +631,6 @@
 	{/if}
 
 	{#snippet footer()}
-		<!-- Only the programme actions live here — one row, equal columns, so the foot never
-		     wraps. The film's own controls (kiosk, trailer, remove) sit with what they change. -->
 		<div class="grid w-full gap-2 {onselect ? 'grid-cols-2' : 'grid-cols-1'}">
 			{#if onselect}
 				<Button
@@ -730,9 +659,7 @@
 	{/snippet}
 </SidePanel>
 
-<!-- Trailer overlay: a nested dialog over the film drawer. Gated on
-     playTrailerOpen so the <video> mounts only while playing and the stream is
-     released on close. -->
+<!-- The <video> mounts only while open, so closing releases the stream. -->
 <Dialog
 	bind:open={playTrailerOpen}
 	title={movie.data ? `${movie.data.title} - trailer` : 'Trailer'}

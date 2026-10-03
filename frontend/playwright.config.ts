@@ -1,15 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
-/**
- * The smoke pack: five end-to-end flows against a real, seeded Django server
- * (scripts/e2e-server.sh — throwaway DB, seed_demo data, auth off). Run with
- * `npm run e2e`; the config builds the SPA first so Django serves the same
- * artifact production would.
- *
- * This is deliberately a SMOKE pack, not a test suite: it proves the app
- * boots, the five load-bearing flows work, and the SPA↔API contract holds.
- * Correctness lives in pytest and svelte-check.
- */
+// The smoke pack: the load-bearing flows against a seeded throwaway Django server
+// (scripts/e2e-server.sh). The SPA is built first so Django serves the production artifact.
 export default defineConfig({
 	testDir: './e2e',
 	fullyParallel: false, // one shared server + seeded DB; keep flows serial

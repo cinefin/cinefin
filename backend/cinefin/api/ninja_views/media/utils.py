@@ -25,15 +25,6 @@ ALLOWED_AUDIO_EXTENSIONS = {
     ".wma",
 }
 ALLOWED_EXTENSIONS = ALLOWED_VIDEO_EXTENSIONS | ALLOWED_AUDIO_EXTENSIONS
-ALLOWED_MIME_TYPES = {
-    "video/mp4",
-    "video/x-msvideo",
-    "video/quicktime",
-    "video/x-ms-wmv",
-    "video/x-flv",
-    "video/webm",
-    "video/x-matroska",
-}
 
 
 def is_audio_file(file_path: str) -> bool:
@@ -41,9 +32,7 @@ def is_audio_file(file_path: str) -> bool:
 
 
 def sanitize_filename(filename: str) -> str:
-    filename = os.path.basename(filename)
-    filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
-    return filename
+    return re.sub(r'[<>:"/\\|?*]', "_", os.path.basename(filename))
 
 
 def generate_screenshot(
@@ -57,49 +46,26 @@ def generate_screenshot(
         # sting still lands on a real frame instead of past the end.
         seek_secs = min(10, max(1, int((duration or 2) / 2)))
         timestamp = f"00:00:{seek_secs:02d}"
+    if not os.path.exists(video_path):
+        logger.error(f"Video file not found: {video_path}")
+        return False
+    logger.info(f"Generating screenshot from {video_path} at {timestamp}")
+    cmd = ["ffmpeg", "-i", video_path, "-ss", timestamp, "-vframes", "1", "-q:v", "2", "-y", output_path]
     try:
-        if not os.path.exists(video_path):
-            logger.error(f"Video file not found: {video_path}")
-            return False
-
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
+        if output_dir := os.path.dirname(output_path):
             os.makedirs(output_dir, exist_ok=True)
-
-        logger.info(f"Generating screenshot from {video_path} at {timestamp}")
-
-        cmd = [
-            "ffmpeg",
-            "-i",
-            video_path,
-            "-ss",
-            timestamp,
-            "-vframes",
-            "1",
-            "-q:v",
-            "2",
-            "-y",
-            output_path,
-        ]
-
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-
-        if result.returncode == 0 and os.path.exists(output_path):
-            file_size = os.path.getsize(output_path)
-            logger.info(f"Generated screenshot: {output_path} ({file_size} bytes)")
-            return True
-        else:
-            logger.error(f"ffmpeg failed (return code {result.returncode}): {result.stderr}")
-            if result.stdout:
-                logger.debug(f"ffmpeg stdout: {result.stdout}")
-            return False
-
     except subprocess.TimeoutExpired:
         logger.error(f"ffmpeg timeout generating screenshot for {video_path}")
         return False
     except Exception as e:
         logger.exception(f"Error generating screenshot for {video_path}: {e}")
         return False
+    if result.returncode == 0 and os.path.exists(output_path):
+        logger.info(f"Generated screenshot: {output_path} ({os.path.getsize(output_path)} bytes)")
+        return True
+    logger.error(f"ffmpeg failed (return code {result.returncode}): {result.stderr}")
+    return False
 
 
 def get_file_mime_type(file_path: str) -> str | None:
@@ -154,27 +120,14 @@ def validate_video_file(file_path: str, max_size_mb: int = 5000) -> tuple[bool, 
     # so an undetectable (empty) type or octet-stream must not reject a valid
     # extension. Only reject a detectable type that's clearly not media.
     mime_type = get_file_mime_type(file_path) or ""
-    if mime_type and not (
-        mime_type in ALLOWED_MIME_TYPES
-        or mime_type.startswith(("video/", "audio/"))
-        or mime_type == "application/octet-stream"
-    ):
+    if mime_type and not (mime_type.startswith(("video/", "audio/")) or mime_type == "application/octet-stream"):
         return False, f"Invalid file type. Got: {mime_type}"
 
-    file_size = os.path.getsize(file_path)
-    max_size_bytes = max_size_mb * 1024 * 1024
-    if file_size > max_size_bytes:
+    if os.path.getsize(file_path) > max_size_mb * 1024 * 1024:
         return False, f"File too large. Maximum size: {max_size_mb}MB"
 
     return True, ""
 
 
 def validate_youtube_url(url: str) -> bool:
-    youtube_patterns = [
-        r"youtube\.com/watch\?v=",
-        r"youtu\.be/",
-        r"youtube\.com/embed/",
-        r"youtube\.com/v/",
-    ]
-
-    return any(re.search(pattern, url, re.IGNORECASE) for pattern in youtube_patterns)
+    return bool(re.search(r"youtube\.com/(watch\?v=|embed/|v/)|youtu\.be/", url, re.IGNORECASE))

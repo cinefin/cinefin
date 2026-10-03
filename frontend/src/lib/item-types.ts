@@ -21,18 +21,8 @@ import {
 	Wand,
 	type LucideIcon
 } from '@lucide/svelte';
-import type { Component } from 'svelte';
 
-export const ITEM_TYPE_FAMILIES = [
-	'film',
-	'trailer',
-	'media',
-	'command',
-	'certification',
-	'system'
-] as const;
-
-export type ItemTypeFamily = (typeof ITEM_TYPE_FAMILIES)[number];
+type ItemTypeFamily = 'film' | 'trailer' | 'media' | 'command' | 'certification' | 'system';
 
 export interface ItemTypeClasses {
 	icon: string;
@@ -95,114 +85,38 @@ export interface ItemTypeMeta {
 	icon: LucideIcon;
 }
 
-const ITEM_TYPES: Record<string, ItemTypeMeta> = {
-	movie: {
-		type: 'movie',
-		label: 'Movie',
-		short: 'Feature',
-		noun: ['movie', 'movies'],
-		family: 'film',
-		icon: Film
-	},
-	feature: {
-		type: 'feature',
-		label: 'Feature',
-		short: 'Feature',
-		noun: ['feature', 'features'],
-		family: 'film',
-		icon: Film
-	},
-	random_movie: {
-		type: 'random_movie',
-		// "Random", not "Movie": it sits beside real movie blocks and must read as distinct.
-		label: 'Random movie',
-		short: 'Random',
-		noun: ['random movie', 'random movies'],
-		family: 'film',
-		icon: Dices
-	},
-	trailer: {
-		type: 'trailer',
-		label: 'Trailer',
-		short: 'Trailer',
-		noun: ['trailer', 'trailers'],
-		family: 'trailer',
-		icon: Clapperboard
-	},
-	trailer_rule: {
-		type: 'trailer_rule',
-		label: 'Trailer rule',
-		short: 'Trailers',
-		noun: ['trailer rule', 'trailer rules'],
-		family: 'trailer',
-		icon: Wand
-	},
-	bumper: {
-		type: 'bumper',
-		label: 'User media',
-		short: 'Media',
-		noun: ['user media item', 'user media items'],
-		family: 'media',
-		icon: ImagePlay
-	},
-	random_bumper: {
-		type: 'random_bumper',
-		label: 'Random user media',
-		short: 'Media',
-		noun: ['random user media', 'random user media'],
-		family: 'media',
-		icon: Shuffle
-	},
-	audio_bumper: {
-		type: 'audio_bumper',
-		label: 'Audio user media',
-		short: 'Audio',
-		noun: ['audio intro', 'audio intros'],
-		family: 'media',
-		icon: Volume2
-	},
-	command: {
-		type: 'command',
-		// A command that appears in a rundown is always a hold (instant cues emit no item).
-		label: 'Command',
-		short: 'Hold',
-		noun: ['command', 'commands'],
-		family: 'command',
-		icon: SquareTerminal
-	},
-	certification: {
-		type: 'certification',
-		label: 'Certification',
-		short: 'Cert',
-		noun: ['certification card', 'certification cards'],
-		family: 'certification',
-		icon: BadgeCheck
-	},
-	system: {
-		type: 'system',
-		label: 'System',
-		short: 'System',
-		noun: ['system item', 'system items'],
-		family: 'system',
-		icon: ListVideo
-	},
-	ident: {
-		type: 'ident',
-		label: 'System Ident',
-		short: 'Ident',
-		noun: ['system ident', 'system idents'],
-		family: 'system',
-		icon: Video
-	},
-	title: {
-		type: 'title',
-		label: 'Title card',
-		short: 'Title',
-		noun: ['title card', 'title cards'],
-		family: 'system',
-		icon: Type
-	}
+/** [label, short, noun, family, icon, plural noun (default noun + "s")] */
+type Def = [string, string, string, ItemTypeFamily, LucideIcon, string?];
+const DEFS: Record<string, Def> = {
+	movie: ['Movie', 'Feature', 'movie', 'film', Film],
+	feature: ['Feature', 'Feature', 'feature', 'film', Film],
+	// "Random", not "Movie": it sits beside real movie blocks and must read as distinct.
+	random_movie: ['Random movie', 'Random', 'random movie', 'film', Dices],
+	trailer: ['Trailer', 'Trailer', 'trailer', 'trailer', Clapperboard],
+	trailer_rule: ['Trailer rule', 'Trailers', 'trailer rule', 'trailer', Wand],
+	bumper: ['User media', 'Media', 'user media item', 'media', ImagePlay],
+	random_bumper: [
+		'Random user media',
+		'Media',
+		'random user media',
+		'media',
+		Shuffle,
+		'random user media'
+	],
+	audio_bumper: ['Audio user media', 'Audio', 'audio intro', 'media', Volume2],
+	// A command in a rundown is always a hold (instant cues emit no item).
+	command: ['Command', 'Hold', 'command', 'command', SquareTerminal],
+	certification: ['Certification', 'Cert', 'certification card', 'certification', BadgeCheck],
+	system: ['System', 'System', 'system item', 'system', ListVideo],
+	ident: ['System Ident', 'Ident', 'system ident', 'system', Video],
+	title: ['Title card', 'Title', 'title card', 'system', Type]
 };
+const ITEM_TYPES: Record<string, ItemTypeMeta> = Object.fromEntries(
+	Object.entries(DEFS).map(([type, [label, short, noun, family, icon, plural]]) => [
+		type,
+		{ type, label, short, noun: [noun, plural ?? `${noun}s`], family, icon }
+	])
+);
 
 /** Label an instant command block — it fires as a cue, playing nothing. */
 export const CUE_LABEL = 'Cue';
@@ -233,14 +147,6 @@ export function itemType(type: string | null | undefined): ItemTypeMeta {
 export function itemTypeLabel(type: string | null | undefined, opts?: { short?: boolean }): string {
 	const meta = itemType(type);
 	return opts?.short ? meta.short : meta.label;
-}
-
-export function itemTypeIcon(type: string | null | undefined): LucideIcon {
-	return itemType(type).icon;
-}
-
-export function itemTypeFamily(type: string | null | undefined): ItemTypeFamily {
-	return itemType(type).family;
 }
 
 export function itemTypeClasses(type: string | null | undefined): ItemTypeClasses {

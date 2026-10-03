@@ -26,17 +26,7 @@ export interface ToggleFilter {
 	onchange: (value: boolean) => void;
 }
 
-/** A multi-value facet with AND semantics — an item must carry ALL picked values. */
-export interface MultiSelectFilter {
-	kind: 'multi';
-	id: string;
-	label: string;
-	values: string[];
-	options: FilterOption[];
-	onchange: (values: string[]) => void;
-}
-
-export type FilterControl = SelectFilter | ToggleFilter | MultiSelectFilter;
+export type FilterControl = SelectFilter | ToggleFilter;
 
 /** The sort dropdown. `value` is a signed key ("-year" = year descending). */
 export interface SortSpec {
@@ -50,14 +40,8 @@ export function isToggle(f: FilterControl): f is ToggleFilter {
 	return f.kind === 'toggle';
 }
 
-export function isMulti(f: FilterControl): f is MultiSelectFilter {
-	return f.kind === 'multi';
-}
-
 export function anyFilterActive(filters: FilterControl[]): boolean {
-	return filters.some((f) =>
-		isToggle(f) ? f.value : isMulti(f) ? f.values.length > 0 : f.value !== ''
-	);
+	return filters.some((f) => (isToggle(f) ? f.value : f.value !== ''));
 }
 
 /** Column-header click: toggle direction if already active, else start from natural direction. */

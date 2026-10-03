@@ -1,14 +1,10 @@
 <script lang="ts">
 	/**
-	 * Add a player: find it on the network (or by address) and name it, pair it
-	 * with the code on its screen, check its screen and sound with the test card
-	 * and test sound, then finish (status line, active player). Settings ›
-	 * Playout shows it in a Dialog; the setup wizard's "Connect the player" step
-	 * shows it inline. `start` opens it at Pair for a player that needs pairing
-	 * again.
+	 * Add a player: find and name it, pair it, check screen and sound, finish. Setup passes
+	 * its own steps as `rail` so the player's sit in its list; `start` opens it at Pair.
 	 */
 	import { onDestroy, untrack } from 'svelte';
-	import { ArrowLeft, ArrowRight, Check, MonitorPlay, RefreshCw, Volume2 } from '@lucide/svelte';
+	import { Check, MonitorPlay, MonitorSpeaker, RefreshCw, Volume2 } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import type { components } from '$lib/api/types.gen';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -18,7 +14,7 @@
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import Logo from '$lib/components/shell/Logo.svelte';
-	import Stepper from '$lib/programmes/create-Stepper.svelte';
+	import WizardFrame, { type RailGroup } from '$lib/wizard/WizardFrame.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import CodeInput from './CodeInput.svelte';
 	import HostConfigFields from './HostConfigFields.svelte';
@@ -36,6 +32,7 @@
 		pairError,
 		soundingAt,
 		stepEnabled,
+		type PlayerKind,
 		type SoundStep,
 		type StepId
 	} from './wizard';
@@ -52,13 +49,62 @@
 		onfinish: (host: Host) => void;
 		/** Shows a Cancel button on the first step. */
 		oncancel?: () => void;
+		/** Back from the first step (setup: to the step before). Wins over Cancel. */
+		onback?: () => void;
+		/** "Set up the player later", offered until the player is paired. */
+		onskip?: () => void;
+		/** Steps around the player's in the list (setup's); clicking one calls `onselect`. */
+		rail?: { before: RailGroup[]; after: RailGroup[]; onselect?: (group: string) => void };
+		/** Inside a dialog: a narrower list and less padding. */
+		compact?: boolean;
 	}
-	let { start, onpaired, onfinish, oncancel }: Props = $props();
+	let {
+		start,
+		onpaired,
+		onfinish,
+		oncancel,
+		onback,
+		onskip,
+		rail,
+		compact = false
+	}: Props = $props();
 
 	let step = $state<StepId>(untrack(() => (start ? 'pair' : 'find')));
+	let kind = $state<PlayerKind>('agent');
 	let host = $state<Host | null>(null);
 
-	// ── Find and name ────────────────────────────────────────────────────
+	// A local mpv: no pairing, just where its socket is.
+	let socketPath = $state('');
+	let localName = $state('');
+	let adding = $state(false);
+	let localMessage = $state('');
+	const localReady = $derived(!!socketPath.trim() && !!localName.trim());
+
+	function useLocal(on: boolean) {
+		kind = on ? 'local' : 'agent';
+		go(on ? 'local' : 'find');
+	}
+
+	async function addLocal() {
+		if (adding || !localReady) return;
+		adding = true;
+		localMessage = '';
+		try {
+			host = await unwrap(
+				api.POST('/api/v2/playout/hosts', {
+					body: { name: localName.trim(), kind: 'local_socket', socket_path: socketPath.trim() }
+				})
+			);
+			makeActive = host.is_active;
+			onpaired?.(host);
+			go('finish');
+		} catch (e) {
+			localMessage = e instanceof Error ? e.message : 'Could not add it.';
+		} finally {
+			adding = false;
+		}
+	}
+
 	let found = $state<Found[] | null>(null);
 	let scanning = $state(false);
 	// Kept as picked, so a later scan that misses it does not drop the choice.
@@ -108,7 +154,6 @@
 		if (!nameEdited) name = nameFromAddress(address);
 	}
 
-	// ── Pair ─────────────────────────────────────────────────────────────
 	let code = $state('');
 	let pairing = $state(false);
 	let pairMessage = $state('');
@@ -141,7 +186,6 @@
 		}
 	}
 
-	// ── Screen and sound ─────────────────────────────────────────────────
 	let config = $state<LaunchConfig | null>(null);
 	let hardware = $state<Hardware | null>(null);
 	let savedConfig = $state('');
@@ -236,7 +280,6 @@
 		}
 	}
 
-	// ── Finish ───────────────────────────────────────────────────────────
 	let showStatus = $state(true);
 	let makeActive = $state(false);
 	let finishing = $state(false);
@@ -267,7 +310,6 @@
 		}
 	}
 
-	// ── Moving between steps ─────────────────────────────────────────────
 	function go(next: StepId) {
 		// The test card is for this step only.
 		if (step === 'screen' && next !== 'screen' && cardOn) void setCard(false);
@@ -281,6 +323,7 @@
 
 	async function next() {
 		if (step === 'find' && chosen) go('pair');
+		else if (step === 'local') await addLocal();
 		else if (step === 'pair') await pair();
 		else if (step === 'screen' && (!dirty || (await apply()))) go('finish');
 		else if (step === 'finish') await finish();
@@ -296,48 +339,97 @@
 		if (cardOn) void setCard(false);
 	});
 
-	const current = $derived(STEPS.findIndex((s) => s.id === step));
+	const current = $derived(STEPS[kind].findIndex((s) => s.id === step));
 	const steps = $derived(
-		STEPS.map((s, i) => ({
+		STEPS[kind].map((s, i) => ({
 			...s,
-			enabled: stepEnabled(s.id, { chosen, paired: !!host }),
+			enabled: stepEnabled(s.id, { chosen, paired: !!host, kind }),
 			done: i < current
 		}))
 	);
-	const nextLabel = $derived(
-		step === 'pair'
-			? pairing
-				? 'Pairing…'
-				: 'Pair'
-			: step === 'finish'
-				? finishing
-					? 'Finishing…'
-					: 'Finish'
-				: applying
-					? 'Saving…'
-					: 'Next'
+	const playerGroup = $derived<RailGroup>({
+		id: 'player',
+		label: 'Player',
+		icon: MonitorSpeaker,
+		steps: steps.map((s) => ({ id: s.id, label: s.label, done: s.done, enabled: s.enabled }))
+	});
+	const playerName = $derived(name.trim() || 'the player');
+	// Each step's heading and its primary button.
+	const ui = $derived(
+		{
+			find: {
+				title: 'Find the player',
+				subtitle:
+					'Start cinefin-playout on the machine connected to your screen. When it is ready, the screen shows the Cinefin ident and a pairing code.',
+				next: applying ? 'Saving…' : 'Next',
+				blocked: !chosen
+			},
+			pair: {
+				title: `Pair ${playerName}`,
+				subtitle: `${playerName[0].toUpperCase()}${playerName.slice(1)} shows a six-digit code over the Cinefin ident. Type it here.`,
+				next: pairing ? 'Pairing…' : 'Pair',
+				blocked: pairing || code.length !== CODE_LENGTH
+			},
+			screen: {
+				title: 'Screen and sound',
+				subtitle: `Paired with ${host?.name ?? playerName}. Check the picture and sound now; you can change these later in Settings › Playout.`,
+				next: applying ? 'Saving…' : 'Next',
+				blocked: applying || !config
+			},
+			local: {
+				title: 'Add a local mpv',
+				subtitle:
+					'An mpv you run yourself on this machine, which Cinefin controls through its socket. Cinefin cannot start or restart it, or set its screen and sound.',
+				next: adding ? 'Adding…' : 'Add',
+				blocked: adding || !localReady
+			},
+			finish: {
+				title: 'Finish',
+				subtitle: `${host?.name ?? playerName} is ready.`,
+				next: finishing ? 'Finishing…' : 'Finish',
+				blocked: finishing
+			}
+		}[step]
 	);
-	const nextDisabled = $derived(
-		(step === 'find' && !chosen) ||
-			(step === 'pair' && (pairing || code.length !== CODE_LENGTH)) ||
-			(step === 'screen' && (applying || !config)) ||
-			(step === 'finish' && finishing)
-	);
+	const backAction = $derived.by(() => {
+		if (step === 'find' || (step === 'pair' && start)) {
+			if (onback) return { label: 'Back', onclick: onback };
+			if (oncancel) return { label: 'Cancel', onclick: oncancel, icon: 'none' as const };
+			return null;
+		}
+		if (step === 'pair') return { label: 'Back', onclick: () => go('find') };
+		if (step === 'local') return { label: 'Back', onclick: () => useLocal(false) };
+		if (step === 'finish' && kind === 'agent')
+			return { label: 'Back', onclick: () => go('screen') };
+		return null; // after pairing there is no going back to pair it again
+	});
 </script>
 
-<div class="space-y-5">
-	<Stepper {steps} current={step} compact onselect={(id) => go(id as StepId)} />
+{#snippet alert(message: string)}
+	{#if message}
+		<p class="text-sm text-danger" role="alert">{message}</p>
+	{/if}
+{/snippet}
 
+<WizardFrame
+	groups={[...(rail?.before ?? []), playerGroup, ...(rail?.after ?? [])]}
+	group="player"
+	{step}
+	title={ui.title}
+	subtitle={ui.subtitle}
+	back={backAction}
+	skip={onskip && !host ? { label: 'Set up the player later', onclick: onskip } : null}
+	next={{
+		label: ui.next,
+		onclick: () => void next(),
+		disabled: ui.blocked,
+		icon: step === 'finish' ? 'check' : 'next'
+	}}
+	onselect={(g, s) => (g === 'player' ? s && go(s as StepId) : rail?.onselect?.(g))}
+	{compact}
+>
 	{#if step === 'find'}
 		<section class="space-y-4">
-			<div>
-				<h3 class="text-base font-medium">Find the player</h3>
-				<p class="mt-1 text-sm text-muted">
-					Start <code class="font-mono text-[0.8rem]">cinefin-playout</code> on the machine connected
-					to your screen. When it is ready, the screen shows the Cinefin ident and a pairing code.
-				</p>
-			</div>
-
 			<div class="space-y-2">
 				<div class="flex items-center justify-between gap-3">
 					<p class="text-xs font-medium text-muted">Found on your network</p>
@@ -415,15 +507,42 @@
 					placeholder="Living room"
 				/>
 			</Field>
+
+			<p class="border-t border-border pt-3 text-xs text-muted">
+				Running mpv yourself, without the playout agent?
+				<button type="button" class="underline hover:text-text" onclick={() => useLocal(true)}
+					>Use a local mpv socket</button
+				>
+			</p>
+		</section>
+	{:else if step === 'local'}
+		<section class="space-y-4">
+			<Field
+				label="Socket path"
+				forId="wiz-socket"
+				hint="The --input-ipc-server path your mpv was started with. Cinefin must run on the same machine."
+			>
+				<Input
+					id="wiz-socket"
+					bind:value={socketPath}
+					placeholder="/tmp/cinefin-mpv.sock"
+					class="font-mono"
+				/>
+			</Field>
+			<Field label="Player name" forId="wiz-local-name" hint="Shown in Cinefin.">
+				<Input id="wiz-local-name" bind:value={localName} placeholder="Booth mpv" />
+			</Field>
+			<div class="space-y-1.5 border border-border bg-surface-2 px-3 py-2.5 text-xs text-muted">
+				<p>Start mpv like this (mpv 0.38 or newer), then add it:</p>
+				<code class="block font-mono break-all text-text"
+					>mpv --idle=yes --force-window=yes --input-ipc-server={socketPath.trim() ||
+						'/tmp/cinefin-mpv.sock'}</code
+				>
+			</div>
+			{@render alert(localMessage)}
 		</section>
 	{:else if step === 'pair'}
 		<section class="space-y-4">
-			<div>
-				<h3 class="text-base font-medium">Enter the code on the screen</h3>
-				<p class="mt-1 text-sm text-muted">
-					{name.trim() || 'The player'} shows a six-digit code over the Cinefin ident.
-				</p>
-			</div>
 			<div class="flex flex-col gap-5 sm:flex-row sm:items-start">
 				<div class="min-w-0 flex-1 space-y-3">
 					<CodeInput
@@ -433,9 +552,8 @@
 						disabled={pairing}
 						oncomplete={() => void pair()}
 					/>
-					{#if pairMessage}
-						<p class="text-sm text-danger" role="alert">{pairMessage}</p>
-					{:else}
+					{@render alert(pairMessage)}
+					{#if !pairMessage}
 						<p class="text-xs text-muted">
 							The code changes every 5 minutes and after a wrong try. The screen always shows the
 							current one.
@@ -464,13 +582,6 @@
 		</section>
 	{:else if step === 'screen'}
 		<section class="space-y-4">
-			<div>
-				<h3 class="text-base font-medium">Screen and sound</h3>
-				<p class="mt-1 text-sm text-muted">
-					Paired with {host?.name}. Check the picture and sound now; you can change these later in
-					Settings › Playout.
-				</p>
-			</div>
 			{#if configError}
 				<ErrorState compact message={configError} retry={() => void loadConfig()} />
 			{:else if !config}
@@ -528,23 +639,19 @@
 						>
 					</div>
 				{/if}
-				{#if checkMessage}
-					<p class="text-sm text-danger" role="alert">{checkMessage}</p>
-				{/if}
+				{@render alert(checkMessage)}
 			{/if}
 		</section>
 	{:else if step === 'finish'}
 		<section class="space-y-4">
-			<div>
-				<h3 class="text-base font-medium">Finish</h3>
-				<p class="mt-1 text-sm text-muted">{host?.name} is ready.</p>
-			</div>
 			<div class="space-y-3">
-				<Toggle
-					label="Show the status line on standby"
-					bind:checked={showStatus}
-					hint="The cinema name, this player's name and its connection, over the ident."
-				/>
+				{#if kind === 'agent'}
+					<Toggle
+						label="Show the status line on standby"
+						bind:checked={showStatus}
+						hint="The cinema name, this player's name and its connection, over the ident."
+					/>
+				{/if}
 				<Toggle
 					label="Use as the active player"
 					bind:checked={makeActive}
@@ -562,26 +669,7 @@
 					<dd>{summary.sound}</dd>
 				</dl>
 			{/if}
-			{#if finishMessage}
-				<p class="text-sm text-danger" role="alert">{finishMessage}</p>
-			{/if}
+			{@render alert(finishMessage)}
 		</section>
 	{/if}
-
-	<div class="flex items-center justify-between gap-2 border-t border-border pt-4">
-		{#if step === 'pair' && !start}
-			<Button variant="ghost" onclick={() => go('find')}><ArrowLeft size={14} /> Back</Button>
-		{:else if step === 'finish'}
-			<Button variant="ghost" onclick={() => go('screen')}><ArrowLeft size={14} /> Back</Button>
-		{:else if step === 'find' && oncancel}
-			<Button variant="ghost" onclick={oncancel}>Cancel</Button>
-		{:else}
-			<span></span>
-		{/if}
-		<Button variant="primary" disabled={nextDisabled} onclick={() => void next()}>
-			{#if step === 'finish'}<Check size={14} />{/if}
-			{nextLabel}
-			{#if step !== 'finish'}<ArrowRight size={14} />{/if}
-		</Button>
-	</div>
-</div>
+</WizardFrame>

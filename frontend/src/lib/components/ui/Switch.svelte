@@ -1,10 +1,5 @@
 <script lang="ts">
-	/**
-	 * An on/off switch for a setting that applies at once (no Save), such as the
-	 * player's status line. A settings form field is `Toggle` (a checkbox) instead.
-	 * Square like every control (2px corners); the knob travels, which is the one
-	 * movement a switch is for.
-	 */
+	/** An on/off switch for a setting that applies at once (no Save); a form field is `Toggle`. */
 	interface Props {
 		checked: boolean;
 		label: string;

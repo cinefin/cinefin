@@ -6,26 +6,11 @@
 	import type { KioskController } from './controller.svelte';
 	import { countdownText, dayLabel, fmtClock, isRunning } from './time';
 
-	interface Props {
-		kiosk: KioskController;
-	}
-	let { kiosk }: Props = $props();
+	let { kiosk }: { kiosk: KioskController } = $props();
 
 	const next = $derived(kiosk.activeScreenings[0] ?? null);
 	const running = $derived(next ? isRunning(next, kiosk.now) : false);
-	const feats = $derived(next ? kiosk.screeningFeatures(next) : []);
-	const single = $derived(feats.length === 1 ? feats[0] : null);
-	const title = $derived(single ? single.title : (next?.programme ?? ''));
-	const billTitles = $derived(feats.map((f) => f.title).join('  +  '));
-	const subLine = $derived(
-		single
-			? single.title !== next?.programme
-				? (next?.programme ?? '')
-				: ''
-			: feats.length > 1
-				? billTitles
-				: ''
-	);
+	const { feats, single, title, sub: subLine } = $derived(kiosk.bill(next));
 </script>
 
 {#if !next}

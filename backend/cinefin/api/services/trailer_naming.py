@@ -1,7 +1,5 @@
 """Trailer filename templating. Identity lives in the DB; the on-disk name is a cosmetic, user-configurable template."""
 
-from __future__ import annotations
-
 import os
 import re
 import string
@@ -61,8 +59,10 @@ def _cleanup(name: str) -> str:
     return name.strip()
 
 
-def _build_meta(src: dict[str, Any]) -> dict[str, Any]:
-    return {
+def render_full_path(
+    trailer_dir: str, src: dict[str, Any], filename_template: str, folder_template: str, ext: str = DEFAULT_EXTENSION
+) -> str:
+    meta = {
         "title": sanitize_component(src.get("title", "")),
         "director": sanitize_component(src.get("director", "")),
         "certification": sanitize_component(src.get("certification", "")),
@@ -70,52 +70,18 @@ def _build_meta(src: dict[str, Any]) -> dict[str, Any]:
         "month": src.get("month") or "",
         "tmdbid": src.get("tmdbid") or "",
     }
-
-
-def render_relative_path(
-    src: dict[str, Any],
-    filename_template: str | None = None,
-    folder_template: str | None = None,
-    ext: str = DEFAULT_EXTENSION,
-) -> str:
-    meta = _build_meta(src)
-    ft = DEFAULT_FILENAME_TEMPLATE if filename_template is None else filename_template
-    fo = DEFAULT_FOLDER_TEMPLATE if folder_template is None else folder_template
-
-    name = _cleanup(_FORMATTER.format(ft, **meta))
-    name = name.replace("/", "-").replace("\\", "-")
+    name = _cleanup(_FORMATTER.format(filename_template, **meta)).replace("/", "-").replace("\\", "-")
     if not name:
         name = f"tmdb-{meta['tmdbid']}" if meta["tmdbid"] else "trailer"
-
-    parts: list[str] = []
-    if fo:
-        for seg in _FORMATTER.format(fo, **meta).split("/"):
-            seg = sanitize_component(seg)
-            if seg:
-                parts.append(seg)
-    parts.append(f"{name}.{ext.lstrip('.')}")
-    return os.path.join(*parts)
-
-
-def render_full_path(
-    trailer_dir: str,
-    src: dict[str, Any],
-    filename_template: str | None = None,
-    folder_template: str | None = None,
-    ext: str = DEFAULT_EXTENSION,
-) -> str:
-    return os.path.join(
-        trailer_dir,
-        render_relative_path(src, filename_template, folder_template, ext),
+    folders = (
+        [sanitize_component(seg) for seg in _FORMATTER.format(folder_template, **meta).split("/")]
+        if folder_template
+        else []
     )
+    return os.path.join(trailer_dir, *[f for f in folders if f], f"{name}.{ext.lstrip('.')}")
 
 
 def recover_tmdbid(filename: str) -> int | None:
     """Best-effort TMDB id recovery from a filename (new [tmdb-NNNN] and legacy YYYY-MM_NNNN.ext forms)."""
-    m = _TMDB_BRACKET.search(filename)
-    if m:
-        return int(m.group(1))
-    m = _LEGACY_SUFFIX.search(filename)
-    if m:
-        return int(m.group(1))
-    return None
+    m = _TMDB_BRACKET.search(filename) or _LEGACY_SUFFIX.search(filename)
+    return int(m.group(1)) if m else None

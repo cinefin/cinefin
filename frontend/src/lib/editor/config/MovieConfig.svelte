@@ -5,15 +5,9 @@
 	import ConfigForm from '../ConfigForm.svelte';
 	import ConfigSelect from '../ConfigSelect.svelte';
 	import { pickMovieIntoBlock } from '../pick-actions';
-	import type { EditorBlock, EditorContext } from '../types';
+	import { idOptions, type ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
-
-	let { block, ctx, commit }: Props = $props();
+	let { block, ctx, commit }: ConfigProps = $props();
 
 	const audioOptions = $derived(
 		(block.details.audio_tracks ?? []).map((t) => ({
@@ -28,25 +22,14 @@
 			label: `${t.language || 'Unknown'}${t.forced ? ' (Forced)' : ''}${t.sdh ? ' (SDH)' : ''}`
 		}))
 	);
-	const commandOptions = $derived(
-		ctx.commands.map((c) => ({ value: String(c.id), label: c.name }))
-	);
 
-	async function chooseMovie(): Promise<void> {
-		await pickMovieIntoBlock(block, ctx, commit);
-	}
-
-	function setTrack(field: 'audio_track' | 'subtitle_track', value: string): void {
-		commit(() => {
-			block.content[field] = value === '' ? null : parseInt(value, 10);
-		});
-	}
+	const chooseMovie = () => void pickMovieIntoBlock(block, ctx, commit);
 </script>
 
 {#if !block.content.movie_id}
 	<div class="flex flex-wrap items-center gap-3">
 		<p class="text-sm text-muted">No movie chosen yet.</p>
-		<Button size="sm" onclick={() => void chooseMovie()}>
+		<Button size="sm" onclick={chooseMovie}>
 			<Film size={12} /> Choose movie…
 		</Button>
 	</div>
@@ -69,33 +52,30 @@
 		<ConfigForm class="min-w-0 flex-1">
 			<ConfigField label="Audio">
 				<ConfigSelect
-					value={block.content.audio_track != null ? String(block.content.audio_track) : ''}
+					value={block.content.audio_track}
 					options={audioOptions}
 					placeholder="Default"
-					onchange={(v) => setTrack('audio_track', v)}
+					onnumber={(v) => commit(() => (block.content.audio_track = v))}
 				/>
 			</ConfigField>
 			<ConfigField label="Subtitles">
 				<ConfigSelect
-					value={block.content.subtitle_track != null ? String(block.content.subtitle_track) : ''}
+					value={block.content.subtitle_track}
 					options={subtitleOptions}
 					placeholder="None"
-					onchange={(v) => setTrack('subtitle_track', v)}
+					onnumber={(v) => commit(() => (block.content.subtitle_track = v))}
 				/>
 			</ConfigField>
 			<ConfigField label="Credits command">
 				<ConfigSelect
-					value={block.content.credits_command_id ? String(block.content.credits_command_id) : ''}
-					options={commandOptions}
+					value={block.content.credits_command_id}
+					options={idOptions(ctx.commands)}
 					placeholder="None"
-					onchange={(v) =>
-						commit(() => {
-							block.content.credits_command_id = v === '' ? null : parseInt(v, 10);
-						})}
+					onnumber={(v) => commit(() => (block.content.credits_command_id = v))}
 				/>
 			</ConfigField>
 			{#snippet actions()}
-				<Button size="sm" onclick={() => void chooseMovie()}>
+				<Button size="sm" onclick={chooseMovie}>
 					<ArrowLeftRight size={12} /> Change movie
 				</Button>
 			{/snippet}

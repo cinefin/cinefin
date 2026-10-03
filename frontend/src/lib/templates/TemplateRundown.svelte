@@ -5,33 +5,9 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import { CUE_LABEL, itemTypeDisplay } from '$lib/item-types';
+	import type { TemplateItemIn as TemplateItem } from '$lib/editor/template-adapter';
 
-	interface TemplateItem {
-		id: number;
-		item_type: string;
-		order: number;
-		feature_number?: number | null;
-		bound_to_feature?: number | null;
-		trailer_count?: number | null;
-		match_genre?: boolean;
-		match_certification?: boolean;
-		match_year?: boolean;
-		year_delta?: number | null;
-		certification_feature?: number | null;
-		count?: number;
-		hold_black?: boolean;
-		command?: { name?: string } | null;
-		bumper?: { title?: string } | null;
-		trailer?: { title?: string } | null;
-		tag?: { name?: string } | null;
-		trailer_tag?: { name?: string } | null;
-	}
-
-	interface Props {
-		items: TemplateItem[];
-	}
-
-	let { items }: Props = $props();
+	let { items }: { items: TemplateItem[] } = $props();
 
 	const ordered = $derived([...items].sort((a, b) => a.order - b.order));
 
@@ -89,10 +65,6 @@
 				return '';
 		}
 	}
-
-	function badgeLabel(item: TemplateItem): string | undefined {
-		return item.item_type === 'command' && !item.hold_black ? CUE_LABEL : undefined;
-	}
 </script>
 
 {#if !ordered.length}
@@ -115,7 +87,12 @@
 				</span>
 				<Icon size={14} class="shrink-0 self-center {type.classes.icon}" aria-hidden="true" />
 				<span class="shrink-0 self-center">
-					<TypeBadge type={item.item_type} label={badgeLabel(item)} short col />
+					<TypeBadge
+						type={item.item_type}
+						label={item.item_type === 'command' && !item.hold_black ? CUE_LABEL : undefined}
+						short
+						col
+					/>
 				</span>
 				<span class="min-w-0 flex-1">
 					<span class="block truncate text-sm font-medium">{title(item)}</span>

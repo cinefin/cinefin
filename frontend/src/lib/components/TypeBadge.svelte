@@ -1,9 +1,5 @@
 <script lang="ts">
-	/**
-	 * The one item-type badge: a low-opacity tint of the type's family colour
-	 * with a matching hairline border (see lib/item-types.ts). Use this
-	 * everywhere a type is named in a chip — never hand-roll a tint.
-	 */
+	/** The one item-type badge (tint from lib/item-types.ts) — never hand-roll a tint. */
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import { itemTypeDisplay } from '$lib/item-types';
 
@@ -15,13 +11,7 @@
 		icon?: boolean;
 		/** Override the label (e.g. "Cue" for an instant command block). */
 		label?: string;
-		/**
-		 * Badge sits in a COLUMN (a rundown/table rail): every badge takes the
-		 * same fixed width with a centred label, so the rail reads as a rail
-		 * at any pane width (spec §05 — ragged badge rails are a tell). The
-		 * width (4.5rem) is snug around the longest short label (Trailers /
-		 * Feature); floating badges (cards, headers) still hug their text.
-		 */
+		/** In a column (a rundown rail): one fixed width, centred label (spec §05). */
 		col?: boolean;
 		class?: string;
 	}

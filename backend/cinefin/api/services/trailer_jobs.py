@@ -1,17 +1,15 @@
 """Background runner for trailer-library operations. Only one trailer job runs at a time."""
 
-from __future__ import annotations
-
 import logging
 import os
 import threading
-import time
 
 from django.db import close_old_connections
 from django.utils import timezone
 
 from cinefin.api.models import Job
 from cinefin.api.services.trailer_service import TrailerCancelled, TrailerService
+from cinefin.api.sync.base import SyncContext
 
 logger = logging.getLogger(__name__)
 
@@ -26,81 +24,36 @@ OPERATIONS = {
     "rename": "Rename trailers",
 }
 
-_FLUSH_INTERVAL = 1.0  # seconds between DB writes while running
-_LOG_CAP = 2000  # keep the most recent N log lines on the row
-
 
 class JobCancelled(TrailerCancelled):
     pass
 
 
-class JobContext:
-    """Buffers a job's log/progress and throttle-flushes them to the DB row."""
+class JobContext(SyncContext):
+    """A trailer job's SyncContext, shaped for TrailerService's log/progress/check_cancelled hooks."""
+
+    log_cap = 2000
+    logger = logger
 
     def __init__(self, job: Job):
-        self.job_id = job.id
-        self._log = list(job.log or [])
-        self._phase = job.phase or ""
-        self._current = job.current
-        self._total = job.total
-        self._item = job.current_item or ""
-        self._dirty = False
-        self._last_flush = 0.0
-        self._cancelled = False
+        super().__init__(job)
         # Most recent error line, surfaced as the job's failure reason for the client toast.
         self.last_error = ""
 
     def log(self, level: str, message: str):
-        if (level or "").lower() == "error":
+        level = level or "info"
+        if level.lower() == "error":
             self.last_error = str(message)
-        self._log.append(
-            {
-                "ts": timezone.now().isoformat(),
-                "level": (level or "info").upper(),
-                "message": str(message),
-            }
-        )
-        if len(self._log) > _LOG_CAP:
-            self._log = self._log[-_LOG_CAP:]
-        getattr(logger, (level or "info").lower(), logger.info)(message)
-        self._dirty = True
-        self._maybe_flush()
+        super().log(level, str(message))
 
     def update_progress(self, current: int, total: int, message: str = ""):
-        self._current = int(current or 0)
-        self._total = int(total or 0)
-        if message:
-            self._item = str(message)[:300]
-            self._phase = str(message)[:160]
-        self._dirty = True
-        self._maybe_flush()
+        message = str(message or "")
+        self.progress(int(current or 0), int(total or 0), phase=message[:160], item=message[:300])
 
     def check_cancelled(self):
-        if self._cancelled:
+        if self._cancel_requested or Job.trailer.filter(pk=self.job_id, cancel_requested=True).exists():
+            self._cancel_requested = True
             raise JobCancelled("Cancelled by user")
-        if Job.trailer.filter(pk=self.job_id, cancel_requested=True).exists():
-            self._cancelled = True
-            raise JobCancelled("Cancelled by user")
-
-    def _maybe_flush(self):
-        now = time.monotonic()
-        if self._dirty and (now - self._last_flush) >= _FLUSH_INTERVAL:
-            self.flush()
-
-    def flush(self):
-        Job.objects.filter(pk=self.job_id).update(
-            phase=self._phase,
-            current=self._current,
-            total=self._total,
-            current_item=self._item[:300],
-            log=self._log,
-        )
-        self._dirty = False
-        self._last_flush = time.monotonic()
-
-
-def _worker_id() -> str:
-    return f"{os.getpid()}:{threading.get_ident()}"
 
 
 def start_job(operation: str, params: dict | None = None) -> Job:
@@ -115,7 +68,7 @@ def start_job(operation: str, params: dict | None = None) -> Job:
         operation=operation,
         params=params or {},
         state=Job.STATE_RUNNING,
-        worker=_worker_id(),
+        worker=f"{os.getpid()}:{threading.get_ident()}",
         phase=OPERATIONS[operation],
         started_at=timezone.now(),
     )
@@ -131,12 +84,7 @@ def _run(job_id: int) -> None:
         job = Job.trailer.get(pk=job_id)
         ctx = JobContext(job)
 
-        service = TrailerService(
-            log=ctx.log,
-            progress=ctx.update_progress,
-            check_cancelled=ctx.check_cancelled,
-        )
-
+        service = TrailerService(log=ctx.log, progress=ctx.update_progress, check_cancelled=ctx.check_cancelled)
         ctx.log("info", f"Starting: {OPERATIONS.get(job.operation, job.operation)}")
         ok = service.run_operation(job.operation, job.params or {})
 
@@ -179,10 +127,6 @@ def _finish(ctx, job_id, state, counts=None, error=""):
 def recover_orphans() -> None:
     """Mark trailer jobs left mid-run by a crash/restart as failed (no worker resumes them)."""
     stale = Job.trailer.filter(state__in=Job.ACTIVE_STATES)
-    n = stale.update(
-        state=Job.STATE_FAILED,
-        error="Interrupted by a server restart",
-        finished_at=timezone.now(),
-    )
+    n = stale.update(state=Job.STATE_FAILED, error="Interrupted by a server restart", finished_at=timezone.now())
     if n:
         logger.warning("Marked %s orphaned trailer job(s) as failed after restart", n)

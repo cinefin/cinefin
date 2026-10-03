@@ -2,15 +2,9 @@
 	import ConfigField from '../ConfigField.svelte';
 	import ConfigForm from '../ConfigForm.svelte';
 	import ConfigSelect from '../ConfigSelect.svelte';
-	import type { EditorBlock, EditorContext } from '../types';
+	import { featureOptions, type ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
-
-	let { block, ctx, commit }: Props = $props();
+	let { block, ctx, commit }: ConfigProps = $props();
 
 	const movieOptions = $derived.by(() => {
 		const options = ctx.programmeMovies.map((m) => ({ value: String(m.id), label: m.title }));
@@ -26,42 +20,26 @@
 		}
 		return options;
 	});
-	const featureOptions = $derived(
-		Array.from({ length: ctx.featureCount }, (_, i) => ({
-			value: String(i + 1),
-			label: `Feature ${i + 1}`
-		}))
-	);
 </script>
 
 <ConfigForm>
-	{#if ctx.mode === 'programme'}
-		<ConfigField label="Rating card for">
+	<ConfigField label="Rating card for">
+		{#if ctx.mode === 'programme'}
 			<ConfigSelect
-				value={block.content.reference_movie_id ? String(block.content.reference_movie_id) : ''}
+				value={block.content.reference_movie_id}
 				options={movieOptions}
 				placeholder={ctx.programmeMovies.length
 					? 'Select a movie...'
 					: 'Add a movie to this programme first'}
-				onchange={(v) =>
-					commit(() => {
-						block.content.reference_movie_id = v === '' ? null : parseInt(v, 10);
-					})}
+				onnumber={(v) => commit(() => (block.content.reference_movie_id = v))}
 			/>
-		</ConfigField>
-	{:else}
-		<ConfigField label="Rating card for">
+		{:else}
 			<ConfigSelect
-				value={block.content.certification_feature
-					? String(block.content.certification_feature)
-					: ''}
-				options={featureOptions}
+				value={block.content.certification_feature}
+				options={featureOptions(ctx.featureCount)}
 				placeholder="Select a feature..."
-				onchange={(v) =>
-					commit(() => {
-						block.content.certification_feature = v === '' ? null : parseInt(v, 10);
-					})}
+				onnumber={(v) => commit(() => (block.content.certification_feature = v))}
 			/>
-		</ConfigField>
-	{/if}
+		{/if}
+	</ConfigField>
 </ConfigForm>

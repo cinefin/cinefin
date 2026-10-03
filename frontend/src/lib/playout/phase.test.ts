@@ -6,7 +6,6 @@ import {
 	can,
 	cuedBy,
 	lamp,
-	preview,
 	primaryAction,
 	started,
 	type Phase,
@@ -125,18 +124,4 @@ test('a cued programme starts at its screening once the lead-in has begun', () =
 	const cued = status('cued', { programme, screen: 'Title card', next_screening: soon });
 	assert.equal(cuedBy(cued, Date.parse('2026-10-02T19:56:00Z')), soon);
 	assert.equal(cuedBy(cued, Date.parse('2026-10-01T12:00:00Z')), null); // cued by hand, a day early
-});
-
-test('the on-screen preview', () => {
-	assert.equal(preview(status('standby', { screen: 'System Ident' })).kind, 'mark');
-	assert.equal(preview(status('cued', { screen: 'Standby' })).kind, 'mark');
-	assert.deepEqual(preview(status('cued', { screen: 'Title card', programme })), {
-		kind: 'title',
-		text: 'Friday Night'
-	});
-	assert.deepEqual(preview(status('playing', { screen: 'Alien' })), {
-		kind: 'item',
-		text: 'Alien'
-	});
-	assert.equal(preview(status('hold')).kind, 'black');
 });

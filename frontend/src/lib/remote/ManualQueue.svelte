@@ -39,6 +39,12 @@
 		'rounded-sm p-1 text-faint hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30';
 </script>
 
+{#snippet iconButton(label: string, Icon: typeof X, disabled: boolean, run: () => Promise<void>)}
+	<button type="button" class={iconBtn} aria-label={label} {disabled} onclick={() => void run()}
+		><Icon size={13} /></button
+	>
+{/snippet}
+
 <section class="border border-border bg-surface-1">
 	<header class="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
 		<p class="inline-flex items-center gap-1.5 text-[0.8rem] font-medium text-muted">
@@ -74,26 +80,9 @@
 							class="mt-0.5 !text-[0.6rem]"
 						/>
 					</span>
-					<button
-						type="button"
-						class={iconBtn}
-						aria-label="Move up"
-						disabled={i === 0}
-						onclick={() => void move(i, i - 1)}><ArrowUp size={13} /></button
-					>
-					<button
-						type="button"
-						class={iconBtn}
-						aria-label="Move down"
-						disabled={i === items.length - 1}
-						onclick={() => void move(i, i + 1)}><ArrowDown size={13} /></button
-					>
-					<button
-						type="button"
-						class={iconBtn}
-						aria-label="Remove {item.title}"
-						onclick={() => void remove(i)}><X size={13} /></button
-					>
+					{@render iconButton('Move up', ArrowUp, i === 0, () => move(i, i - 1))}
+					{@render iconButton('Move down', ArrowDown, i === items.length - 1, () => move(i, i + 1))}
+					{@render iconButton(`Remove ${item.title}`, X, false, () => remove(i))}
 				</li>
 			{/each}
 		</ol>

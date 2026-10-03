@@ -1,27 +1,29 @@
 <script lang="ts">
-	// Standby: what is on screen, the status line, the next screening (cue it now) and the
-	// cue picker.
-	import { dayLabel, formatClock } from '$lib/format';
-	import CueDialog from '$lib/playout/CueDialog.svelte';
-	import OnScreen from '$lib/playout/OnScreen.svelte';
+	// Standby: the next screening as the banner (its features' poster), cue it now or cue
+	// another programme, and what the screen shows meanwhile with the status line switch.
+	// There is no picture of the screen: on standby it only ever holds the ident.
+	import { dayLabel, formatClock, formatRuntime } from '$lib/format';
 	import { can, type PlayoutStatus } from '$lib/playout/phase';
 	import { playout } from '$lib/stores/playout.svelte';
 	import { showToast } from '$lib/toast.svelte';
+	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
+	import NowPlaying from './NowPlaying.svelte';
+	import type { Upcoming } from './upcoming.svelte';
 
 	interface Props {
 		status: PlayoutStatus;
-		oncued: () => void;
+		upcoming: Upcoming;
+		/** Cue a programme: the one given now, else the picker. */
+		oncue: (programmeId?: number) => void;
 	}
-	let { status, oncued }: Props = $props();
+	let { status, upcoming, oncue }: Props = $props();
 
 	const next = $derived(status.next_screening ?? null);
 	const plays = $derived(next ? new Date(next.start_time) : null);
 	const cues = $derived(next ? new Date(next.cue_time) : null);
-
-	let cueOpen = $state(false);
-	let cueDlg = $state<CueDialog>();
+	const canCue = $derived(can(status, 'cue'));
 
 	async function statusLine(show: boolean) {
 		try {
@@ -32,55 +34,56 @@
 	}
 </script>
 
-<CueDialog bind:this={cueDlg} bind:open={cueOpen} {oncued} />
-
-<section class="space-y-4">
-	<div class="space-y-2.5">
-		<p class="font-mono text-xs text-faint">On screen · {status.player?.name ?? 'Player'}</p>
-		<OnScreen {status} class="aspect-video max-w-xl" />
-		<p class="text-sm text-muted">{status.screen}, held</p>
-		{#if status.player}
-			<div class="flex h-11 max-w-xl items-center border-y border-border">
-				<Switch
-					class="w-full flex-row-reverse justify-between text-sm"
-					label="Status line on the screen"
-					checked={status.player.show_status}
-					onchange={(show) => void statusLine(show)}
-				/>
-			</div>
-		{/if}
-	</div>
-
+<section class="border border-border bg-surface-2">
 	{#if next && plays && cues}
-		<div class="max-w-xl space-y-1.5 border border-border bg-surface-1 p-3.5">
-			<p class="font-mono text-xs text-faint">Next screening</p>
-			<p class="truncate text-base font-semibold">{next.programme_name}</p>
-			<p class="text-sm text-muted">
-				{dayLabel(plays)}
-				<span class="font-mono">{formatClock(plays)}</span>
-				{#if cues < plays}· the lead-in cues it at <span class="font-mono">{formatClock(cues)}</span
-					>{/if}
-			</p>
+		{@const films = upcoming.features(next.programme_id)}
+		{@const runtime = upcoming.runtime(next.programme_id)}
+		<NowPlaying
+			art={upcoming.art(next.programme_id)}
+			type="movie"
+			badge="Next screening"
+			title={next.programme_name}
+			kicker="{dayLabel(plays)} {formatClock(plays)}{cues < plays
+				? ` · the lead-in cues it at ${formatClock(cues)}`
+				: ''}"
+			facts={[
+				films.length ? films.map((f) => f.title).join(', ') : '',
+				runtime ? formatRuntime(runtime) : ''
+			].filter(Boolean)}
+		/>
+		<div class="flex flex-wrap gap-2 p-4">
 			<Button
-				class="mt-1 w-full sm:w-auto"
-				disabled={!can(status, 'cue')}
-				onclick={() => void cueDlg?.cue(next.programme_id)}
+				variant="primary"
+				size="lg"
+				disabled={!canCue}
+				onclick={() => oncue(next.programme_id)}
 			>
 				Cue it now
+			</Button>
+			<Button size="lg" disabled={!canCue} onclick={() => oncue()}>Cue another programme</Button>
+		</div>
+	{:else}
+		<div class="space-y-3 p-5">
+			<h2 class="text-2xl leading-tight font-semibold">Nothing is loaded</h2>
+			<p class="text-sm text-muted">Nothing is scheduled either. Cue a programme to play it now.</p>
+			<Button variant="primary" size="lg" disabled={!canCue} onclick={() => oncue()}>
+				Cue a programme
 			</Button>
 		</div>
 	{/if}
 
-	<div class="max-w-xl space-y-2">
-		<Button
-			variant="primary"
-			size="lg"
-			class="w-full"
-			disabled={!can(status, 'cue')}
-			onclick={() => (cueOpen = true)}
-		>
-			Cue a programme
-		</Button>
-		<p class="text-center text-xs text-faint">Nothing is loaded. The player is on standby.</p>
+	<!-- What the audience sees meanwhile. -->
+	<div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-4 py-3 text-sm">
+		<StatusLamp colour="neutral">
+			On screen: {status.screen}, held{status.player ? ` on ${status.player.name}` : ''}
+		</StatusLamp>
+		{#if status.player}
+			<Switch
+				class="ml-auto text-sm"
+				label="Status line"
+				checked={status.player.show_status}
+				onchange={(show) => void statusLine(show)}
+			/>
+		{/if}
 	</div>
 </section>

@@ -1,16 +1,11 @@
-/**
- * A player's launch config (screen and sound), read from and written to its
- * agent through the per-host proxies. Shared by Settings › Playout
- * (HostConfigPanel) and the Add a player wizard.
- */
+/** A player's launch config (screen and sound), through the per-host proxies. */
 import { api, unwrap } from '$lib/api/client';
 import { mutate } from '$lib/api/mutate';
 import type { components } from '$lib/api/types.gen';
 
 export type Hardware = components['schemas']['HostHardwareSchema'];
 type WireConfig = components['schemas']['HostLaunchConfigSchema'];
-// The wire schema has graphics/audio optional; normalise once so a form has
-// every field present.
+// The wire schema has graphics/audio optional; normalised so a form has every field.
 export type LaunchConfig = Required<WireConfig> & {
 	graphics: Required<NonNullable<WireConfig['graphics']>>;
 	audio: Required<NonNullable<WireConfig['audio']>>;
@@ -50,8 +45,7 @@ export async function loadHostConfig(
 ): Promise<{ config: LaunchConfig; hardware: Hardware | null }> {
 	const params = { params: { path: { host_id: hostId } } };
 	const config = normalise(await unwrap(api.GET('/api/v2/playout/hosts/{host_id}/config', params)));
-	// Hardware is garnish: without it the selects fall back to the values
-	// already set, so an mpv-less host still shows an editable form.
+	// Garnish: without it the selects fall back to the values already set.
 	const hardware = await unwrap(api.GET('/api/v2/playout/hosts/{host_id}/hardware', params)).catch(
 		() => null
 	);

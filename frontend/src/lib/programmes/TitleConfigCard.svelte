@@ -135,7 +135,8 @@
 	<p class="text-sm">
 		{#if !programme.title_template_id}
 			<span class="text-muted">
-				No title screen - the programme waits on standby until it starts. Choose a template to give it one.
+				No title screen - the programme waits on standby until it starts. Choose a template to give
+				it one.
 			</span>
 		{:else if missingCard}
 			<span class="text-warning">Title card not generated yet - save to render it.</span>

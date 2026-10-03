@@ -88,22 +88,27 @@ class PlaylistService:
 
         logger.info(f"Building playlist for '{programme.name}'")
 
+        # Pass 1 picks the random features, so certification and trailer-rule
+        # blocks bound to them can resolve wherever they sit.
         random_movie_selections = {}
         for block in blocks:
             if block.content_type == "random_movie":
-                selected_movies = PlaylistService._select_random_movies(block)
-                if selected_movies:
-                    random_movie_selections[block.order] = selected_movies
+                available = list(build_random_movie_query(block, exclude_empty_paths=True))
+                if available:
+                    selected = random.sample(available, min(block.random_count or 1, len(available)))
+                    random_movie_selections[block.order] = selected
                     logger.info(
-                        f"Pre-selected {len(selected_movies)} movie(s) for random_movie block {block.id} (order {block.order})"
+                        f"Pre-selected {len(selected)} movie(s) for random_movie block {block.id} (order {block.order})"
                     )
 
-        # used_trailer_ids de-dupes trailer selections across every rule block in this programme.
+        # De-dupes trailer selections across every rule block in this programme.
         used_trailer_ids: set[int] = set()
         for block in blocks:
             if block.content_type == "random_movie":
-                selected_movies = random_movie_selections.get(block.order, [])
-                block_items = PlaylistService._process_random_movie_block_with_selection(block, selected_movies)
+                block_items = [
+                    PlaylistService._random_movie_item(movie, block)
+                    for movie in random_movie_selections.get(block.order, [])
+                ]
             elif block.content_type == "certification":
                 block_items = PlaylistService._process_certification_block(block, random_movie_selections)
             elif block.content_type == "trailer_rule":
@@ -123,13 +128,7 @@ class PlaylistService:
 
     @staticmethod
     def save_playlist_to_database(programme: Programme, playlist_items: list[dict[str, Any]]) -> Playlist:
-        try:
-            existing_playlist = Playlist.objects.get(programme=programme)
-            existing_playlist.delete()
-            logger.info(f"Deleted existing playlist for programme {programme.id}")
-        except Playlist.DoesNotExist:
-            pass
-
+        Playlist.objects.filter(programme=programme).delete()
         playlist = Playlist.objects.create(programme=programme)
 
         # Instant command cues ("command_cue") get no item of their own — they attach to the next
@@ -158,21 +157,13 @@ class PlaylistService:
                 if item["type"] == "movie":
                     movie = Movie.objects.get(pk=content_id)
 
-                    credits_command_id = None
-                    programme_block_id = item.get("programme_block_id")
-                    if programme_block_id:
-                        try:
-                            block = ProgrammeBlock.objects.get(pk=programme_block_id)
-                            if block.credits_command_id:
-                                credits_command_id = block.credits_command_id
-                        except ProgrammeBlock.DoesNotExist:
-                            pass
-
+                    block_id = item.get("programme_block_id")
+                    block = ProgrammeBlock.objects.filter(pk=block_id).first() if block_id else None
                     playlist_item.movie_playback = MoviePlayback.objects.create(
                         movie=movie,
                         audio_track_index=item.get("audio_track", 0),
                         subtitle_track_index=item.get("subtitle_track"),
-                        credits_command_id=credits_command_id,
+                        credits_command_id=block.credits_command_id if block else None,
                     )
                 elif item["type"] == "trailer":
                     playlist_item.trailer = Trailer.objects.get(pk=content_id)
@@ -209,135 +200,52 @@ class PlaylistService:
 
     @staticmethod
     def _process_programme_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
-        items = []
-
+        """A movie, trailer, user media, audio bumper or command block's items (a
+        failing block is skipped)."""
+        kind = block.content_type
         try:
-            if block.content_type == "movie":
-                items.extend(PlaylistService._process_movie_block(block))
-
-            elif block.content_type == "trailer":
-                items.extend(PlaylistService._process_trailer_block(block))
-
-            elif block.content_type == "bumper":
-                # A "bumper" block is RANDOM when it carries a tag (or count > 1), else it plays the specific clip.
+            if kind == "bumper":
+                # RANDOM when it carries a tag (or count > 1), else the specific clip.
                 if block.random_tag or block.random_count > 1:
-                    items.extend(PlaylistService._process_random_bumper_block(block))
-                else:
-                    items.extend(PlaylistService._process_bumper_block(block))
-
-            elif block.content_type == "audio_bumper":
-                items.extend(PlaylistService._process_audio_bumper_block(block))
-
-            elif block.content_type == "command":
-                items.extend(PlaylistService._process_command_block(block))
-
-            # trailer_rule / certification / random_movie are dispatched to dedicated handlers upstream.
-            else:
-                logger.warning(f"Unknown block type: {block.content_type}")
-
+                    return PlaylistService._process_random_bumper_block(block)
+                return PlaylistService._process_clip_block(block, "bumper")
+            if kind in ("movie", "trailer"):
+                return PlaylistService._process_clip_block(block, kind)
+            if kind == "audio_bumper":
+                return PlaylistService._process_audio_bumper_block(block)
+            if kind == "command":
+                return PlaylistService._process_command_block(block)
+            logger.warning(f"Unknown block type: {kind}")
         except Exception as e:
-            logger.error(f"Error processing block {block.id} ({block.content_type}): {e}")
-
-        return items
+            logger.error(f"Error processing block {block.id} ({kind}): {e}", exc_info=True)
+        return []
 
     @staticmethod
-    def _process_movie_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
-        try:
-            movie = resolve_block_entity(block, "movie")
-            if not movie:
-                logger.error(f"No movie found for block {block.id}")
-                return []
-
-            file_path = resolve_media_path(movie)
-
-            if not file_path:
-                logger.warning(f"Movie {movie.id} has no file path")
-                return []
-
-            return [
-                {
-                    "type": "movie",
-                    "file_path": file_path,
-                    "title": movie.title,
-                    "duration": movie.duration,
-                    "programme_block_id": block.id,
-                    "content_id": movie.id,
-                    "audio_track": block.audio_track_index or 0,
-                    "subtitle_track": block.subtitle_track_index,
-                    "metadata": {
-                        "movie_id": movie.id,
-                        "movie_title": movie.title,
-                        "year": movie.year,
-                        "genres": [genre.name for genre in movie.genres.all()],
-                        "certification": movie.certification,
-                        "thumbnail_url": movie.thumbnail_url,
-                    },
-                }
-            ]
-
-        except Exception as e:
-            logger.error(f"Error processing movie block {block.id}: {e}", exc_info=True)
+    def _process_clip_block(block: ProgrammeBlock, kind: str) -> list[dict[str, Any]]:
+        """A specific movie, trailer or user media item."""
+        obj = resolve_block_entity(block, kind)
+        if not obj:
+            logger.error(f"No {kind} found for block {block.id}")
             return []
-
-    @staticmethod
-    def _process_trailer_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
-        try:
-            trailer = resolve_block_entity(block, "trailer")
-            if not trailer:
-                logger.error(f"No trailer found for block {block.id}")
-                return []
-
-            file_path = resolve_media_path(trailer)
-
-            if not file_path:
-                logger.warning(f"Trailer {trailer.id} has no file path")
-                return []
-
-            return [
-                {
-                    "type": "trailer",
-                    "file_path": file_path,
-                    "title": trailer.title,
-                    "duration": trailer.duration,
-                    "programme_block_id": block.id,
-                    "content_id": trailer.id,
-                    "metadata": {"trailer_title": trailer.title, "tmdb_id": trailer.tmdbid},
-                }
-            ]
-
-        except Exception as e:
-            logger.error(f"Error processing trailer block {block.id}: {e}")
+        file_path = resolve_media_path(obj)
+        if not file_path:
+            logger.warning(f"{kind.capitalize()} {obj.id} has no file path")
             return []
-
-    @staticmethod
-    def _process_bumper_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
-        try:
-            bumper = resolve_block_entity(block, "bumper")
-            if not bumper:
-                logger.error(f"No bumper found for block {block.id}")
-                return []
-
-            file_path = resolve_media_path(bumper)
-
-            if not file_path:
-                logger.warning(f"Bumper {bumper.id} has no file path")
-                return []
-
+        if kind == "movie":
             return [
-                {
-                    "type": "bumper",
-                    "file_path": file_path,
-                    "title": bumper.title,
-                    "duration": bumper.duration,
-                    "programme_block_id": block.id,
-                    "content_id": bumper.id,
-                    "metadata": {"bumper_title": bumper.title, "tags": [tag.name for tag in bumper.tags.all()]},
-                }
+                _item(
+                    "movie",
+                    obj,
+                    block,
+                    _movie_metadata(obj),
+                    file_path,
+                    audio_track=block.audio_track_index or 0,
+                    subtitle_track=block.subtitle_track_index,
+                )
             ]
-
-        except Exception as e:
-            logger.error(f"Error processing bumper block {block.id}: {e}")
-            return []
+        if kind == "trailer":
+            return [_item("trailer", obj, block, {"trailer_title": obj.title, "tmdb_id": obj.tmdbid}, file_path)]
+        return [_item("bumper", obj, block, {"bumper_title": obj.title, "tags": _tag_names(obj)}, file_path)]
 
     # Raw audio-track codecs -> our format keys (see models.AUDIO_FORMATS).
     _AUDIO_CODEC_MAP = {
@@ -364,9 +272,8 @@ class PlaylistService:
         if not tracks:
             return None
         track = next((t for t in tracks if t.index == (track_index or 0)), tracks[0])
-        codec = (track.codec or "").lower().strip()
-        fmt = PlaylistService._AUDIO_CODEC_MAP.get(codec)
-        # Atmos rides on TrueHD (and E-AC-3) — flag it when the track is object-based wide.
+        fmt = PlaylistService._AUDIO_CODEC_MAP.get((track.codec or "").lower().strip())
+        # Atmos rides on TrueHD: flag it when the track is object-based wide.
         if fmt == "dolby_truehd" and ((track.channels or 0) >= 8 or "atmos" in (track.title or "").lower()):
             fmt = "dolby_atmos"
         return fmt
@@ -379,37 +286,18 @@ class PlaylistService:
             if not bumper.file_path:
                 logger.info(f"Audio bumper block {block.id}: override '{bumper.title}' has no file, skipping")
                 return []
-            file_path = resolve_media_path(bumper)
             logger.info(f"Audio bumper: {bumper.title} (explicit override)")
-            return [
-                {
-                    "type": "bumper",
-                    "file_path": file_path,
-                    "title": bumper.title,
-                    "duration": bumper.duration,
-                    "programme_block_id": block.id,
-                    "content_id": bumper.id,
-                    "metadata": {"bumper_title": bumper.title, "override": True},
-                }
-            ]
+            return [_item("bumper", bumper, block, {"bumper_title": bumper.title, "override": True})]
 
+        features = ProgrammeBlock.objects.filter(programme=block.programme, content_type="movie").order_by("order")
         if block.movie is not None:
-            movie = block.movie
             # The bound feature's own block carries the audio-track choice.
-            movie_block = (
-                ProgrammeBlock.objects.filter(programme=block.programme, content_type="movie", movie=movie)
-                .order_by("order")
-                .first()
-            )
-            track_index = movie_block.audio_track_index if movie_block else None
+            movie = block.movie
+            movie_block = features.filter(movie=movie).first()
         else:
-            next_movie_block = (
-                ProgrammeBlock.objects.filter(programme=block.programme, content_type="movie", order__gt=block.order)
-                .order_by("order")
-                .first()
-            )
-            movie = next_movie_block.movie if next_movie_block else None
-            track_index = next_movie_block.audio_track_index if next_movie_block else None
+            movie_block = features.filter(order__gt=block.order).first()
+            movie = movie_block.movie if movie_block else None
+        track_index = movie_block.audio_track_index if movie_block else None
         if movie is None:
             logger.info(f"Audio bumper block {block.id}: no feature to match, skipping")
             return []
@@ -417,140 +305,84 @@ class PlaylistService:
         if not fmt:
             logger.info(f"Audio bumper block {block.id}: no audio format for {movie.title}, skipping")
             return []
-        bumper = (
-            Bumper.objects.filter(audio_format=fmt)
-            .exclude(file_path__isnull=True)
-            .exclude(file_path="")
-            .order_by("?")
-            .first()
-        )
+        bumper = _playable_bumpers().filter(audio_format=fmt).order_by("?").first()
         if not bumper:
             logger.info(f"Audio bumper block {block.id}: no bumper marked '{fmt}', skipping")
             return []
-        file_path = resolve_media_path(bumper)
         logger.info(f"Audio bumper: {bumper.title} ({fmt}) before {movie.title}")
         return [
-            {
-                "type": "bumper",
-                "file_path": file_path,
-                "title": bumper.title,
-                "duration": bumper.duration,
-                "programme_block_id": block.id,
-                "content_id": bumper.id,
-                "metadata": {"bumper_title": bumper.title, "audio_format": fmt, "feature": movie.title},
-            }
+            _item("bumper", bumper, block, {"bumper_title": bumper.title, "audio_format": fmt, "feature": movie.title})
         ]
 
     @staticmethod
     def _process_random_bumper_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
-        count = block.random_count or 1
         tag = block.random_tag
-
-        bumpers_query = Bumper.objects.exclude(file_path__isnull=True).exclude(file_path="")
+        query = _playable_bumpers()
         if tag:
-            bumpers_query = bumpers_query.filter(tags=tag)
-
-        available_bumpers = list(bumpers_query.distinct())
-        if not available_bumpers:
+            query = query.filter(tags=tag)
+        available = list(query.distinct())
+        if not available:
             logger.warning(f"No bumpers found for random selection in block {block.id}")
             return []
-
-        selected_count = min(count, len(available_bumpers))
-        selected_bumpers = random.sample(available_bumpers, selected_count)
-
-        items = []
-        for bumper in selected_bumpers:
-            file_path = resolve_media_path(bumper)
-            items.append(
+        return [
+            _item(
+                "bumper",
+                bumper,
+                block,
                 {
-                    "type": "bumper",
-                    "file_path": file_path,
-                    "title": bumper.title,
-                    "duration": bumper.duration,
-                    "programme_block_id": block.id,
-                    "content_id": bumper.id,
-                    "metadata": {
-                        "bumper_title": bumper.title,
-                        "tags": [t.name for t in bumper.tags.all()],
-                        "random_selection": True,
-                        "selection_criteria": tag.name if tag else "Any",
-                    },
-                }
+                    "bumper_title": bumper.title,
+                    "tags": _tag_names(bumper),
+                    "random_selection": True,
+                    "selection_criteria": tag.name if tag else "Any",
+                },
             )
-
-        return items
+            for bumper in random.sample(available, min(block.random_count or 1, len(available)))
+        ]
 
     @staticmethod
     def _process_command_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
         """hold_black -> a real black-loop item (until command done + duration); else a "command_cue" marker (no MPV entry)."""
-        try:
-            command = resolve_block_entity(block, "command")
-            if not command:
-                logger.error(f"No command found for block {block.id}")
-                return []
-
-            hold_seconds = float(command.duration or 0)
-            if block.hold_black:
-                if not os.path.exists(system_black_path()):
-                    logger.warning(
-                        f"Command block {block.id}: hold requested but the black clip is missing; firing as instant cue"
-                    )
-                elif hold_seconds <= 0:
-                    logger.info(
-                        f"Command block {block.id}: '{command.name}' has no duration set; "
-                        f"black will hold until the command completes"
-                    )
-                if os.path.exists(system_black_path()):
-                    return [
-                        {
-                            "type": "command",
-                            "file_path": system_black_stream_url(),
-                            "title": command.name,
-                            "duration": hold_seconds,
-                            "programme_block_id": block.id,
-                            "content_id": command.id,
-                            "metadata": {"command_name": command.name, "provider": command.provider},
-                        }
-                    ]
-
-            return [
-                {
-                    "type": "command_cue",
-                    "file_path": "",
-                    "title": command.name,
-                    "duration": 0,
-                    "programme_block_id": block.id,
-                    "content_id": command.id,
-                    "metadata": {"command_name": command.name, "provider": command.provider},
-                }
-            ]
-
-        except Exception as e:
-            logger.error(f"Error processing command block {block.id}: {e}")
+        command = resolve_block_entity(block, "command")
+        if not command:
+            logger.error(f"No command found for block {block.id}")
             return []
-
-    @staticmethod
-    def _exclude_own_trailer(trailers_query, ref_movie):
-        from cinefin.api.services.trailer_matching import exclude_own_trailer
-
-        return exclude_own_trailer(trailers_query, ref_movie)
+        hold_seconds = float(command.duration or 0)
+        item = {
+            "type": "command_cue",
+            "file_path": "",
+            "title": command.name,
+            "duration": 0,
+            "programme_block_id": block.id,
+            "content_id": command.id,
+            "metadata": {"command_name": command.name, "provider": command.provider},
+        }
+        if block.hold_black:
+            if not os.path.exists(system_black_path()):
+                logger.warning(
+                    f"Command block {block.id}: hold requested but the black clip is missing; firing as instant cue"
+                )
+                return [item]
+            if hold_seconds <= 0:
+                logger.info(
+                    f"Command block {block.id}: '{command.name}' has no duration set; "
+                    f"black will hold until the command completes"
+                )
+            item.update(type="command", file_path=system_black_stream_url(), duration=hold_seconds)
+        return [item]
 
     @staticmethod
     def _process_trailer_rule_block(
         block: ProgrammeBlock,
-        random_movie_selections: dict[int, list[Movie]] = None,
-        used_trailer_ids: set[int] | None = None,
+        random_movie_selections: dict[int, list[Movie]],
+        used_trailer_ids: set[int],
     ) -> list[dict[str, Any]]:
         """used_trailer_ids (mutated in place) de-dupes across trailer-rule blocks so two rules never pick the same trailer."""
         from cinefin.api.services.trailer_matching import Criteria, select_trailers
 
-        default_count = TrailerRule.DEFAULT_COUNT
-        used_trailer_ids = used_trailer_ids if used_trailer_ids is not None else set()
-
         if block.trailer_rule:
             rule = block.trailer_rule
             criteria = Criteria.from_rule(rule)
-            count = rule.number_of_trailers or default_count
+            count = rule.number_of_trailers or TrailerRule.DEFAULT_COUNT
         elif block.bound_to_block_order is not None and random_movie_selections:
             selected_movies = random_movie_selections.get(block.bound_to_block_order, [])
             if not selected_movies:
@@ -566,97 +398,72 @@ class PlaylistService:
                 year_delta=block.trailer_year_delta or 5,
             )
             criteria.tag = block.trailer_tag
-            count = block.random_count or default_count
+            count = block.random_count or TrailerRule.DEFAULT_COUNT
             logger.info(f"Trailer rule block {block.id} using random movie: {selected_movies[0].title}")
         else:
             logger.error(f"No trailer rule or bound block found for block {block.id}")
             return []
 
-        selected_trailers, match_info = select_trailers(criteria, count, exclude_ids=used_trailer_ids)
-        used_trailer_ids.update(t.id for t in selected_trailers)
-        ref_movie = criteria.reference_movie
-        trailer_tag = criteria.tag
+        selected, match_info = select_trailers(criteria, count, exclude_ids=used_trailer_ids)
+        used_trailer_ids.update(t.id for t in selected)
+        ref_movie, tag = criteria.reference_movie, criteria.tag
         logger.info(
             f"Trailer rule block {block.id}: {match_info['matched']} match "
             f"{f'for {ref_movie.title}' if ref_movie else '(criteria only)'}"
-            f"{f' (tag: {trailer_tag.name})' if trailer_tag else ''}, selected {len(selected_trailers)}"
+            f"{f' (tag: {tag.name})' if tag else ''}, selected {len(selected)}"
         )
-
-        items = []
-        for trailer in selected_trailers:
-            file_path = resolve_media_path(trailer)
-            items.append(
-                {
-                    "type": "trailer",
-                    "file_path": file_path,
-                    "title": trailer.title,
-                    "duration": trailer.duration,
-                    "programme_block_id": block.id,
-                    "content_id": trailer.id,
-                    "metadata": {
-                        "rule_based_selection": True,
-                        "reference_movie": ref_movie.title if ref_movie else None,
-                        "tag_filter": trailer_tag.name if trailer_tag else None,
-                        "matched": match_info["matched"],
-                        "requested": match_info["requested"],
-                    },
-                }
-            )
-
-        return items
+        metadata = {
+            "rule_based_selection": True,
+            "reference_movie": ref_movie.title if ref_movie else None,
+            "tag_filter": tag.name if tag else None,
+            "matched": match_info["matched"],
+            "requested": match_info["requested"],
+        }
+        return [_item("trailer", trailer, block, dict(metadata)) for trailer in selected]
 
     @staticmethod
     def _process_certification_block(
-        block: ProgrammeBlock, random_movie_selections: dict[int, list[Movie]] = None
+        block: ProgrammeBlock, random_movie_selections: dict[int, list[Movie]]
     ) -> list[dict[str, Any]]:
-        """For certs linked to a random movie (no content_object), match by filter criteria then generate dynamically."""
+        """A certification card for the block's film, or (with no film) for the
+        random feature whose filters it shares."""
         from .certification_service import CertificationService
 
         movie = block.movie
         if movie is None:
-            # Match a random-movie block by its filter criteria (usually 1:1 by order).
-            if random_movie_selections:
-                for block_order, selected_movies in random_movie_selections.items():
-                    if selected_movies:
-                        try:
-                            random_block = ProgrammeBlock.objects.get(
-                                programme=block.programme, order=block_order, content_type="random_movie"
-                            )
-                            block_genres = set(block.random_movie_genres.values_list("id", flat=True))
-                            random_genres = set(random_block.random_movie_genres.values_list("id", flat=True))
-                            filters_match = (
-                                block_genres == random_genres
-                                and block.random_movie_certification == random_block.random_movie_certification
-                                and block.random_movie_year_from == random_block.random_movie_year_from
-                                and block.random_movie_year_to == random_block.random_movie_year_to
-                            )
-                            if filters_match:
-                                movie = selected_movies[0]
-                                logger.info(f"Matched certification block {block.id} to random movie: {movie.title}")
-                                break
-                        except ProgrammeBlock.DoesNotExist:
-                            continue
+            genres = set(block.random_movie_genres.values_list("id", flat=True))
+            for block_order, selected_movies in random_movie_selections.items():
+                if not selected_movies:
+                    continue
+                random_block = ProgrammeBlock.objects.filter(
+                    programme=block.programme, order=block_order, content_type="random_movie"
+                ).first()
+                if random_block is None:
+                    continue
+                if genres == set(random_block.random_movie_genres.values_list("id", flat=True)) and all(
+                    getattr(block, f) == getattr(random_block, f)
+                    for f in ("random_movie_certification", "random_movie_year_from", "random_movie_year_to")
+                ):
+                    movie = selected_movies[0]
+                    logger.info(f"Matched certification block {block.id} to random movie: {movie.title}")
+                    break
 
         if not movie:
             logger.warning(f"No movie found for certification block {block.id}")
             return []
 
         certification = CertificationService.get_or_create_certification(movie)
-
         if not certification:
             logger.warning(f"Could not get/create certification for movie {movie.title} in block {block.id}")
             return []
-
         if not certification.file_path or not os.path.exists(usermedia_abs_path(certification.file_path)):
             logger.warning(f"Certification file not found: {certification.file_path}")
             return []
 
-        file_path = resolve_media_path(certification)
-
         return [
             {
                 "type": "certification",
-                "file_path": file_path,
+                "file_path": resolve_media_path(certification),
                 "title": f"Certification: {certification.certification}",
                 "duration": 5.0,
                 "programme_block_id": block.id,
@@ -672,53 +479,49 @@ class PlaylistService:
         ]
 
     @staticmethod
-    def _build_random_movie_playlist_item(movie: Movie, block: ProgrammeBlock) -> dict[str, Any]:
-        file_path = resolve_media_path(movie)
-
-        return {
-            "type": "movie",
-            "file_path": file_path,
-            "title": movie.title,
-            "duration": movie.duration,
-            "programme_block_id": block.id,
-            "content_id": movie.id,
-            "audio_track": 0,
-            "subtitle_track": None,
-            "metadata": {
-                "movie_id": movie.id,
-                "movie_title": movie.title,
-                "year": movie.year,
-                "genres": [genre.name for genre in movie.genres.all()],
-                "certification": movie.certification,
-                "thumbnail_url": movie.thumbnail_url,
-                "random_selection": True,
-                "selection_criteria": {
-                    "filter_text": build_filter_description_from_block(block),
-                    "genre_ids": [g.id for g in block.random_movie_genres.all()],
-                    "certification": block.random_movie_certification or None,
-                    "year_from": block.random_movie_year_from,
-                    "year_to": block.random_movie_year_to,
-                    "runtime_from": block.random_movie_runtime_from,
-                    "runtime_to": block.random_movie_runtime_to,
-                },
-            },
+    def _random_movie_item(movie: Movie, block: ProgrammeBlock) -> dict[str, Any]:
+        metadata = _movie_metadata(movie)
+        metadata["random_selection"] = True
+        metadata["selection_criteria"] = {
+            "filter_text": build_filter_description_from_block(block),
+            "genre_ids": [g.id for g in block.random_movie_genres.all()],
+            "certification": block.random_movie_certification or None,
+            "year_from": block.random_movie_year_from,
+            "year_to": block.random_movie_year_to,
+            "runtime_from": block.random_movie_runtime_from,
+            "runtime_to": block.random_movie_runtime_to,
         }
+        return _item("movie", movie, block, metadata, audio_track=0, subtitle_track=None)
 
-    @staticmethod
-    def _select_random_movies(block: ProgrammeBlock) -> list[Movie]:
-        count = block.random_count or 1
 
-        movies_query = build_random_movie_query(block, exclude_empty_paths=True)
+def _item(kind, obj, block, metadata, file_path=None, **extra):
+    """One playlist item for a clip (``file_path`` defaults to its stream URL)."""
+    return {
+        "type": kind,
+        "file_path": resolve_media_path(obj) if file_path is None else file_path,
+        "title": obj.title,
+        "duration": obj.duration,
+        "programme_block_id": block.id,
+        "content_id": obj.id,
+        **extra,
+        "metadata": metadata,
+    }
 
-        available_movies = list(movies_query)
-        if not available_movies:
-            return []
 
-        selected_count = min(count, len(available_movies))
-        return random.sample(available_movies, selected_count)
+def _movie_metadata(movie):
+    return {
+        "movie_id": movie.id,
+        "movie_title": movie.title,
+        "year": movie.year,
+        "genres": [genre.name for genre in movie.genres.all()],
+        "certification": movie.certification,
+        "thumbnail_url": movie.thumbnail_url,
+    }
 
-    @staticmethod
-    def _process_random_movie_block_with_selection(
-        block: ProgrammeBlock, selected_movies: list[Movie]
-    ) -> list[dict[str, Any]]:
-        return [PlaylistService._build_random_movie_playlist_item(movie, block) for movie in selected_movies]
+
+def _tag_names(bumper):
+    return [tag.name for tag in bumper.tags.all()]
+
+
+def _playable_bumpers():
+    return Bumper.objects.exclude(file_path__isnull=True).exclude(file_path="")

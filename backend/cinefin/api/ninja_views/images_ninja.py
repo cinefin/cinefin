@@ -98,14 +98,14 @@ def _library(library: str) -> Library:
     return LIBRARIES[library]
 
 
-def _entry(lib: Library, name: str) -> ImageSchema:
+def _entry(lib: Library, name: str) -> dict:
     width = height = None
     try:
         with Image.open(os.path.join(lib.directory, name)) as img:
             width, height = img.width, img.height
     except Exception:  # noqa: BLE001 — a corrupt file still lists, just without dimensions
         pass
-    return ImageSchema(name=name, url=lib.url(name), width=width, height=height)
+    return {"name": name, "url": lib.url(name), "width": width, "height": height}
 
 
 @images_api.get("/{library}", response={200: ImageListResponseSchema, 404: ErrorResponseSchema})
@@ -113,7 +113,7 @@ def list_images(request: HttpRequest, library: str):
     lib = _library(library)
     names = sorted(os.listdir(lib.directory), key=str.lower) if os.path.isdir(lib.directory) else []
     images = [_entry(lib, n) for n in names if lib.accepts(n)]
-    return Status(200, ImageListResponseSchema(message="Images retrieved", data=images))
+    return {"message": "Images retrieved", "data": images}
 
 
 @images_api.post("/{library}", response={201: ImageResponseSchema, 400: ErrorResponseSchema, 404: ErrorResponseSchema})
@@ -138,7 +138,7 @@ def upload_image(request: HttpRequest, library: str, file: UploadedFile = File(.
                 f.write(chunk)
     except OSError as e:
         raise UnprocessableEntityError(f"Could not store the image: {e}", error_code="IMAGE_UPLOAD_FAILED") from e
-    return Status(201, ImageResponseSchema(message="Image uploaded", data=_entry(lib, name)))
+    return Status(201, {"message": "Image uploaded", "data": _entry(lib, name)})
 
 
 @images_api.delete(
@@ -153,4 +153,4 @@ def delete_image(request: HttpRequest, library: str, name: str):
     if users := lib.users(name):
         raise ConflictError(f"Still used by {', '.join(users)} — remove it there first", error_code="IMAGE_IN_USE")
     os.remove(path)
-    return Status(200, MessageResponseSchema(message=f'Deleted "{name}"'))
+    return {"message": f'Deleted "{name}"'}

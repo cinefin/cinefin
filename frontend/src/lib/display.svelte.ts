@@ -89,10 +89,7 @@ class DisplayStore {
 
 	boot() {
 		this.apply();
-		const cached = read(ACCENT_CACHE_KEY);
-		if (cached && ACCENT_RE.test(cached)) {
-			document.documentElement.style.setProperty('--color-accent', cached);
-		}
+		this.restoreCachedAccent();
 	}
 }
 

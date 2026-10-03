@@ -38,6 +38,16 @@ class CertificateStoreMixin(models.Model):
         self.rating_lookups = lookups
 
 
+def _local_stream(kind: str, pk: int) -> dict:
+    """Django-served stream URL (the fallback for movies; provider URLs come from streaming_service)."""
+    from cinefin.api.utils.stream_token import make_stream_token
+
+    return {
+        "stream_url": f"{cinefin_base_url()}/stream/{kind}/{pk}/?t={make_stream_token(kind, pk)}",
+        "provider": "local",
+    }
+
+
 class Genre(models.Model):
     name = models.CharField(max_length=100, unique=True)
 
@@ -99,18 +109,8 @@ class Movie(CertificateStoreMixin, VideoContent):
         null=True, blank=True, help_text="Server-side updatedAt at last sync (incremental change detection)"
     )
 
-    # Django-served fallback URL for a local file; provider URLs come from streaming_service.
     def get_stream_url(self):
-        from cinefin.api.utils.stream_token import make_stream_token
-
-        base_url = cinefin_base_url()
-        token = make_stream_token("movie", self.id)
-        return {"stream_url": f"{base_url}/stream/movie/{self.id}/?t={token}", "provider": "local"}
-
-    def delete(self, *args, **kwargs):
-        self.audio_tracks.all().delete()
-        self.subtitle_tracks.all().delete()
-        super().delete(*args, **kwargs)
+        return _local_stream("movie", self.id)
 
     @property
     def thumbnail_url(self):
@@ -119,7 +119,7 @@ class Movie(CertificateStoreMixin, VideoContent):
         return settings.STATIC_URL + "img/default-movie-poster.jpg"
 
     def __str__(self):
-        return self.title + " (" + str(self.year) + ")"
+        return f"{self.title} ({self.year})"
 
 
 class TrailerTag(models.Model):
@@ -147,11 +147,7 @@ class Trailer(CertificateStoreMixin, VideoContent):
     trailer_tags = models.ManyToManyField(TrailerTag, blank=True, related_name="trailers")
 
     def get_stream_url(self):
-        from cinefin.api.utils.stream_token import make_stream_token
-
-        base_url = cinefin_base_url()
-        token = make_stream_token("trailer", self.id)
-        return {"stream_url": f"{base_url}/stream/trailer/{self.id}/?t={token}", "provider": "local"}
+        return _local_stream("trailer", self.id)
 
     def linked_movie(self):
         """The film this trailer advertises: the stored link, else the library film with its TMDB id."""
@@ -160,7 +156,7 @@ class Trailer(CertificateStoreMixin, VideoContent):
         return Movie.objects.filter(tmdbid=self.tmdbid).first() if self.tmdbid else None
 
     def __str__(self):
-        return self.title + " (" + str(self.year) + ")"
+        return f"{self.title} ({self.year})"
 
 
 class AudioTrack(models.Model):
@@ -232,17 +228,11 @@ class Bumper(VideoContent):
     )
 
     def get_stream_url(self):
-        from cinefin.api.utils.stream_token import make_stream_token
-
-        base_url = cinefin_base_url()
-        token = make_stream_token("bumper", self.id)
-        return {"stream_url": f"{base_url}/stream/bumper/{self.id}/?t={token}", "provider": "local"}
+        return _local_stream("bumper", self.id)
 
     @property
     def screenshot_url(self):
-        if self.screenshot:
-            return settings.MEDIA_URL + self.screenshot
-        return None
+        return settings.MEDIA_URL + self.screenshot if self.screenshot else None
 
 
 class Certification(models.Model):
@@ -253,11 +243,7 @@ class Certification(models.Model):
     movie = models.ForeignKey(Movie, on_delete=models.CASCADE, related_name="certifications")
 
     def get_stream_url(self):
-        from cinefin.api.utils.stream_token import make_stream_token
-
-        base_url = cinefin_base_url()
-        token = make_stream_token("certification", self.id)
-        return {"stream_url": f"{base_url}/stream/certification/{self.id}/?t={token}", "provider": "local"}
+        return _local_stream("certification", self.id)
 
     def __str__(self):
-        return self.movie.title + " - " + self.certification
+        return f"{self.movie.title} - {self.certification}"

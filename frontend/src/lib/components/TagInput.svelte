@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { X } from '@lucide/svelte';
 
-	/**
-	 * Tag chips + entry field (port of the legacy media page's TagInput).
-	 * Enter or comma commits the typed tag; Backspace on an empty field pops
-	 * the last chip. Bind `tags` for the current list. `suggestions` offers
-	 * existing tag names as native datalist autocomplete (already-added tags
-	 * are filtered out).
-	 */
+	/** Tag chips + entry: Enter or comma commits, Backspace on empty pops; `suggestions` feed a datalist. */
 	interface Props {
 		tags?: string[];
 		placeholder?: string;
@@ -75,12 +69,8 @@
 		class="h-6 min-w-24 flex-1 bg-transparent text-sm text-text outline-none placeholder:text-faint"
 	/>
 	{#if listId}
-		<!-- change (not just blur) commits, so picking a suggestion with the
-		     mouse turns into a chip immediately. -->
 		<datalist id={listId}>
-			{#each available as s (s)}
-				<option value={s}></option>
-			{/each}
+			{#each available as s (s)}<option value={s}></option>{/each}
 		</datalist>
 	{/if}
 </div>

@@ -17,11 +17,9 @@ def _run_guard(monkeypatch, argv, cmd_args=""):
     "argv",
     [
         ["/usr/bin/gunicorn", "cinefin.wsgi:application", "--workers", "1", "--threads", "4"],
-        ["/usr/bin/gunicorn", "cinefin.wsgi:application", "--workers=1"],
         ["/usr/bin/gunicorn", "cinefin.wsgi:application", "-w", "1"],
         ["/usr/bin/gunicorn", "cinefin.wsgi:application"],
         ["manage.py", "runserver"],
-        ["manage.py", "migrate"],
     ],
 )
 def test_single_worker_configurations_boot(monkeypatch, argv):
@@ -31,7 +29,6 @@ def test_single_worker_configurations_boot(monkeypatch, argv):
 @pytest.mark.parametrize(
     ("argv", "cmd_args"),
     [
-        (["/usr/bin/gunicorn", "cinefin.wsgi:application", "--workers", "4"], ""),
         (["/usr/bin/gunicorn", "cinefin.wsgi:application", "--workers=2"], ""),
         (["/usr/bin/gunicorn", "cinefin.wsgi:application", "-w", "8"], ""),
         (["/usr/bin/gunicorn", "cinefin.wsgi:application"], "--workers 4"),

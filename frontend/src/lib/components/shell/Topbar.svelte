@@ -12,8 +12,7 @@
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 	import DisplayMenu from '$lib/components/shell/DisplayMenu.svelte';
 	import HealthMenu from '$lib/components/shell/HealthMenu.svelte';
-	import StatusLamp from '$lib/components/StatusLamp.svelte';
-	import Tally from '$lib/components/Tally.svelte';
+	import PhaseLamp from '$lib/components/shell/PhaseLamp.svelte';
 
 	interface Props {
 		onmenu: () => void;
@@ -26,32 +25,28 @@
 
 	const h = $derived(pageHeader.current);
 
-	// Server accent (display.accent_color): apply once settings land; display
-	// caches it so the next boot paints right.
+	// Server accent: apply once settings land (display caches it for the next boot).
 	$effect(() => {
 		if (settings.data) display.applyAccent(settings.data.settings?.accent_color ?? null);
 	});
 
-	// The booth lamp: live playout state in the chrome, fed by the shared poller.
 	$effect(() => playout.subscribe());
-
-	// Sync activity: the shared SSE-fed signal — a lamp appears in the chrome
-	// while any library sync runs, from every page, and links to the sync modal.
 	$effect(() => syncActivity.subscribe());
 	$effect(() => trailerActivity.subscribe());
 
-	// The booth lamp (spec §06): the server's phase, drawn by the one helper. On air
-	// is not a lamp at all: it is the tally, a solid red block that never blinks.
+	// The booth lamp; on air it is the tally, a solid red block that never blinks.
 	const booth = $derived(lamp(playout.status, playout.loaded));
 </script>
 
-<!-- The header's inner row shares the page gutter, so the cinema name sits
-     exactly above the content's left edge. The page's own title and actions
-     (PageHeader) follow it. -->
-<!-- h-14 WITH the border inside it: the sidebar's own header is h-14 with its
-     border inside too, and without this the two rules meet 1px apart in the
-     top-left corner (and the sticky selection strip below leaves a hairline
-     gap under the topbar). -->
+{#snippet jobLamp(href: string, title: string, text: string, pct: number)}
+	<!-- The one sanctioned ambient chase: it reports background work. -->
+	<a {href} class="flex items-center gap-2 text-xs font-medium text-muted hover:text-text" {title}>
+		<ChaseMark height={16} />
+		<span>{text}{pct ? ` ${pct}%` : ''}</span>
+	</a>
+{/snippet}
+
+<!-- h-14 with the border inside, matching the sidebar's header so the rules meet. -->
 <header class="band sticky top-0 z-10 h-14 border-b border-border">
 	<div class="flex h-full w-full items-center gap-3 px-4 md:px-6">
 		<button
@@ -89,40 +84,22 @@
 				<span class="hidden h-5 w-px bg-border lg:block"></span>
 			{/if}
 			{#if syncActivity.busy}
-				<!-- The job lamp: a 16px chase while a background job runs — the one
-				     sanctioned ambient chase (it reports work, spec M4). -->
-				<a
-					href="{base}/settings?tab=library"
-					class="flex items-center gap-2 text-xs font-medium text-muted hover:text-text"
-					title="A library sync is running - open the sync panel"
-				>
-					<ChaseMark height={16} />
-					<span>Syncing{syncActivity.percentage ? ` ${syncActivity.percentage}%` : ''}</span>
-				</a>
+				{@render jobLamp(
+					`${base}/settings?tab=library`,
+					'A library sync is running - open the sync panel',
+					'Syncing',
+					syncActivity.percentage
+				)}
 			{/if}
 			{#if trailerActivity.busy}
-				<!-- Same ambient chase for a running trailer job; opens the fetch
-				     modal on the trailers page, where the progress meter lives. -->
-				<a
-					href="{base}/trailers?fetch=open"
-					class="flex items-center gap-2 text-xs font-medium text-muted hover:text-text"
-					title="A trailer job is running - open the fetch panel"
-				>
-					<ChaseMark height={16} />
-					<span
-						>Fetching trailers{trailerActivity.percentage
-							? ` ${trailerActivity.percentage}%`
-							: ''}</span
-					>
-				</a>
+				{@render jobLamp(
+					`${base}/trailers?fetch=open`,
+					'A trailer job is running - open the fetch panel',
+					'Fetching trailers',
+					trailerActivity.percentage
+				)}
 			{/if}
-			{#if booth.tally}
-				<Tally label={booth.label} />
-			{:else}
-				<StatusLamp colour={booth.colour} pending={booth.pending} quiet={booth.quiet}>
-					{booth.label}
-				</StatusLamp>
-			{/if}
+			<PhaseLamp lamp={booth} />
 		</div>
 
 		<HealthMenu />

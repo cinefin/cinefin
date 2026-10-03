@@ -16,33 +16,35 @@
 	interface Props {
 		kind: Kind;
 		mode?: 'single' | 'multi';
-		title?: string;
 		isSelected?: (item: PickedItem) => boolean;
 		onadd?: (item: PickedItem) => void | Promise<void>;
 	}
 
-	let { kind, mode = 'single', title, isSelected, onadd }: Props = $props();
+	let { kind, mode = 'single', isSelected, onadd }: Props = $props();
 
-	const DEFAULTS: Record<Kind, { title: string; placeholder: string; icon: typeof Film }> = {
+	const DEFAULTS = {
 		movie: {
 			title: 'Choose a movie',
 			placeholder: 'Search by title, director or description…',
-			icon: Film
+			icon: Film,
+			none: ['No movies match your search', 'sync a media source first'],
+			noun: 'No movies'
 		},
 		bumper: {
 			title: 'Choose user media',
 			placeholder: 'Search user media by title…',
-			icon: Images
+			icon: Images,
+			none: ['No user media matches your search', 'upload some on the Media page'],
+			noun: 'No user media'
 		},
 		trailer: {
 			title: 'Choose a trailer',
 			placeholder: 'Search trailers by title…',
-			icon: Clapperboard
+			icon: Clapperboard,
+			none: ['No trailers match your search or filters', 'fetch some on the Trailers page'],
+			noun: 'No trailers'
 		}
-	};
-
-	const dialogTitle = $derived(title ?? (mode === 'multi' ? 'Add movies' : DEFAULTS[kind].title));
-	const hasFilters = $derived(kind !== 'bumper');
+	} satisfies Record<Kind, unknown>;
 
 	let open = $state(false);
 	let searchInput = $state('');
@@ -122,27 +124,14 @@
 					certOptions = data.filters.certifications;
 					facetsLoaded = true;
 				}
-				items = data.items.map((m) => ({
-					id: m.id,
-					title: m.title,
-					year: m.year,
-					runtime: m.runtime,
-					certification: m.certification,
-					director: m.director,
-					thumbnail_url: m.thumbnail_url
-				}));
+				items = data.items;
 			} else if (kind === 'bumper') {
 				const data = await unwrap(
 					api.GET('/api/v2/media/list', {
 						params: { query: { search: searchInput.trim() || null, per_page: 30 } }
 					})
 				);
-				items = data.media.map((b) => ({
-					id: b.id,
-					title: b.title,
-					duration: b.duration,
-					screenshot_url: b.screenshot_url
-				}));
+				items = data.media;
 			} else {
 				// Trailer library response is untyped in OpenAPI; shape mirrored from trailer_ninja.trailer_library.
 				const data = await unwrapLoose<{
@@ -192,40 +181,26 @@
 	}
 
 	function emptyText(): string {
-		const filtered = !!(searchInput.trim() || genre || certification);
-		if (kind === 'movie')
-			return filtered
-				? 'No movies match your search'
-				: 'No movies in your library yet - sync a media source first';
-		if (kind === 'bumper')
-			return filtered
-				? 'No user media matches your search'
-				: 'No user media in your library yet - upload some on the Media page';
-		return filtered
-			? 'No trailers match your search or filters'
-			: 'No trailers in your library yet - fetch some on the Trailers page';
+		const { none, noun } = DEFAULTS[kind];
+		return searchInput.trim() || genre || certification
+			? none[0]
+			: `${noun} in your library yet - ${none[1]}`;
 	}
 
+	// Each kind's rows carry only their own fields (movies: runtime/director; the rest: duration).
 	function rowMeta(item: PickedItem): string {
-		if (kind === 'movie')
-			return [item.year, item.runtime ? `${item.runtime} min` : null, item.director]
-				.filter(Boolean)
-				.join(' • ');
-		if (kind === 'bumper') return item.duration ? formatSeconds(item.duration) : '';
-		return [item.year, item.duration ? formatSeconds(item.duration) : null]
+		const secs = Math.round(item.duration ?? 0);
+		return [
+			item.year,
+			item.runtime ? `${item.runtime} min` : null,
+			item.director,
+			secs ? `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` : null
+		]
 			.filter(Boolean)
 			.join(' • ');
 	}
 
-	function formatSeconds(seconds: number): string {
-		const total = Math.round(seconds);
-		const m = Math.floor(total / 60);
-		const s = total % 60;
-		return `${m}:${String(s).padStart(2, '0')}`;
-	}
-
 	function pickRow(item: PickedItem): void {
-		if (mode !== 'single') return;
 		settle(item);
 		open = false;
 	}
@@ -244,14 +219,12 @@
 		}
 	}
 
-	function rowAdded(item: PickedItem): boolean {
-		return addedIds.has(item.id) || (isSelected ? isSelected(item) : false);
-	}
+	const rowAdded = (item: PickedItem) => addedIds.has(item.id) || !!isSelected?.(item);
 
 	const Icon = $derived(DEFAULTS[kind].icon);
 </script>
 
-<Dialog bind:open title={dialogTitle} size="2xl">
+<Dialog bind:open title={mode === 'multi' ? 'Add movies' : DEFAULTS[kind].title} size="2xl">
 	<div class="space-y-3">
 		<div class="flex flex-wrap gap-2">
 			<Input
@@ -261,7 +234,7 @@
 				oninput={onSearchInput}
 				class="min-w-48 flex-1"
 			/>
-			{#if hasFilters}
+			{#if kind !== 'bumper'}
 				<Select bind:value={genre} onchange={() => void runSearch()} class="w-36">
 					<option value="">All genres</option>
 					{#each genreOptions as g (g)}<option value={g}>{g}</option>{/each}

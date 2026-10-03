@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { base } from '$app/paths';
+	import { SvelteSet } from 'svelte/reactivity';
 	import { ChevronDown, Film, Folder, RadioTower, TriangleAlert } from '@lucide/svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -8,23 +8,20 @@
 	import { CUE_LABEL, itemTypeDisplay, itemTypeLabel } from '$lib/item-types';
 	import type { ProgrammeItem, ProgrammePlaylistItem } from './types';
 	import { formatDuration } from './helpers';
+	import { yearRange } from '$lib/editor/types';
 
 	interface Props {
-		programmeId: number;
-		onedit?: () => void;
+		onedit: () => void;
 		items: ProgrammeItem[];
 		byBlock: Map<number, ProgrammePlaylistItem[]>;
 		unattached: ProgrammePlaylistItem[];
 	}
 
-	let { programmeId, items, byBlock, unattached, onedit }: Props = $props();
+	let { items, byBlock, unattached, onedit }: Props = $props();
 
-	let expanded = $state<Set<number | string>>(new Set());
+	const expanded = new SvelteSet<number | string>();
 	function toggleExpand(key: number | string) {
-		const next = new Set(expanded);
-		if (next.has(key)) next.delete(key);
-		else next.add(key);
-		expanded = next;
+		if (!expanded.delete(key)) expanded.add(key);
 	}
 
 	// Rule blocks (trailer rules, random bumpers/movies) resolve at generation:
@@ -70,13 +67,11 @@
 			}
 			case 'trailer_rule': {
 				const criteria: string[] = [];
-				if (d.genre_ids?.length) criteria.push('genres');
-				else if (d.match_genres) criteria.push('genres');
+				if (d.genre_ids?.length || d.match_genres) criteria.push('genres');
 				if (d.certificate_ceiling) criteria.push(`≤ ${d.certificate_ceiling}`);
 				else if (d.match_certification) criteria.push('rating');
-				if (d.year_from && d.year_to) criteria.push(`${d.year_from}-${d.year_to}`);
-				else if (d.year_from) criteria.push(`${d.year_from}+`);
-				else if (d.year_to) criteria.push(`≤ ${d.year_to}`);
+				const years = yearRange(d.year_from, d.year_to, '≤ ');
+				if (years) criteria.push(years);
 				else if (d.year_delta) criteria.push(`±${d.year_delta}y`);
 				if (d.trailer_tag_name) criteria.push(`tagged ${d.trailer_tag_name}`);
 				let text = `${d.count || 3} trailers`;
@@ -88,12 +83,11 @@
 				if (d.for_random_movie) return 'for random movie selection';
 				return '';
 			case 'random_movie': {
-				const filters: string[] = [];
-				if (d.genre_names?.length) filters.push(d.genre_names.join(', '));
-				if (d.certification) filters.push(d.certification);
-				if (d.year_from && d.year_to) filters.push(`${d.year_from}-${d.year_to}`);
-				else if (d.year_from) filters.push(`${d.year_from}+`);
-				else if (d.year_to) filters.push(`≤${d.year_to}`);
+				const filters = [
+					d.genre_names?.join(', '),
+					d.certification,
+					yearRange(d.year_from, d.year_to)
+				].filter(Boolean);
 				return filters.length ? filters.join(' · ') : 'any movie';
 			}
 			case 'bumper':
@@ -120,11 +114,8 @@
 		};
 	}
 
-	// hold_black isn't in the hand-written details type — types.ts is owned elsewhere.
 	function badgeLabel(item: ProgrammeItem): string | undefined {
-		if (item.type !== 'command') return undefined;
-		const hold = (item.details as { hold_black?: boolean } | undefined)?.hold_black;
-		return hold ? undefined : CUE_LABEL;
+		return item.type === 'command' && !item.details?.hold_black ? CUE_LABEL : undefined;
 	}
 </script>
 
@@ -137,11 +128,7 @@
 			compact
 		>
 			{#snippet action()}
-				{#if onedit}
-					<Button size="sm" onclick={onedit}>Edit programme</Button>
-				{:else}
-					<Button href="{base}/programmes/{programmeId}?edit=1" size="sm">Edit programme</Button>
-				{/if}
+				<Button size="sm" onclick={onedit}>Edit programme</Button>
 			{/snippet}
 		</EmptyState>
 	</div>

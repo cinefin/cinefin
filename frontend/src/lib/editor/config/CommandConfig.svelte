@@ -7,19 +7,11 @@
 	import ConfigField from '../ConfigField.svelte';
 	import ConfigForm from '../ConfigForm.svelte';
 	import ConfigSelect from '../ConfigSelect.svelte';
-	import type { EditorBlock, EditorContext } from '../types';
-	import { HELP, commandTarget } from '../types';
+	import { HELP, idOptions, type ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
-
-	let { block, ctx, commit }: Props = $props();
+	let { block, ctx, commit }: ConfigProps = $props();
 
 	const cmd = $derived(ctx.commands.find((c) => c.id === block.content.command_id));
-	const target = $derived(cmd ? commandTarget(cmd) : '');
 	const holdHint = $derived.by(() => {
 		if (!block.content.hold_black || !cmd) return null;
 		return cmd.duration
@@ -29,8 +21,8 @@
 
 	let testing = $state(false);
 
-	function selectCommand(value: string): void {
-		const chosen = ctx.commands.find((c) => c.id === parseInt(value, 10));
+	function selectCommand(id: number | null): void {
+		const chosen = ctx.commands.find((c) => c.id === id);
 		if (!chosen) return;
 		commit(() => {
 			block.content.command_id = chosen.id;
@@ -62,10 +54,10 @@
 <ConfigForm>
 	<ConfigField label="Command">
 		<ConfigSelect
-			value={block.content.command_id ? String(block.content.command_id) : ''}
-			options={ctx.commands.map((c) => ({ value: String(c.id), label: c.name }))}
+			value={block.content.command_id}
+			options={idOptions(ctx.commands)}
 			placeholder="Select..."
-			onchange={selectCommand}
+			onnumber={selectCommand}
 		/>
 	</ConfigField>
 
@@ -75,10 +67,7 @@
 				type="checkbox"
 				class="accent-accent"
 				checked={block.content.hold_black === true}
-				onchange={(e) =>
-					commit(() => {
-						block.content.hold_black = (e.target as HTMLInputElement).checked;
-					})}
+				onchange={(e) => commit(() => (block.content.hold_black = e.currentTarget.checked))}
 			/>
 			Hold until it finishes
 		</label>
@@ -88,8 +77,10 @@
 	</ConfigField>
 
 	{#if cmd}
-		<ConfigField label={cmd ? cmd.provider_label : 'Target'} wide>
-			<span class="truncate font-mono text-xs text-muted" title={target}>{target || '-'}</span>
+		<ConfigField label={cmd.provider_label} wide>
+			<span class="truncate font-mono text-xs text-muted" title={cmd.summary}
+				>{cmd.summary || '-'}</span
+			>
 		</ConfigField>
 	{/if}
 

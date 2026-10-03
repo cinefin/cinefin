@@ -8,6 +8,7 @@
 	import type { components } from '$lib/api/types.gen';
 	import { relativeTime } from '$lib/format';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -16,16 +17,11 @@
 
 	type TitleTemplate = components['schemas']['TitleTemplateSchema'];
 
-	/** Element count of a template's free-form config dict. */
-	function elementCount(t: TitleTemplate): number {
-		const cfg = t.template_config as { elements?: unknown[] } | null;
-		return cfg?.elements?.length ?? 0;
-	}
+	const elementCount = (t: TitleTemplate) =>
+		(t.template_config as { elements?: unknown[] } | null)?.elements?.length ?? 0;
 
-	// Primary region: the template list (bare-array endpoint, no envelope).
+	// Bare-array, 200-only endpoint: a missing body is the only failure signal.
 	const templates = query<TitleTemplate[]>(async () => {
-		// 200-only endpoint: openapi-fetch types the error branch as never,
-		// so a missing body is the only failure signal here.
 		const res = await api.GET('/api/v2/titlegen/templates');
 		if (!res.data) throw toApiError(undefined, res.response);
 		return res.data;
@@ -33,8 +29,15 @@
 
 	let confirmDialog: ConfirmDialog;
 
+	// The card itself opens the editor, so its buttons keep their clicks to themselves.
+	const stop = (fn: () => unknown) => (e: MouseEvent) => {
+		e.stopPropagation();
+		void fn();
+	};
+	const open = (t: TitleTemplate) => void goto(`${base}/titles/${t.id}`);
+
 	async function duplicateTemplate(t: TitleTemplate) {
-		try {
+		await attempt(async () => {
 			// Find a free "Name (copy)" variant — the backend rejects duplicates.
 			const existing = new Set((templates.data ?? []).map((x) => x.name));
 			let name = `${t.name} (copy)`;
@@ -51,9 +54,7 @@
 			if (res.error !== undefined || !res.data) throw toApiError(res.error, res.response);
 			showToast(`Template duplicated as "${name}"`, 'success');
 			void templates.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to duplicate template', 'error');
-		}
+		}, 'Failed to duplicate template');
 	}
 
 	async function deleteTemplate(t: TitleTemplate) {
@@ -64,25 +65,21 @@
 			))
 		)
 			return;
-		try {
+		// e.g. TEMPLATE_IN_USE when programmes still reference it.
+		await attempt(async () => {
 			const res = await api.DELETE('/api/v2/titlegen/templates/{template_id}', {
 				params: { path: { template_id: t.id } }
 			});
 			if (res.error !== undefined) throw toApiError(res.error, res.response);
 			showToast('Template deleted successfully', 'success');
 			void templates.refresh();
-		} catch (e) {
-			// e.g. TEMPLATE_IN_USE when programmes still reference it.
-			showToast(e instanceof Error ? e.message : 'Failed to delete template', 'error');
-		}
+		}, 'Failed to delete template');
 	}
-
-	const total = $derived(templates.data?.length ?? 0);
 </script>
 
 <PageHeader
 	title="Title templates"
-	count={templates.data ? `${total} total` : undefined}
+	count={templates.data ? `${templates.data.length} total` : undefined}
 	{actions}
 />
 {#snippet actions()}
@@ -118,17 +115,15 @@
 					bg-surface-1 transition-colors hover:border-border-strong hover:bg-surface-2"
 				role="button"
 				tabindex="0"
-				onclick={() => void goto(`${base}/titles/${t.id}`)}
+				onclick={() => open(t)}
 				onkeydown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault();
-						void goto(`${base}/titles/${t.id}`);
+						open(t);
 					}
 				}}
 			>
-				<!-- Ground-truth thumbnail: the same server render that generates the
-				     real card, so the listing shows the card, not an approximation.
-				     ?v=updated_at busts the browser cache when a card is edited. -->
+				<!-- The real server render; ?v=updated_at busts the cache after an edit. -->
 				<div class="aspect-video w-full border-b border-border bg-surface-2">
 					<img
 						src="/api/v2/titlegen/templates/{t.id}/preview?v={encodeURIComponent(t.updated_at)}"
@@ -163,10 +158,7 @@
 						<Button
 							size="sm"
 							title="Duplicate this template"
-							onclick={(e) => {
-								e.stopPropagation();
-								void duplicateTemplate(t);
-							}}
+							onclick={stop(() => duplicateTemplate(t))}
 						>
 							<Copy size={13} /> Duplicate
 						</Button>
@@ -175,10 +167,7 @@
 							size="sm"
 							variant="danger"
 							title="Delete this template"
-							onclick={(e) => {
-								e.stopPropagation();
-								void deleteTemplate(t);
-							}}
+							onclick={stop(() => deleteTemplate(t))}
 						>
 							<Trash2 size={13} />
 						</Button>

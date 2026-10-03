@@ -1,25 +1,30 @@
-/**
- * The Add a player wizard's step logic, kept out of the component so it reads
- * in one place: the steps and when each can be entered, what a pairing error
- * means to the user, and which side of the test sound is playing.
- */
+/** The Add a player wizard's step logic: steps, pairing errors, the test sound's side. */
 import { ApiError } from '$lib/api/client';
 
-export type StepId = 'find' | 'pair' | 'screen' | 'finish';
+export type StepId = 'find' | 'pair' | 'screen' | 'local' | 'finish';
+/** A playout agent (found or typed in, then paired), or a plain mpv the operator runs themselves. */
+export type PlayerKind = 'agent' | 'local';
 
-export const STEPS: { id: StepId; label: string }[] = [
-	{ id: 'find', label: 'Find' },
-	{ id: 'pair', label: 'Pair' },
-	{ id: 'screen', label: 'Screen and sound' },
-	{ id: 'finish', label: 'Finish' }
-];
+export const STEPS: Record<PlayerKind, { id: StepId; label: string }[]> = {
+	agent: [
+		{ id: 'find', label: 'Find' },
+		{ id: 'pair', label: 'Pair' },
+		{ id: 'screen', label: 'Screen and sound' },
+		{ id: 'finish', label: 'Finish' }
+	],
+	// No pairing and no screen-and-sound step: Cinefin does not run a local mpv.
+	local: [
+		{ id: 'local', label: 'Local mpv' },
+		{ id: 'finish', label: 'Finish' }
+	]
+};
 
-/**
- * Which steps can be entered. Before pairing: finding, and pairing once a
- * player and a name are chosen. After: only the steps that act on the paired
- * player (going back to pair it again would make no sense).
- */
-export function stepEnabled(id: StepId, s: { chosen: boolean; paired: boolean }): boolean {
+/** Which steps can be entered: once paired (or added), only those acting on that player. */
+export function stepEnabled(
+	id: StepId,
+	s: { chosen: boolean; paired: boolean; kind?: PlayerKind }
+): boolean {
+	if (s.kind === 'local') return s.paired ? id === 'finish' : id === 'local';
 	if (s.paired) return id === 'screen' || id === 'finish';
 	if (id === 'find') return true;
 	if (id === 'pair') return s.chosen;
@@ -44,11 +49,7 @@ export function nameFromAddress(address: string): string {
 	}
 }
 
-/**
- * What a failed pair call means, in words the user can act on. The player
- * cannot tell a wrong code from one that has run out (both are a 403), so one
- * message covers both.
- */
+/** A failed pair call in words to act on (a wrong and an expired code are both a 403). */
 export function pairError(e: unknown): string {
 	if (!(e instanceof ApiError)) return e instanceof Error ? e.message : 'Pairing failed.';
 	switch (e.errorCode) {

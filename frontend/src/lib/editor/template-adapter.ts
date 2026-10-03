@@ -78,26 +78,21 @@ export function templateItemsToBlocks(items: TemplateItemIn[], uid: () => string
 	}));
 }
 
+// The field each item type must have set, and what to say when it isn't.
+const TEMPLATE_REQUIRED: Record<string, [keyof BlockContent, string]> = {
+	feature: ['feature_number', 'Assign a feature number'],
+	trailer_rule: ['bound_to_feature', 'Choose which feature these trail'],
+	command: ['command_id', 'Choose a command'],
+	trailer: ['trailer_id', 'Choose a trailer'],
+	audio_bumper: ['bound_to_feature', 'Choose which feature'],
+	certification: ['certification_feature', 'Choose which feature to rate']
+};
+
 export function templateBlockError(block: EditorBlock): string | null {
-	switch (block.type) {
-		case 'feature':
-			return block.content.feature_number ? null : 'Assign a feature number';
-		case 'trailer_rule':
-			return block.content.bound_to_feature ? null : 'Choose which feature these trail';
-		case 'command':
-			return block.content.command_id ? null : 'Choose a command';
-		case 'bumper':
-			if (block.content.tag_id) return null;
-			return block.content.bumper_id ? null : 'Choose a clip or a tag';
-		case 'trailer':
-			return block.content.trailer_id ? null : 'Choose a trailer';
-		case 'audio_bumper':
-			return block.content.bound_to_feature ? null : 'Choose which feature';
-		case 'certification':
-			return block.content.certification_feature ? null : 'Choose which feature to rate';
-		default:
-			return null;
-	}
+	const c = block.content;
+	if (block.type === 'bumper') return c.tag_id || c.bumper_id ? null : 'Choose a clip or a tag';
+	const required = TEMPLATE_REQUIRED[block.type];
+	return required && !c[required[0]] ? required[1] : null;
 }
 
 export function templateBlockTitle(block: EditorBlock): string {

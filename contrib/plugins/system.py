@@ -1,10 +1,4 @@
-"""System actions — Cinefin's own operations as built-in, locked Commands.
-
-Unlike the other providers (which reach outward to REST/Home Assistant/WoL), this
-first-party provider calls *inward* to Cinefin services. Each action is a built-in
-command (see CommandProvider.builtin_commands): always present, usable anywhere a
-command is (remote, dashboard, lead-in, running-order block), never renamed or
-deleted. The action set is a fixed dispatch table — adding one is a single entry."""
+"""System actions: Cinefin's own operations (restart, standby, pause…) as built-in, locked Commands."""
 
 from cinefin.plugins import CommandProvider, Field, register
 

@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import HttpRequest
 from ninja import Field, Router, Schema, Status
 
-from cinefin.api.exceptions import NotFoundError, ValidationError
+from cinefin.api.exceptions import ValidationError, get_or_404
 from cinefin.api.models import APIKey, Settings
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 from cinefin.api.services import auth_service
@@ -17,10 +17,10 @@ security_api = Router()
 
 
 class SecurityStateSchema(Schema):
-    auth_enabled: bool = Field(description="Whether the auth gate is switched on in settings")
+    auth_enabled: bool
     auth_active: bool = Field(description="Whether it is actually enforced right now (fail-open aware)")
     kiosk_public: bool = Field(description="Whether /kiosk/ stays reachable without logging in")
-    has_account: bool = Field(description="Whether a usable account exists")
+    has_account: bool
     username: str | None = Field(default=None, description="The single account's username, if any")
 
 
@@ -37,17 +37,16 @@ class SetPasswordInput(Schema):
 
 class SecurityToggleInput(Schema):
     auth_enabled: bool | None = Field(default=None, description="Turn the auth gate on/off")
-    kiosk_public: bool | None = Field(default=None, description="Allow the kiosk page without a login")
+    kiosk_public: bool | None = None
 
 
 def _state() -> SecurityStateSchema:
     user = auth_service.get_single_user()
-    has_account = auth_service.has_usable_account()
     return SecurityStateSchema(
         auth_enabled=bool(Settings.get("security.auth_enabled")),
         auth_active=auth_service.auth_is_active(),
         kiosk_public=bool(Settings.get("security.kiosk_public")),
-        has_account=has_account,
+        has_account=auth_service.has_usable_account(),
         username=user.username if user else None,
     )
 
@@ -98,7 +97,7 @@ class APIKeySchema(Schema):
     name: str
     prefix: str = Field(description="Display prefix, e.g. cplx_a1b2c3d4 (never the full key)")
     created_at: str
-    last_used_at: str | None = Field(default=None)
+    last_used_at: str | None = None
 
 
 class APIKeyListResponse(SuccessResponseSchema):
@@ -106,7 +105,7 @@ class APIKeyListResponse(SuccessResponseSchema):
 
 
 class CreateAPIKeyInput(Schema):
-    name: str = Field(..., description="Human label for the key")
+    name: str
 
 
 class CreatedAPIKeySchema(APIKeySchema):
@@ -142,19 +141,18 @@ def create_api_key(request: HttpRequest, data: CreateAPIKeyInput):
         raise ValidationError("Name is required", details={"field": "name"})
     key, raw_key = APIKey.create(name)
     logger.info("API key created: %s (%s)", key.name, key.prefix)
-    payload = _key_schema(key).dict()
-    payload["key"] = raw_key
-    return Status(200, CreateAPIKeyResponse(message="API key created", data=CreatedAPIKeySchema(**payload)))
+    return Status(
+        200,
+        CreateAPIKeyResponse(
+            message="API key created", data=CreatedAPIKeySchema(**_key_schema(key).dict(), key=raw_key)
+        ),
+    )
 
 
 @security_api.delete("/api-keys/{key_id}", response={200: MessageResponseSchema, 404: ErrorResponseSchema})
 def delete_api_key(request: HttpRequest, key_id: int):
     """Revoke (delete) an API key. It stops working immediately."""
-    try:
-        key = APIKey.objects.get(pk=key_id)
-    except APIKey.DoesNotExist:
-        raise NotFoundError("API key not found") from None
-    label = key.name
+    key = get_or_404(APIKey, key_id, "API key not found")
     key.delete()
-    logger.info("API key revoked: %s", label)
-    return Status(200, MessageResponseSchema(message=f"API key '{label}' revoked"))
+    logger.info("API key revoked: %s", key.name)
+    return Status(200, MessageResponseSchema(message=f"API key '{key.name}' revoked"))

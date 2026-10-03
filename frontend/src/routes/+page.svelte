@@ -1,7 +1,5 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	// The home screen: Screen (the player now, and every screening to come) above
-	// Library, beside a rail of quick actions (data in lib/dashboard/data.svelte.ts).
 	import { base } from '$app/paths';
 	import { MonitorPlay, Settings } from '@lucide/svelte';
 	import { lamp } from '$lib/playout/phase';
@@ -15,7 +13,7 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
-	import Tally from '$lib/components/Tally.svelte';
+	import PhaseLamp from '$lib/components/shell/PhaseLamp.svelte';
 	import FeatureStack from '$lib/components/FeatureStack.svelte';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import ArtBackdrop from '$lib/dashboard/ArtBackdrop.svelte';
@@ -93,7 +91,6 @@
 				};
 	});
 
-	// Every step is read from real state, not a "visited" flag.
 	let gettingStartedUp = $state(false);
 
 	const firstRunReady = $derived(
@@ -108,43 +105,21 @@
 		const trailers = data.trailers.data?.total_trailers ?? 0;
 		const programmes = data.programmes.data?.programmes ?? [];
 		const played = programmes.some((p) => p.last_played_at);
-		return [
-			{
-				label: 'Connect the player',
-				done: playoutReach.state === 'ok',
-				note: 'Connected',
-				href: `${base}/settings?tab=playout`,
-				action: 'Set up'
-			},
-			{
-				label: 'Sync a movie library',
-				done: movies > 0,
-				note: `${movies.toLocaleString()} movies`,
-				href: `${base}/library?sync=open`,
-				action: 'Sync'
-			},
-			{
-				label: 'Fetch some trailers',
-				done: trailers > 0,
-				note: `${trailers.toLocaleString()} trailers`,
-				href: `${base}/trailers?fetch=open`,
-				action: 'Fetch'
-			},
-			{
-				label: 'Build your first programme',
-				done: programmes.length > 0,
-				note: `${programmes.length} built`,
-				href: `${base}/programmes/create`,
-				action: 'Create'
-			},
-			{
-				label: 'Put it on screen',
-				done: played,
-				note: 'Played',
-				href: `${base}/programmes`,
-				action: 'Choose one'
-			}
+		// prettier-ignore
+		const rows: [string, boolean, string, string, string][] = [
+			['Connect the player', playoutReach.state === 'ok', 'Connected', 'settings?tab=playout', 'Set up'],
+			['Sync a movie library', movies > 0, `${movies.toLocaleString()} movies`, 'library?sync=open', 'Sync'],
+			['Fetch some trailers', trailers > 0, `${trailers.toLocaleString()} trailers`, 'trailers?fetch=open', 'Fetch'],
+			['Build your first programme', programmes.length > 0, `${programmes.length} built`, 'programmes/create', 'Create'],
+			['Put it on screen', played, 'Played', 'programmes', 'Choose one']
 		];
+		return rows.map(([label, done, note, path, action]) => ({
+			label,
+			done,
+			note,
+			href: `${base}/${path}`,
+			action
+		}));
 	});
 </script>
 
@@ -167,14 +142,11 @@
 	</Banner>
 {/if}
 
-<!-- Screen and Library beside a rail of quick actions; the rail drops below the
-     bands under xl. The bands lay out by their own width (container queries). -->
 <div class="grid grid-cols-1 gap-x-8 gap-y-6 xl:grid-cols-[minmax(0,1fr)_15rem]">
 	<div class="@container min-w-0">
 		<h2 class="font-display text-xl">Screen</h2>
 		<div class="mt-3 grid grid-cols-1 gap-3 @4xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-			<!-- `isolate`: keeps this hero's z-10 content from leaking to the root and painting
-			     over the sticky topbar (also z-10). -->
+			<!-- `isolate` keeps the hero's z-10 content under the sticky topbar. -->
 			<section class="relative isolate overflow-hidden border border-border bg-surface-2">
 				<ArtBackdrop src={heroArt} from="right" />
 				<div
@@ -193,11 +165,7 @@
 						/>
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-3">
-								{#if badge.tally}
-									<Tally label={badge.label} />
-								{:else}
-									<StatusLamp colour={badge.colour}>{badge.label}</StatusLamp>
-								{/if}
+								<PhaseLamp lamp={badge} />
 								<span class="ml-auto shrink-0 font-mono text-2xl leading-none sm:text-3xl">
 									{formatTime(pb?.position ?? 0)}
 									<span class="text-sm text-faint">/ {formatTime(pb?.duration ?? 0)}</span>

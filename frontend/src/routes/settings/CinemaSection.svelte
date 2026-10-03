@@ -1,31 +1,46 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
 	import { Box, Image, TriangleAlert, Upload, Video, X } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
 	import { uploadWithProgress } from '$lib/upload';
 	import { showToast } from '$lib/toast.svelte';
-	import type { SettingsStore } from '$lib/settings/form.svelte';
+	import { attempt, type SettingsStore } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
+	import SectionTabs from './SectionTabs.svelte';
+	import TabPanel from './TabPanel.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Field from '$lib/settings/Field.svelte';
+	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
 
-	interface Props {
-		store: SettingsStore;
-	}
-	let { store }: Props = $props();
+	let { store }: { store: SettingsStore } = $props();
 
 	const TABS = [
 		{ id: 'identity', label: 'Identity' },
 		{ id: 'cards', label: 'Certification cards' }
 	];
 	let tab = $state('identity');
+
+	const IDENTITY = [
+		storeField('cinema_name', 'Theater name', 'set-cinema-name', {
+			hint: 'Printed on tickets and shown around the app.',
+			placeholder: 'Cinefin'
+		}),
+		storeField('ratings_system', 'Ratings system', 'set-ratings-system', {
+			hint: "Used when syncing ratings from Jellyfin/Plex and when fetching trailer certifications from TMDB. Ratings that don't belong to this system are flagged across the app.",
+			options: [
+				['BBFC', 'BBFC (British - U, PG, 12, 12A, 15, 18, R18)'],
+				['MPAA', 'MPAA (US - G, PG, PG-13, R, NC-17)']
+			]
+		})
+	];
+	const SEATING = [
+		storeField('ticket_total_rows', 'Rows', 'set-rows', { hint: 'Lettered A-Z, max 26.' }),
+		storeField('ticket_seats_per_row', 'Seats per row', 'set-seats')
+	];
 
 	let rcSystem = $state('BBFC');
 	const cards = query(() =>
@@ -44,6 +59,11 @@
 		none: 'No card source'
 	};
 
+	const OVERRIDES = [
+		{ kind: 'video', has: 'static_video', what: 'static video', label: 'Video' },
+		{ kind: 'background', has: 'custom_background', what: 'custom background', label: 'Background' }
+	] as const;
+
 	let fileInput: HTMLInputElement | undefined = $state();
 	let uploadTarget: string | null = null;
 
@@ -56,30 +76,27 @@
 		const file = fileInput?.files?.[0];
 		if (fileInput) fileInput.value = '';
 		if (!file || !uploadTarget) return;
-		try {
+		const certification = uploadTarget;
+		await attempt(async () => {
 			const res = await uploadWithProgress<{ message?: string }>(
 				'/api/v2/rating-cards/upload',
 				file,
-				{ system: rcSystem, certification: uploadTarget }
+				{ system: rcSystem, certification }
 			);
 			showToast(res?.message || 'Card saved', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not save the card file', 'error');
-		}
+		}, 'Could not save the card file');
 		void cards.refresh();
 	}
 
 	async function removeOverride(cert: string, kind: 'video' | 'background') {
-		try {
+		await attempt(async () => {
 			const msg = await mutate(
 				api.DELETE('/api/v2/rating-cards', {
 					params: { query: { system: rcSystem, certification: cert, kind } }
 				})
 			);
 			showToast(msg || 'Override removed', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not remove the override', 'error');
-		}
+		}, 'Could not remove the override');
 		void cards.refresh();
 	}
 
@@ -97,61 +114,17 @@
 	}
 </script>
 
-<Tabs
-	tabs={TABS}
-	value={tab}
-	label="Theater settings"
-	onselect={(id) => (tab = id)}
-	panelId={(id) => `tp-${id}`}
-/>
+<SectionTabs tabs={TABS} bind:value={tab} label="Theater settings" prefix="tp" />
 
 {#if tab === 'identity'}
-	<div
-		role="tabpanel"
-		id="tp-identity"
-		aria-labelledby="tab-identity"
-		class="mt-4 max-w-xl space-y-4"
-		in:fade={{ duration: 120 }}
-	>
-		<Field
-			label="Theater name"
-			forId="set-cinema-name"
-			hint="Printed on tickets and shown around the app."
-			dirty={store.isDirty('cinema_name')}
-			error={store.errorFor('cinema_name')}
-		>
-			<Input id="set-cinema-name" bind:value={store.main.cinema_name} placeholder="Cinefin" />
-		</Field>
-		<Field
-			label="Ratings system"
-			forId="set-ratings-system"
-			hint="Used when syncing ratings from Jellyfin/Plex and when fetching trailer certifications from TMDB. Ratings that don't belong to this system are flagged across the app."
-			dirty={store.isDirty('ratings_system')}
-			error={store.errorFor('ratings_system')}
-		>
-			<Select id="set-ratings-system" bind:value={store.main.ratings_system}>
-				<option value="BBFC">BBFC (British - U, PG, 12, 12A, 15, 18, R18)</option>
-				<option value="MPAA">MPAA (US - G, PG, PG-13, R, NC-17)</option>
-			</Select>
-		</Field>
+	<TabPanel prefix="tp" tab="identity" class="mt-4 max-w-xl space-y-4">
+		{#each IDENTITY as f (f.id)}
+			<StoreField {store} {...f} />
+		{/each}
 		<div class="grid gap-4 sm:grid-cols-3">
-			<Field
-				label="Rows"
-				forId="set-rows"
-				hint="Lettered A-Z, max 26."
-				dirty={store.isDirty('ticket_total_rows')}
-				error={store.errorFor('ticket_total_rows')}
-			>
-				<Input id="set-rows" type="number" bind:value={store.main.ticket_total_rows} />
-			</Field>
-			<Field
-				label="Seats per row"
-				forId="set-seats"
-				dirty={store.isDirty('ticket_seats_per_row')}
-				error={store.errorFor('ticket_seats_per_row')}
-			>
-				<Input id="set-seats" type="number" bind:value={store.main.ticket_seats_per_row} />
-			</Field>
+			{#each SEATING as f (f.id)}
+				<StoreField {store} {...f} type="number" />
+			{/each}
 			<Field label="Seats" hint="Tickets are allocated from these.">
 				<div class="flex h-9 items-center font-mono text-lg">
 					{(
@@ -161,15 +134,9 @@
 				</div>
 			</Field>
 		</div>
-	</div>
+	</TabPanel>
 {:else if tab === 'cards'}
-	<div
-		role="tabpanel"
-		id="tp-cards"
-		aria-labelledby="tab-cards"
-		class="mt-4"
-		in:fade={{ duration: 120 }}
-	>
+	<TabPanel prefix="tp" tab="cards" class="mt-4">
 		<Tabs
 			class="mb-3"
 			tabs={[
@@ -178,7 +145,7 @@
 			]}
 			value={rcSystem}
 			label="Ratings system"
-			onselect={(id) => pickSystem(id)}
+			onselect={pickSystem}
 		/>
 
 		{#if cards.loading}
@@ -216,26 +183,19 @@
 							<Button size="sm" onclick={() => pickUpload(card.certification)}>
 								<Upload size={13} /> Upload
 							</Button>
-							{#if card.static_video}
-								<Button
-									size="sm"
-									variant="danger"
-									title="Remove the static video"
-									onclick={() => removeOverride(card.certification, 'video')}
-								>
-									<X size={13} /> Video
-								</Button>
-							{/if}
-							{#if card.custom_background}
-								<Button
-									size="sm"
-									variant="danger"
-									title="Remove the custom background"
-									onclick={() => removeOverride(card.certification, 'background')}
-								>
-									<X size={13} /> Background
-								</Button>
-							{/if}
+							{#each OVERRIDES as o (o.kind)}
+								{#if card[o.has]}
+									<Button
+										size="sm"
+										variant="danger"
+										title="Remove the {o.what}"
+										onclick={() => removeOverride(card.certification, o.kind)}
+									>
+										<X size={13} />
+										{o.label}
+									</Button>
+								{/if}
+							{/each}
 						</span>
 					</div>
 				{/each}
@@ -255,7 +215,7 @@
 			hidden
 			onchange={onFilePicked}
 		/>
-	</div>
+	</TabPanel>
 {/if}
 
 <Dialog bind:open={previewOpen} title="{rcSystem} {previewCert} - card preview" size="2xl">

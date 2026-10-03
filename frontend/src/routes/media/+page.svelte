@@ -1,7 +1,6 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
-	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		ChevronLeft,
 		ChevronRight,
@@ -9,7 +8,6 @@
 		Download,
 		FilterX,
 		Film,
-		FolderOpen,
 		Images,
 		Music,
 		Pencil,
@@ -22,9 +20,12 @@
 		X
 	} from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { Query } from '$lib/api/query.svelte';
 	import { uploadWithProgress } from '$lib/upload';
 	import { showToast as toast } from '$lib/toast.svelte';
+	import { actMsg } from '$lib/media/actions';
+	import { Selection } from '$lib/selection.svelte';
 	import { formatTime } from '$lib/format';
 	import type { components } from '$lib/api/types.gen';
 	import Badge from '$lib/components/ui/Badge.svelte';
@@ -74,9 +75,8 @@
 		['dts_x', 'DTS:X']
 	];
 
-	function audioFormatLabel(key: string | null | undefined): string {
-		return AUDIO_FORMATS.find(([k]) => k === key)?.[1] ?? '';
-	}
+	const audioFormatLabel = (key: string | null | undefined) =>
+		AUDIO_FORMATS.find(([k]) => k === key)?.[1] ?? '';
 
 	function fmtDuration(seconds: number | null | undefined): string {
 		const s = Math.round(Number(seconds) || 0);
@@ -86,31 +86,25 @@
 	function fmtSize(bytes: number | null | undefined): string {
 		const b = Number(bytes) || 0;
 		if (b === 0) return '';
-		const k = 1024;
 		const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-		const i = Math.min(sizes.length - 1, Math.floor(Math.log(b) / Math.log(k)));
-		return `${parseFloat((b / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+		const i = Math.min(sizes.length - 1, Math.floor(Math.log(b) / Math.log(1024)));
+		return `${parseFloat((b / Math.pow(1024, i)).toFixed(2))} ${sizes[i]}`;
 	}
 
 	function fmtDate(iso: string | null | undefined): string {
-		if (!iso) return '-';
-		const d = new Date(iso);
-		return isNaN(d.getTime())
+		const d = new Date(iso ?? '');
+		return !iso || isNaN(d.getTime())
 			? '-'
 			: d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 	}
 
-	function fileExists(m: MediaItem): boolean {
-		return m.file_info.exists !== false;
-	}
-	function isAudio(m: MediaItem): boolean {
-		return (m.file_info.mime_type ?? '').startsWith('audio');
-	}
-	function subLine(m: MediaItem): string {
-		return [fmtDuration(m.duration), fmtSize(m.file_info.size), audioFormatLabel(m.audio_format)]
+	const fileExists = (m: MediaItem) => m.file_info.exists !== false;
+	const isAudio = (m: MediaItem) => (m.file_info.mime_type ?? '').startsWith('audio');
+	const subLine = (m: MediaItem) =>
+		[fmtDuration(m.duration), fmtSize(m.file_info.size), audioFormatLabel(m.audio_format)]
 			.filter(Boolean)
 			.join(' · ');
-	}
+	const fileTitle = (f: File) => f.name.replace(/\.[^.]+$/, '');
 
 	const PER_PAGE = 60;
 	let search = $state('');
@@ -140,9 +134,18 @@
 		void media.load();
 	});
 
-	function headerSort(next: string) {
-		sort = next;
+	/** Set a filter (or the sort) and go back to the first page. */
+	function refilter(set: () => void) {
+		set();
 		page = 1;
+	}
+
+	const headerSort = (next: string) => refilter(() => (sort = next));
+
+	function onDrag(e: DragEvent) {
+		e.preventDefault();
+		dragOver = e.type === 'dragover' || e.type === 'dragenter';
+		if (e.type === 'drop') pickFiles(e.dataTransfer?.files);
 	}
 
 	$effect(() => media.live());
@@ -150,17 +153,13 @@
 	const items = $derived(media.data?.media ?? []);
 	const pg = $derived(media.data?.pagination);
 	const tagOptions = $derived(media.data?.filters.tags ?? []);
-	const tagFacets = $derived(media.data?.filters.tag_facets ?? []);
 	const filtersActive = $derived(Boolean(search) || tags.length > 0);
+
+	const tagFacets = $derived(media.data?.filters.tag_facets ?? []);
 
 	function clearFilters() {
 		search = '';
 		tags = [];
-		page = 1;
-	}
-
-	function setTagFilter(names: string[]) {
-		tags = names;
 		page = 1;
 	}
 
@@ -182,43 +181,7 @@
 
 	let confirmDialog = $state<ConfirmDialog>();
 
-	async function askConfirm(message: string, label: string, action: () => void) {
-		if (await confirmDialog!.confirm(message, { confirmLabel: label })) action();
-	}
-
-	const picked = new SvelteSet<number>();
-	let anchorId: number | null = null; // shift-click range anchor
-
-	const allVisiblePicked = $derived(items.length > 0 && items.every((m) => picked.has(m.id)));
-
-	function setPicked(id: number, on: boolean) {
-		if (on) picked.add(id);
-		else picked.delete(id);
-	}
-
-	function togglePicked(id: number, on: boolean, shift: boolean) {
-		if (shift && anchorId !== null && anchorId !== id) {
-			const a = items.findIndex((m) => m.id === anchorId);
-			const b = items.findIndex((m) => m.id === id);
-			if (a !== -1 && b !== -1) {
-				for (let i = Math.min(a, b); i <= Math.max(a, b); i++) setPicked(items[i].id, on);
-				anchorId = id;
-				return;
-			}
-		}
-		setPicked(id, on);
-		anchorId = id;
-	}
-
-	function toggleAllVisible(on: boolean) {
-		items.forEach((m) => setPicked(m.id, on));
-		anchorId = null;
-	}
-
-	function clearPicked() {
-		picked.clear();
-		anchorId = null;
-	}
+	const picked = new Selection(() => items);
 
 	let selectedId = $state<number | null>(null);
 	const selected = $derived(items.find((m) => m.id === selectedId) ?? null);
@@ -234,18 +197,18 @@
 
 	// Editing happens in the detail drawer itself: Edit swaps its body for the form.
 	let editing = $state(false);
-	let editItem = $state<MediaItem | null>(null);
-	let editTitle = $state('');
-	let editTags = $state<string[]>([]);
-	let editAudioFormat = $state('');
+	let edit = $state({ item: null as MediaItem | null, title: '', tags: [] as string[], audio: '' });
 	let editBusy = $state(false);
-	let editTagInput = $state<TagInput>();
+	// The edit and add forms' tag inputs, to commit what is typed before a save.
+	const tagInputs = $state<Record<string, TagInput | undefined>>({});
 
 	function openEdit(m: MediaItem) {
-		editItem = m;
-		editTitle = m.title;
-		editTags = m.tags.map((t) => t.name);
-		editAudioFormat = m.audio_format ?? '';
+		edit = {
+			item: m,
+			title: m.title,
+			tags: m.tags.map((t) => t.name),
+			audio: m.audio_format ?? ''
+		};
 		editing = true;
 	}
 
@@ -257,76 +220,56 @@
 	}
 
 	async function saveEdit() {
-		if (!editItem) return;
-		editTagInput?.commit();
+		const item = edit.item;
+		if (!item) return;
+		tagInputs.edit?.commit();
 		editBusy = true;
-		try {
+		await actMsg('Failed to update media', async () => {
 			await unwrap(
 				api.PUT('/api/v2/media/{media_id}', {
-					params: { path: { media_id: editItem.id } },
-					body: { title: editTitle.trim(), tag_names: editTags, audio_format: editAudioFormat }
+					params: { path: { media_id: item.id } },
+					body: { title: edit.title.trim(), tag_names: edit.tags, audio_format: edit.audio }
 				})
 			);
 			toast('Media updated', 'success');
 			editing = false;
 			await media.refresh();
-		} catch (e) {
-			toast(toApiError(e).message || 'Failed to update media', 'error');
-		} finally {
-			editBusy = false;
-		}
+		});
+		editBusy = false;
 	}
 
-	function askRemove(m: MediaItem) {
-		askConfirm(
-			`Delete “${m.title}” from the library? (The file on disk is left untouched.)`,
-			'Delete',
-			() => void remove(m.id)
-		);
-	}
-
-	async function remove(id: number) {
-		try {
+	async function remove(id: number, title: string) {
+		const msg = `Delete “${title}” from the library? (The file on disk is left untouched.)`;
+		if (!(await confirmDialog!.confirm(msg, { confirmLabel: 'Delete' }))) return;
+		await actMsg('Failed to delete media', async () => {
 			await api.DELETE('/api/v2/media/{media_id}', { params: { path: { media_id: id } } });
 			toast('Media removed', 'success');
 			if (selectedId === id) closeDetail();
 			await media.refresh();
-		} catch (e) {
-			toast(toApiError(e).message || 'Failed to delete media', 'error');
-		}
+		});
 	}
 
 	let rethumbBusy = $state(false);
 	let rethumbItemBusy = $state<number | null>(null);
 
-	function askRegenerateAll() {
-		askConfirm(
-			'Regenerate thumbnails for every video in the media library?',
-			'Regenerate',
-			() => void regenerateThumbnails(null)
-		);
-	}
-
 	async function regenerateThumbnails(mediaId: number | null) {
+		const ask = 'Regenerate thumbnails for every video in the media library?';
+		if (mediaId === null && !(await confirmDialog!.confirm(ask, { confirmLabel: 'Regenerate' })))
+			return;
 		if (mediaId === null) rethumbBusy = true;
 		else rethumbItemBusy = mediaId;
-		try {
-			const res = await api.POST('/api/v2/media/thumbnails/regenerate', {
-				params: { query: mediaId === null ? {} : { media_id: mediaId } }
-			});
-			if (res.error !== undefined || !res.data) throw toApiError(res.error, res.response);
-			toast(res.data.message || 'Thumbnails regenerated', 'success');
-			// Cache-bust so the fresh frames actually show — but only the item
-			// that changed, not every tile in the grid.
+		await actMsg('Could not regenerate thumbnails', async () => {
+			const query = mediaId === null ? {} : { media_id: mediaId };
+			const msg = await mutate(
+				api.POST('/api/v2/media/thumbnails/regenerate', { params: { query } })
+			);
+			toast(msg || 'Thumbnails regenerated', 'success');
 			if (mediaId === null) thumbVersion = Date.now();
 			else thumbBustById = { ...thumbBustById, [mediaId]: Date.now() };
 			void media.refresh();
-		} catch (e) {
-			toast(toApiError(e).message || 'Could not regenerate thumbnails', 'error');
-		} finally {
-			rethumbBusy = false;
-			rethumbItemBusy = null;
-		}
+		});
+		rethumbBusy = false;
+		rethumbItemBusy = null;
 	}
 
 	interface UploadEntry {
@@ -337,79 +280,72 @@
 	}
 
 	type AddMode = 'upload' | 'youtube' | 'path';
-	const ADD_MODES: { mode: AddMode; label: string; submit: string }[] = [
-		{ mode: 'upload', label: 'Upload file', submit: 'Upload' },
-		{ mode: 'youtube', label: 'YouTube', submit: 'Download' },
-		{ mode: 'path', label: 'Server path', submit: 'Add' }
-	];
+	const ADD_MODES = [
+		{ mode: 'upload', label: 'Upload file', submit: 'Upload', icon: Upload },
+		{ mode: 'youtube', label: 'YouTube', submit: 'Download', icon: Download },
+		{ mode: 'path', label: 'Server path', submit: 'Add', icon: Plus }
+	] as const;
 
+	const blankAdd = () => ({
+		mode: 'upload' as AddMode,
+		uploads: [] as UploadEntry[],
+		uploading: false,
+		busy: false,
+		title: '',
+		tags: [] as string[],
+		audio: '',
+		ytUrl: '',
+		path: '',
+		progress: null as { pct: number; label: string } | null
+	});
+	let add = $state(blankAdd());
 	let addOpen = $state(false);
-	let addMode = $state<AddMode>('upload');
-	let uploads = $state<UploadEntry[]>([]);
-	let uploading = $state(false);
-	let addBusy = $state(false);
 	let dragOver = $state(false);
-	let addTitle = $state('');
-	let addTags = $state<string[]>([]);
-	let addAudioFormat = $state('');
-	let addTagInput = $state<TagInput>();
-	let ytUrl = $state('');
-	let pathInput = $state('');
-	let addProgress = $state<{ pct: number; label: string } | null>(null);
 	let fileInput = $state<HTMLInputElement>();
 
 	function openAdd() {
-		addMode = 'upload';
-		uploads = [];
-		uploading = false;
-		addBusy = false;
-		addTitle = '';
-		addTags = [];
-		addAudioFormat = '';
-		ytUrl = '';
-		pathInput = '';
-		addProgress = null;
+		add = blankAdd();
 		addOpen = true;
 	}
 
 	function setAddMode(mode: AddMode) {
-		addMode = mode;
-		addProgress = null;
+		add.mode = mode;
+		add.progress = null;
 		syncTitleField();
 	}
 
 	// A batch always titles each file from its own name; a single file uses the title field.
-	const batchUpload = $derived(addMode === 'upload' && uploads.length > 1);
+	const batchUpload = $derived(add.mode === 'upload' && add.uploads.length > 1);
 	function syncTitleField() {
-		if (batchUpload) addTitle = '';
-		else if (addMode === 'upload' && uploads.length === 1 && !addTitle.trim()) {
-			addTitle = uploads[0].file.name.replace(/\.[^.]+$/, '');
+		if (batchUpload) add.title = '';
+		else if (add.mode === 'upload' && add.uploads.length === 1 && !add.title.trim()) {
+			add.title = fileTitle(add.uploads[0].file);
 		}
 	}
 
 	function pickFiles(fileList: FileList | null | undefined) {
 		const files = [...(fileList ?? [])];
-		if (!files.length || uploading) return;
+		if (!files.length || add.uploading) return;
 		for (const file of files) {
-			const dup = uploads.some((u) => u.file.name === file.name && u.file.size === file.size);
-			if (!dup) uploads.push({ file, status: 'pending', pct: 0, error: null });
+			const dup = add.uploads.some((u) => u.file.name === file.name && u.file.size === file.size);
+			if (!dup) add.uploads.push({ file, status: 'pending', pct: 0, error: null });
 		}
 		syncTitleField();
 	}
 
 	function removeUpload(i: number) {
-		if (uploading) return;
-		uploads.splice(i, 1);
+		if (add.uploading) return;
+		add.uploads.splice(i, 1);
 		syncTitleField();
 	}
 
 	async function applyAudioFormat(mediaId: number | null | undefined) {
-		if (!mediaId || !addAudioFormat) return;
+		if (!mediaId || !add.audio) return;
 		try {
 			await unwrap(
 				api.PUT('/api/v2/media/{media_id}', {
 					params: { path: { media_id: mediaId } },
-					body: { audio_format: addAudioFormat }
+					body: { audio_format: add.audio }
 				})
 			);
 		} catch (e) {
@@ -425,54 +361,38 @@
 	}
 
 	async function submitAdd() {
-		addTagInput?.commit();
-		if (addMode === 'upload') {
-			await submitUploadBatch();
-		} else if (addMode === 'youtube') {
-			const url = ytUrl.trim();
-			if (!url) {
-				toast('Enter a YouTube URL', 'error');
-				return;
-			}
-			addBusy = true;
-			addProgress = { pct: 0, label: 'Starting…' };
-			try {
-				const data = await unwrap(
+		tagInputs.add?.commit();
+		const title = add.title.trim();
+		if (add.mode === 'upload') return submitUploadBatch();
+		if (add.mode === 'youtube') {
+			const url = add.ytUrl.trim();
+			if (!url) return toast('Enter a YouTube URL', 'error');
+			add.busy = true;
+			add.progress = { pct: 0, label: 'Starting…' };
+			const data = await actMsg('Failed to add media', () =>
+				unwrap(
 					api.POST('/api/v2/media/youtube-download', {
-						body: { url, title: addTitle.trim() || null, tag_names: addTags }
+						body: { url, title: title || null, tag_names: add.tags }
 					})
-				);
-				await monitorYoutube(data.task_id);
-			} catch (e) {
-				toast(toApiError(e).message || 'Failed to add media', 'error');
-				addBusy = false;
-				addProgress = null;
-			}
-		} else {
-			const path = pathInput.trim();
-			if (!path) {
-				toast('Enter a file path', 'error');
-				return;
-			}
-			if (!addTitle.trim()) {
-				toast('Enter a title', 'error');
-				return;
-			}
-			addBusy = true;
-			try {
-				const created = await unwrap(
-					api.POST('/api/v2/media/create', {
-						body: { file_path: path, title: addTitle.trim(), tag_names: addTags }
-					})
-				);
-				await applyAudioFormat((created as MediaCreated).id);
-				finishAdd('Media added');
-			} catch (e) {
-				toast(toApiError(e).message || 'Failed to add media', 'error');
-			} finally {
-				addBusy = false;
-			}
+				)
+			);
+			if (data) return monitorYoutube(data.task_id);
+			add.busy = false;
+			add.progress = null;
+			return;
 		}
+		const path = add.path.trim();
+		if (!path) return toast('Enter a file path', 'error');
+		if (!title) return toast('Enter a title', 'error');
+		add.busy = true;
+		await actMsg('Failed to add media', async () => {
+			const created = await unwrap(
+				api.POST('/api/v2/media/create', { body: { file_path: path, title, tag_names: add.tags } })
+			);
+			await applyAudioFormat((created as MediaCreated).id);
+			finishAdd('Media added');
+		});
+		add.busy = false;
 	}
 
 	// Keeps polling even if the modal is closed meanwhile.
@@ -500,51 +420,41 @@
 				break;
 			}
 			const pct = prog.progress ?? 0;
-			addProgress = { pct, label: `Downloading ${Math.round(pct)}%` };
+			add.progress = { pct, label: `Downloading ${Math.round(pct)}%` };
 		}
-		addBusy = false;
-		addProgress = null;
+		add.busy = false;
+		add.progress = null;
 	}
 
 	// Failed files stay queued for a retry; the modal only closes when everything succeeded.
 	async function submitUploadBatch() {
-		const todo = uploads.filter((u) => u.status !== 'done');
-		if (!todo.length) {
-			toast('Choose a video or audio file first', 'error');
-			return;
-		}
-		uploading = true;
+		const todo = add.uploads.filter((u) => u.status !== 'done');
+		if (!todo.length) return toast('Choose a video or audio file first', 'error');
+		add.uploading = true;
 
 		let ok = 0;
-		let failed = 0;
 		for (const u of todo) {
-			u.status = 'uploading';
-			u.pct = 0;
-			u.error = null;
+			Object.assign(u, { status: 'uploading', pct: 0, error: null });
 			try {
-				const fileTitle =
-					uploads.length === 1 && addTitle.trim()
-						? addTitle.trim()
-						: u.file.name.replace(/\.[^.]+$/, '');
+				const title =
+					add.uploads.length === 1 && add.title.trim() ? add.title.trim() : fileTitle(u.file);
 				const created = await uploadWithProgress<MediaCreated>(
 					'/api/v2/media/upload',
 					u.file,
-					{ title: fileTitle, tag_names: addTags.join(',') },
+					{ title, tag_names: add.tags.join(',') },
 					(e) => (u.pct = e.percent)
 				);
-				u.status = 'done';
-				u.pct = 100;
+				Object.assign(u, { status: 'done', pct: 100 });
 				await applyAudioFormat(created.id);
 				ok++;
 			} catch (e) {
 				console.error(`Upload failed for ${u.file.name}:`, e);
-				u.status = 'error';
-				u.error = toApiError(e).message || 'Upload failed';
-				failed++;
+				Object.assign(u, { status: 'error', error: toApiError(e).message || 'Upload failed' });
 			}
 		}
+		const failed = todo.length - ok;
 
-		uploading = false;
+		add.uploading = false;
 		if (ok) {
 			page = 1;
 			void media.refresh();
@@ -557,26 +467,110 @@
 		}
 	}
 
+	const UPLOAD_STATE = { pending: 'Queued', done: 'Done', error: 'Failed' };
+	const UPLOAD_COLOUR = {
+		pending: 'text-muted',
+		uploading: 'text-muted',
+		done: 'text-success',
+		error: 'text-danger'
+	};
 	function uploadStateLabel(u: UploadEntry): string {
-		switch (u.status) {
-			case 'uploading':
-				return u.pct >= 100 ? 'Processing…' : `${Math.round(u.pct)}%`;
-			case 'done':
-				return 'Done';
-			case 'error':
-				return 'Failed';
-			default:
-				return 'Queued';
-		}
+		if (u.status !== 'uploading') return UPLOAD_STATE[u.status];
+		return u.pct >= 100 ? 'Processing…' : `${Math.round(u.pct)}%`;
 	}
 </script>
 
 <svelte:window onkeydowncapture={onEditKeydown} />
 
+{#snippet kindIcon(m: MediaItem, size: number)}
+	{#if !fileExists(m)}<TriangleAlert {size} class="text-warning" />
+	{:else if isAudio(m)}<Music {size} />
+	{:else}<Film {size} />{/if}
+{/snippet}
+
+{#snippet pickBox(m: MediaItem, label?: string)}
+	<input
+		type="checkbox"
+		class="accent-accent"
+		aria-label={label}
+		checked={picked.has(m.id)}
+		onclick={(e) => picked.toggle(m.id, e.currentTarget.checked, e.shiftKey)}
+	/>
+{/snippet}
+
+{#snippet metaFields(
+	form: 'edit' | 'add',
+	f: { title: string; tags: string[]; audio: string },
+	hint: string
+)}
+	<div>
+		<label class="mb-1 block text-sm text-muted" for="{form}-title">Title</label>
+		<Input
+			id="{form}-title"
+			bind:value={f.title}
+			disabled={form === 'add' && batchUpload}
+			placeholder={form === 'edit'
+				? undefined
+				: batchUpload
+					? 'Each file is titled from its own name'
+					: 'Media title'}
+		/>
+	</div>
+	<div>
+		<label class="mb-1 block text-sm text-muted" for="{form}-tags-field">Tags</label>
+		<TagInput
+			bind:this={tagInputs[form]}
+			bind:tags={f.tags}
+			id="{form}-tags-field"
+			suggestions={tagOptions}
+		/>
+	</div>
+	<div>
+		<label class="mb-1 block text-sm text-muted" for="{form}-audio-format">Audio-format intro</label
+		>
+		<Select id="{form}-audio-format" bind:value={f.audio} class="w-full">
+			<option value="">- Not an audio intro -</option>
+			{#each AUDIO_FORMATS as [key, label] (key)}<option value={key}>{label}</option>{/each}
+		</Select>
+		<p class="mt-1 text-xs text-faint">{hint}</p>
+	</div>
+{/snippet}
+
+{#snippet fact(label: string, value: string, mono = false)}
+	{#if value}
+		<div class="flex justify-between gap-4">
+			<dt class="text-muted">{label}</dt>
+			<dd class={mono ? 'font-mono' : undefined}>{value}</dd>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet tagList(m: MediaItem, gap: string)}
+	<div class="flex flex-wrap {gap}">
+		{#each m.tags as t (t.id)}<TagBadge color={t.color}>{t.name}</TagBadge>{/each}
+	</div>
+{/snippet}
+
+{#snippet thumb(m: MediaItem, img: string, box: string, size: number)}
+	{#if fileExists(m) && m.screenshot_url}
+		<img
+			src={bust(m.screenshot_url, m.id)}
+			alt=""
+			loading="lazy"
+			onerror={hideBrokenImg}
+			class={img}
+		/>
+	{:else}
+		<span class="flex items-center justify-center text-faint {box}"
+			>{@render kindIcon(m, size)}</span
+		>
+	{/if}
+{/snippet}
+
 <PageHeader title="User media" {actions} />
 {#snippet actions()}
 	<Button
-		onclick={askRegenerateAll}
+		onclick={() => void regenerateThumbnails(null)}
 		disabled={rethumbBusy}
 		title="Re-extract the screenshot thumbnails from every video"
 	>
@@ -595,10 +589,7 @@
 	search={{
 		value: search,
 		placeholder: 'Search by title…',
-		onchange: (v) => {
-			search = v;
-			page = 1;
-		}
+		onchange: (v) => refilter(() => (search = v))
 	}}
 	count={countText}
 	bind:view
@@ -609,10 +600,10 @@
 <MediaTagBar
 	tags={tagFacets}
 	filter={tags}
-	onfilter={setTagFilter}
+	onfilter={(names) => refilter(() => (tags = names))}
 	picked={items.filter((m) => picked.has(m.id))}
 	onchanged={() => media.refresh()}
-	onclearpick={clearPicked}
+	onclearpick={() => picked.clear()}
 	confirm={(msg, opts) => confirmDialog!.confirm(msg, opts)}
 />
 
@@ -663,15 +654,7 @@
 						{picked.has(m.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
 						onclick={(e) => e.stopPropagation()}
 					>
-						<input
-							type="checkbox"
-							class="accent-accent"
-							checked={picked.has(m.id)}
-							onclick={(e) => {
-								const ev = e as MouseEvent;
-								togglePicked(m.id, (e.currentTarget as HTMLInputElement).checked, ev.shiftKey);
-							}}
-						/>
+						{@render pickBox(m)}
 					</label>
 					<button
 						type="button"
@@ -679,21 +662,12 @@
 						onclick={() => openDetail(m.id)}
 						title={m.title || 'Untitled'}
 					>
-						{#if exists && m.screenshot_url}
-							<img
-								src={bust(m.screenshot_url, m.id)}
-								alt=""
-								loading="lazy"
-								onerror={hideBrokenImg}
-								class="h-full w-full object-cover transition-opacity group-hover:opacity-80"
-							/>
-						{:else}
-							<span class="flex h-full w-full items-center justify-center text-faint">
-								{#if !exists}<TriangleAlert size={22} class="text-warning" />
-								{:else if isAudio(m)}<Music size={22} />
-								{:else}<Film size={22} />{/if}
-							</span>
-						{/if}
+						{@render thumb(
+							m,
+							'h-full w-full object-cover transition-opacity group-hover:opacity-80',
+							'h-full w-full',
+							22
+						)}
 						{#if exists}
 							<span
 								class="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 text-text opacity-0 transition-opacity group-hover:opacity-100"
@@ -730,8 +704,8 @@
 							type="checkbox"
 							class="accent-accent"
 							aria-label="Select all shown"
-							checked={allVisiblePicked}
-							onchange={(e) => toggleAllVisible((e.currentTarget as HTMLInputElement).checked)}
+							checked={picked.allVisible}
+							onchange={(e) => picked.setVisible((e.currentTarget as HTMLInputElement).checked)}
 						/>
 					</th>
 					<th class="w-20 px-3 py-2"></th>
@@ -755,35 +729,15 @@
 					>
 						<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 						<td class="px-3 py-1.5" onclick={(e) => e.stopPropagation()}>
-							<input
-								type="checkbox"
-								class="accent-accent"
-								aria-label="Select {m.title || 'item'}"
-								checked={picked.has(m.id)}
-								onclick={(e) => {
-									const ev = e as MouseEvent;
-									togglePicked(m.id, (e.currentTarget as HTMLInputElement).checked, ev.shiftKey);
-								}}
-							/>
+							{@render pickBox(m, `Select ${m.title || 'item'}`)}
 						</td>
 						<td class="px-3 py-1.5">
-							{#if exists && m.screenshot_url}
-								<img
-									src={bust(m.screenshot_url, m.id)}
-									alt=""
-									loading="lazy"
-									onerror={hideBrokenImg}
-									class="h-9 w-16 rounded-sm border border-border object-cover"
-								/>
-							{:else}
-								<span
-									class="flex h-9 w-16 items-center justify-center rounded-sm border border-border bg-surface-2 text-faint"
-								>
-									{#if !exists}<TriangleAlert size={14} class="text-warning" />
-									{:else if isAudio(m)}<Music size={14} />
-									{:else}<Film size={14} />{/if}
-								</span>
-							{/if}
+							{@render thumb(
+								m,
+								'h-9 w-16 rounded-sm border border-border object-cover',
+								'h-9 w-16 rounded-sm border border-border bg-surface-2',
+								14
+							)}
 						</td>
 						<td class="px-3 py-1.5" title={m.file_path}>
 							{m.title || 'Untitled'}
@@ -791,11 +745,7 @@
 						</td>
 						<td class="px-3 py-1.5">
 							{#if m.tags.length}
-								<div class="flex flex-wrap gap-1">
-									{#each m.tags as t (t.id)}
-										<TagBadge color={t.color}>{t.name}</TagBadge>
-									{/each}
-								</div>
+								{@render tagList(m, 'gap-1')}
 							{:else}
 								<span class="text-muted">-</span>
 							{/if}
@@ -849,37 +799,12 @@
 			<h2 class="text-xl leading-tight font-semibold">{m.title || 'Untitled'}</h2>
 
 			{#if editing}
-				<div class="mt-4">
-					<div class="space-y-4">
-						<div>
-							<label class="mb-1 block text-sm text-muted" for="edit-title">Title</label>
-							<Input id="edit-title" bind:value={editTitle} />
-						</div>
-						<div>
-							<label class="mb-1 block text-sm text-muted" for="edit-tags-field">Tags</label>
-							<TagInput
-								bind:this={editTagInput}
-								bind:tags={editTags}
-								id="edit-tags-field"
-								suggestions={tagOptions}
-							/>
-						</div>
-						<div>
-							<label class="mb-1 block text-sm text-muted" for="edit-audio-format"
-								>Audio-format intro</label
-							>
-							<Select id="edit-audio-format" bind:value={editAudioFormat} class="w-full">
-								<option value="">- Not an audio intro -</option>
-								{#each AUDIO_FORMATS as [key, label] (key)}
-									<option value={key}>{label}</option>
-								{/each}
-							</Select>
-							<p class="mt-1 text-xs text-faint">
-								Mark this clip as the intro for an audio format so it can auto-play before matching
-								features.
-							</p>
-						</div>
-					</div>
+				<div class="mt-4 space-y-4">
+					{@render metaFields(
+						'edit',
+						edit,
+						'Mark this clip as the intro for an audio format so it can auto-play before matching features.'
+					)}
 				</div>
 			{:else}
 				{#if fileExists(m)}
@@ -898,37 +823,13 @@
 					</p>
 				{/if}
 
-				{#if m.tags.length}
-					<div class="mt-4 flex flex-wrap gap-1.5">
-						{#each m.tags as t (t.id)}
-							<TagBadge color={t.color}>{t.name}</TagBadge>
-						{/each}
-					</div>
-				{/if}
+				{#if m.tags.length}{@render tagList(m, 'mt-4 gap-1.5')}{/if}
 
 				<dl class="mt-4 space-y-1.5 text-sm">
-					<div class="flex justify-between gap-4">
-						<dt class="text-muted">Type</dt>
-						<dd>{isAudio(m) ? 'Audio' : 'Video'}</dd>
-					</div>
-					{#if fmtDuration(m.duration)}
-						<div class="flex justify-between gap-4">
-							<dt class="text-muted">Duration</dt>
-							<dd class="font-mono">{fmtDuration(m.duration)}</dd>
-						</div>
-					{/if}
-					{#if fmtSize(m.file_info.size)}
-						<div class="flex justify-between gap-4">
-							<dt class="text-muted">Size</dt>
-							<dd class="font-mono">{fmtSize(m.file_info.size)}</dd>
-						</div>
-					{/if}
-					{#if audioFormatLabel(m.audio_format)}
-						<div class="flex justify-between gap-4">
-							<dt class="text-muted">Audio-format intro</dt>
-							<dd>{audioFormatLabel(m.audio_format)}</dd>
-						</div>
-					{/if}
+					{@render fact('Type', isAudio(m) ? 'Audio' : 'Video')}
+					{@render fact('Duration', fmtDuration(m.duration), true)}
+					{@render fact('Size', fmtSize(m.file_info.size), true)}
+					{@render fact('Audio-format intro', audioFormatLabel(m.audio_format))}
 					<div class="flex justify-between gap-4">
 						<dt class="shrink-0 text-muted">On disk</dt>
 						<dd class="font-mono">{fileExists(m) ? 'Present' : 'Missing'}</dd>
@@ -951,7 +852,7 @@
 				</Button>
 			{:else if selected}
 				{@const m = selected}
-				<Button onclick={() => askRemove(m)}><Trash2 size={14} /> Delete</Button>
+				<Button onclick={() => void remove(m.id, m.title)}><Trash2 size={14} /> Delete</Button>
 				{#if !isAudio(m)}
 					<Button
 						onclick={() => void regenerateThumbnails(m.id)}
@@ -973,12 +874,12 @@
 	<div class="space-y-4">
 		<Tabs
 			tabs={ADD_MODES.map(({ mode, label }) => ({ id: mode, label }))}
-			value={addMode}
+			value={add.mode}
 			label="How to add media"
-			onselect={(id) => setAddMode(id as typeof addMode)}
+			onselect={(id) => setAddMode(id as AddMode)}
 		/>
 
-		{#if addMode === 'upload'}
+		{#if add.mode === 'upload'}
 			<button
 				type="button"
 				class="flex w-full flex-col items-center gap-1.5 rounded-md border-2 border-dashed px-4 py-6 text-center
@@ -986,23 +887,10 @@
 					? 'border-accent bg-accent/5'
 					: 'border-border-strong bg-surface-2 hover:border-accent-dim'}"
 				onclick={() => fileInput?.click()}
-				ondragover={(e) => {
-					e.preventDefault();
-					dragOver = true;
-				}}
-				ondragenter={(e) => {
-					e.preventDefault();
-					dragOver = true;
-				}}
-				ondragleave={(e) => {
-					e.preventDefault();
-					dragOver = false;
-				}}
-				ondrop={(e) => {
-					e.preventDefault();
-					dragOver = false;
-					pickFiles(e.dataTransfer?.files);
-				}}
+				ondragover={onDrag}
+				ondragenter={onDrag}
+				ondragleave={onDrag}
+				ondrop={onDrag}
 			>
 				<CloudUpload size={22} class="text-muted" />
 				<span class="text-sm"
@@ -1025,23 +913,17 @@
 				}}
 			/>
 
-			{#if uploads.length}
+			{#if add.uploads.length}
 				<div class="space-y-2">
-					{#each uploads as u, i (u.file.name + u.file.size)}
+					{#each add.uploads as u, i (u.file.name + u.file.size)}
 						<div class="rounded-md border border-border bg-surface-2 p-2">
 							<div class="flex items-center gap-2 text-xs">
 								<span class="min-w-0 flex-1 truncate" title={u.file.name}>{u.file.name}</span>
 								<span class="shrink-0 font-mono text-faint">{fmtSize(u.file.size)}</span>
-								<span
-									class="shrink-0 font-mono {u.status === 'done'
-										? 'text-success'
-										: u.status === 'error'
-											? 'text-danger'
-											: 'text-muted'}"
-								>
+								<span class="shrink-0 font-mono {UPLOAD_COLOUR[u.status]}">
 									{uploadStateLabel(u)}
 								</span>
-								{#if (u.status === 'pending' || u.status === 'error') && !uploading}
+								{#if (u.status === 'pending' || u.status === 'error') && !add.uploading}
 									<button
 										type="button"
 										class="shrink-0 text-muted hover:text-danger"
@@ -1061,79 +943,51 @@
 									style="width: {Math.round(u.pct)}%"
 								></div>
 							</div>
-							{#if u.error}
-								<p class="mt-1 text-xs text-danger">{u.error}</p>
-							{/if}
+							{#if u.error}<p class="mt-1 text-xs text-danger">{u.error}</p>{/if}
 						</div>
 					{/each}
 				</div>
 			{/if}
-		{:else if addMode === 'youtube'}
+		{:else if add.mode === 'youtube'}
 			<div>
 				<label class="mb-1 block text-sm text-muted" for="yt-url">YouTube URL</label>
-				<Input id="yt-url" bind:value={ytUrl} placeholder="https://www.youtube.com/watch?v=…" />
+				<Input id="yt-url" bind:value={add.ytUrl} placeholder="https://www.youtube.com/watch?v=…" />
 			</div>
 		{:else}
 			<div>
 				<label class="mb-1 block text-sm text-muted" for="path-input">File path on server</label>
 				<Input
 					id="path-input"
-					bind:value={pathInput}
+					bind:value={add.path}
 					placeholder="/home/user/cinema/Media/clip.mp4"
 				/>
 			</div>
 		{/if}
 
-		<div>
-			<label class="mb-1 block text-sm text-muted" for="add-title">Title</label>
-			<Input
-				id="add-title"
-				bind:value={addTitle}
-				disabled={batchUpload}
-				placeholder={batchUpload ? 'Each file is titled from its own name' : 'Media title'}
-			/>
-		</div>
-		<div>
-			<label class="mb-1 block text-sm text-muted" for="add-tags-field">Tags</label>
-			<TagInput
-				bind:this={addTagInput}
-				bind:tags={addTags}
-				id="add-tags-field"
-				suggestions={tagOptions}
-			/>
-		</div>
-		<div>
-			<label class="mb-1 block text-sm text-muted" for="add-audio-format">Audio-format intro</label>
-			<Select id="add-audio-format" bind:value={addAudioFormat} class="w-full">
-				<option value="">- Not an audio intro -</option>
-				{#each AUDIO_FORMATS as [key, label] (key)}
-					<option value={key}>{label}</option>
-				{/each}
-			</Select>
-			<p class="mt-1 text-xs text-faint">
-				Mark this as a Dolby/DTS intro so an Audio user media block can auto-match it to a feature.
-			</p>
-		</div>
+		{@render metaFields(
+			'add',
+			add,
+			'Mark this as a Dolby/DTS intro so an Audio user media block can auto-match it to a feature.'
+		)}
 
-		{#if addProgress}
+		{#if add.progress}
 			<div>
 				<div class="h-1.5 overflow-hidden rounded-xs bg-surface-3">
 					<div
 						class="h-full bg-accent transition-[width]"
-						style="width: {Math.round(addProgress.pct)}%"
+						style="width: {Math.round(add.progress.pct)}%"
 					></div>
 				</div>
-				<p class="mt-1 text-xs text-muted">{addProgress.label}</p>
+				<p class="mt-1 text-xs text-muted">{add.progress.label}</p>
 			</div>
 		{/if}
 	</div>
 	{#snippet footer()}
 		<Button onclick={() => (addOpen = false)}>Cancel</Button>
-		<Button variant="primary" disabled={uploading || addBusy} onclick={() => void submitAdd()}>
-			{#if addMode === 'upload'}<Upload size={14} />
-			{:else if addMode === 'youtube'}<Download size={14} />
-			{:else}<Plus size={14} />{/if}
-			{ADD_MODES.find((m) => m.mode === addMode)?.submit}
+		{@const m = ADD_MODES.find((m) => m.mode === add.mode)!}
+		<Button variant="primary" disabled={add.uploading || add.busy} onclick={() => void submitAdd()}>
+			<m.icon size={14} />
+			{m.submit}
 		</Button>
 	{/snippet}
 </Dialog>

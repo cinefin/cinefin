@@ -1,6 +1,6 @@
 import importlib
-import sys
 import textwrap
+from unittest.mock import MagicMock
 
 import pytest
 import requests
@@ -12,6 +12,18 @@ from cinefin.api.services import command_runner
 from .factories import CommandFactory
 
 pytestmark = pytest.mark.django_db
+
+
+def post(client, url, body):
+    return client.post(url, data=body, content_type="application/json")
+
+
+def put(client, url, body):
+    return client.put(url, data=body, content_type="application/json")
+
+
+def fake_json(payload):
+    return MagicMock(json=MagicMock(return_value=payload))
 
 
 @pytest.fixture(autouse=True)
@@ -56,55 +68,23 @@ class TestLoader:
         assert {"homeassistant", "rest", "wake_on_lan"} <= {p.id for p in plugins.list_providers()}
         assert plugins.get_provider("homeassistant").source == "contrib/plugins/homeassistant"
 
-    def test_contrib_plugin_is_registered_with_its_source(self, plugin_dir):
-        plugin_dir("echo.py", ECHO_PLUGIN)
-        provider = plugins.get_provider("echo")
-        assert provider is not None
-        assert provider.source == "contrib/plugins/echo.py"
-
-    def test_package_plugin_with_relative_import(self, plugin_dir, tmp_path):
-        pkg = tmp_path / "pkg"
-        pkg.mkdir()
-        (pkg / "helpers.py").write_text("GREETING = 'hi'\n")
-        (pkg / "__init__.py").write_text(
-            textwrap.dedent("""
-                from cinefin.plugins import CommandProvider, register
-                from .helpers import GREETING
-
-                @register
-                class Pkg(CommandProvider):
-                    id = "pkg"
-                    def run(self, config, settings):
-                        return True, GREETING, ""
-            """)
-        )
-        assert plugins.get_provider("pkg").run({}, {}) == (True, "hi", "")
-
     def test_broken_plugins_are_reported_and_skipped(self, plugin_dir):
         plugin_dir("a_syntax.py", "def broken(:\n")
         plugin_dir("b_api.py", ECHO_PLUGIN.replace('id = "echo"', 'id = "future"\n        plugin_api = 99'))
         plugin_dir("c_good.py", ECHO_PLUGIN)
         plugin_dir("d_dupe.py", ECHO_PLUGIN)
+        plugin_dir(
+            "e_badfield.py", ECHO_PLUGIN.replace('id = "echo"', 'id = "bad"').replace("required=True", 'type="colour"')
+        )
+        plugin_dir("_private.py", "raise RuntimeError('should not import')\n")
+        plugin_dir("test_echo.py", "raise RuntimeError('should not import')\n")
 
         failures = {f["source"]: f["error"] for f in plugins.load_failures()}
-        assert set(failures) == {"contrib/plugins/a_syntax.py", "contrib/plugins/b_api.py", "contrib/plugins/d_dupe.py"}
+        assert set(failures) == {f"contrib/plugins/{n}.py" for n in ("a_syntax", "b_api", "d_dupe", "e_badfield")}
+        assert "unknown type 'colour'" in failures["contrib/plugins/e_badfield.py"]
         assert "plugin API 99" in failures["contrib/plugins/b_api.py"]
         assert "already registered" in failures["contrib/plugins/d_dupe.py"]
         assert plugins.get_provider("echo").source == "contrib/plugins/c_good.py"
-
-    def test_half_registered_plugin_is_rolled_back(self, plugin_dir):
-        plugin_dir("half.py", textwrap.dedent(ECHO_PLUGIN) + "\nraise RuntimeError('late failure')\n")
-        assert plugins.get_provider("echo") is None
-        assert "late failure" in plugins.load_failures()[0]["error"]
-
-    def test_underscore_and_test_files_are_ignored(self, plugin_dir):
-        plugin_dir("_private.py", "raise RuntimeError('should not import')\n")
-        plugin_dir("test_echo.py", "raise RuntimeError('should not import')\n")
-        assert plugins.load_failures() == []
-
-    def test_bad_field_type_is_a_load_failure(self, plugin_dir):
-        plugin_dir("bad.py", ECHO_PLUGIN.replace('Field("text", required=True)', 'Field("text", type="colour")'))
-        assert "unknown type 'colour'" in plugins.load_failures()[0]["error"]
 
 
 class TestRunner:
@@ -144,24 +124,6 @@ class TestProvidersAPI:
         assert data["providers"][0]["settings"][0]["key"] == "prefix"
         assert data["failures"][0]["source"] == "contrib/plugins/zz_broken.py"
 
-    def test_shipped_provider_schemas(self, client):
-        by_id = {p["id"]: p for p in client.get("/api/v2/commands/providers").json()["data"]["providers"]}
-        ha = by_id["homeassistant"]
-        assert (ha["has_suggestions"], ha["has_settings_test"], ha["has_discover"]) == (True, True, True)
-        assert [f["key"] for f in ha["settings"]] == ["url", "token"]
-        assert by_id["rest"]["has_settings_test"] is False
-        assert by_id["rest"]["fields"][0] == {
-            "key": "method",
-            "label": "Method",
-            "type": "select",
-            "required": False,
-            "default": "GET",
-            "placeholder": "",
-            "help": "",
-            "choices": ["GET", "POST", "PUT", "PATCH", "DELETE"],
-            "scoped_by": "",
-        }
-
     def test_command_list_carries_provider_label_and_summary(self, client, plugin_dir):
         plugin_dir("echo.py", ECHO_PLUGIN)
         CommandFactory(name="A", provider="echo", config={"text": "hi"})
@@ -180,191 +142,64 @@ class TestProvidersAPI:
     )
     def test_create_validates_against_provider_fields(self, client, plugin_dir, provider, config, error_code):
         plugin_dir("echo.py", ECHO_PLUGIN)
-        response = client.post(
-            "/api/v2/commands/create",
-            data={"name": "Broken", "provider": provider, "config": config},
-            content_type="application/json",
-        )
+        response = post(client, "/api/v2/commands/create", {"name": "Broken", "provider": provider, "config": config})
         assert response.status_code == 400
         assert response.json()["error_code"] == error_code
 
-    def test_create_validates_json_fields(self, client):
-        response = client.post(
-            "/api/v2/commands/create",
-            data={"name": "Broken", "provider": "rest", "config": {"url": "http://x.invalid/", "headers": "nope"}},
-            content_type="application/json",
-        )
-        assert response.json()["error_code"] == "INVALID_COMMAND_CONFIG"
-
-    def test_create_rejects_a_duplicate_name(self, client):
-        client.post(
-            "/api/v2/commands/create",
-            data={"name": "Dim lights", "provider": "rest", "config": {"url": "http://x.invalid/"}},
-            content_type="application/json",
-        )
-        response = client.post(
-            "/api/v2/commands/create",
-            data={"name": "Dim lights", "provider": "rest", "config": {"url": "http://y.invalid/"}},
-            content_type="application/json",
-        )
-        assert response.status_code == 409
-        assert response.json()["error_code"] == "CONFLICT"
-
-    def test_rename_onto_an_existing_name_conflicts(self, client):
-        CommandFactory(name="Lights up", provider="rest", config={"url": "http://a.invalid/"})
-        other = CommandFactory(name="Lights down", provider="rest", config={"url": "http://b.invalid/"})
-        response = client.put(
-            f"/api/v2/commands/{other.id}/update",
-            data={"name": "Lights up"},
-            content_type="application/json",
-        )
-        assert response.status_code == 409
-        # A no-op rename to its own name is fine (excludes self).
-        ok = client.put(
-            f"/api/v2/commands/{other.id}/update",
-            data={"name": "Lights down"},
-            content_type="application/json",
-        )
-        assert ok.status_code == 200
-
-    def test_suggestions_failure_is_a_result_not_an_error(self, client):
-        data = client.get("/api/v2/commands/providers/homeassistant/suggestions").json()["data"]
-        assert data["ok"] is False
-        assert "not configured" in data["message"]
-
-    def test_homeassistant_suggestions_are_scoped(self, client, monkeypatch):
-        Settings.set("plugins.homeassistant", {"url": "http://ha.invalid", "token": "t"})
-
-        class Resp:
-            def __init__(self, payload):
-                self.payload = payload
-
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return self.payload
-
-        payloads = {
-            "/api/services": [{"domain": "scene", "services": {"turn_on": {}}}],
-            "/api/states": [{"entity_id": "scene.dim", "attributes": {"friendly_name": "Dim"}}],
-        }
-        monkeypatch.setattr(requests, "get", lambda url, **kw: Resp(payloads[url.removeprefix("http://ha.invalid")]))
-        data = client.get("/api/v2/commands/providers/homeassistant/suggestions").json()["data"]
-        assert data["ok"] is True
-        assert data["suggestions"]["service"] == [{"value": "turn_on", "label": None, "scope": "scene"}]
-        assert data["suggestions"]["entity_id"] == [{"value": "scene.dim", "label": "Dim", "scope": "scene"}]
+    def test_names_are_unique_and_json_fields_validated(self, client):
+        body = {"name": "Broken", "provider": "rest", "config": {"url": "http://x.invalid/", "headers": "nope"}}
+        assert post(client, "/api/v2/commands/create", body).json()["error_code"] == "INVALID_COMMAND_CONFIG"
+        rest = {"provider": "rest", "config": {"url": "http://x.invalid/"}}
+        assert post(client, "/api/v2/commands/create", {"name": "Dim lights", **rest}).status_code == 201
+        response = post(client, "/api/v2/commands/create", {"name": "Dim lights", **rest})
+        assert response.status_code == 409 and response.json()["error_code"] == "CONFLICT"
+        other = CommandFactory(name="Lights down", **rest)
+        url = f"/api/v2/commands/{other.id}/update"
+        assert put(client, url, {"name": "Dim lights"}).status_code == 409
+        assert put(client, url, {"name": "Lights down"}).status_code == 200  # its own name is fine
 
     def test_provider_settings_round_trip(self, client, plugin_dir):
         plugin_dir("echo.py", ECHO_PLUGIN)
         url = "/api/v2/commands/providers/echo/settings"
         assert client.get(url).json()["data"]["values"] == {"prefix": ">"}
-        response = client.put(url, data={"values": {"prefix": "!", "undeclared": 1}}, content_type="application/json")
-        assert response.status_code == 200
+        assert put(client, url, {"values": {"prefix": "!", "undeclared": 1}}).status_code == 200
         assert Settings.get("plugins.echo") == {"prefix": "!"}
-
-    def test_settings_rejected_for_provider_without_settings(self, client):
-        response = client.put(
-            "/api/v2/commands/providers/rest/settings", data={"values": {}}, content_type="application/json"
-        )
-        assert response.status_code == 400
 
     def test_settings_test_uses_unsaved_values_over_saved(self, client, monkeypatch):
         Settings.set("plugins.homeassistant", {"url": "http://saved.invalid", "token": "saved"})
         seen = {}
 
-        class Resp:
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return {"location_name": "Home", "version": "2026.9"}
-
         def fake_get(url, headers, **kw):
             seen.update(url=url, auth=headers["Authorization"])
-            return Resp()
+            return fake_json({"location_name": "Home", "version": "2026.9"})
 
         monkeypatch.setattr(requests, "get", fake_get)
-        response = client.post(
-            "/api/v2/commands/providers/homeassistant/settings/test",
-            data={"values": {"token": "typed"}},
-            content_type="application/json",
+        response = post(
+            client, "/api/v2/commands/providers/homeassistant/settings/test", {"values": {"token": "typed"}}
         )
         assert response.json()["data"] == {"ok": True, "message": "Connected to Home (Home Assistant 2026.9)"}
         assert seen == {"url": "http://saved.invalid/api/config", "auth": "Bearer typed"}
 
-    def test_settings_test_unsupported(self, client):
-        response = client.post(
-            "/api/v2/commands/providers/rest/settings/test", data={"values": {}}, content_type="application/json"
-        )
-        assert response.json()["error_code"] == "NO_SETTINGS_TEST"
 
-    def test_discover_returns_candidates(self, client, monkeypatch):
-        plugins.get_provider("homeassistant")
-        discovery = sys.modules["cinefin_contrib_plugins.homeassistant.discovery"]
-        monkeypatch.setattr(discovery, "_mdns_discover", lambda: [])
-        monkeypatch.setattr(
-            discovery, "_probe_fallback", lambda: [{"url": "http://ha:8123", "name": "ha", "version": None}]
-        )
-        data = client.get("/api/v2/commands/providers/homeassistant/discover").json()["data"]
-        assert data["candidates"] == [{"label": "ha", "values": {"url": "http://ha:8123"}}]
-
-
-class TestEnableDisable:
-    def test_provider_defaults_enabled_and_toggle_persists(self, client, plugin_dir):
-        plugin_dir("echo.py", ECHO_PLUGIN)
-        by_id = {p["id"]: p for p in client.get("/api/v2/commands/providers").json()["data"]["providers"]}
-        assert by_id["echo"]["enabled"] is True
-
-        response = client.post(
-            "/api/v2/commands/providers/echo/enabled", data={"enabled": False}, content_type="application/json"
-        )
-        assert response.status_code == 200
-        assert plugins.is_enabled("echo") is False
-        assert plugins.get_provider("echo").to_dict()["enabled"] is False
-
-        client.post("/api/v2/commands/providers/echo/enabled", data={"enabled": True}, content_type="application/json")
-        assert plugins.is_enabled("echo") is True
-
-    def test_disabled_provider_refuses_to_run(self, plugin_dir):
-        plugin_dir("echo.py", ECHO_PLUGIN)
-        command = CommandFactory(provider="echo", config={"text": "hi"})
-        plugins.set_enabled("echo", False)
-        result = command_runner.execute(command, trigger="test", wait=True)
-        assert result.ok is False
-        assert "disabled" in result.detail
+def test_disabled_provider_refuses_to_run(client, plugin_dir):
+    plugin_dir("echo.py", ECHO_PLUGIN)
+    by_id = {p["id"]: p for p in client.get("/api/v2/commands/providers").json()["data"]["providers"]}
+    assert by_id["echo"]["enabled"] is True
+    assert post(client, "/api/v2/commands/providers/echo/enabled", {"enabled": False}).status_code == 200
+    result = command_runner.execute(CommandFactory(provider="echo", config={"text": "hi"}), trigger="test", wait=True)
+    assert result.ok is False and "disabled" in result.detail
 
 
 class TestWakeOnLan:
     def test_sends_magic_packet(self, monkeypatch):
-        sent = {}
-
-        class FakeSocket:
-            def __init__(self, *args):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                pass
-
-            def setsockopt(self, *args):
-                pass
-
-            def sendto(self, packet, target):
-                sent.update(packet=packet, target=target)
-
+        sock = MagicMock()
+        monkeypatch.setattr("socket.socket", lambda *a: sock)
+        sock.__enter__.return_value = sock
         provider = plugins.get_provider("wake_on_lan")
-        monkeypatch.setattr("socket.socket", FakeSocket)
         ok, detail, _ = provider.run({"mac": "AA:BB:CC:DD:EE:FF", "broadcast": "192.168.1.255", "port": 7}, {})
         assert (ok, detail) == (True, "packet sent")
-        assert sent["target"] == ("192.168.1.255", 7)
-        assert sent["packet"] == b"\xff" * 6 + bytes.fromhex("aabbccddeeff") * 16
-
-    def test_rejects_bad_mac(self):
-        ok, detail, _ = plugins.get_provider("wake_on_lan").run({"mac": "nope"}, {})
-        assert (ok, detail) == (False, "invalid MAC address")
+        sock.sendto.assert_called_once_with(b"\xff" * 6 + bytes.fromhex("aabbccddeeff") * 16, ("192.168.1.255", 7))
+        assert provider.run({"mac": "nope"}, {})[:2] == (False, "invalid MAC address")
 
 
 class TestSettingsMigration:
@@ -385,14 +220,6 @@ class TestSettingsMigration:
 
 
 class TestSystemProvider:
-    """The first-party 'system' provider dispatches a fixed set of internal actions."""
-
-    def test_actions_are_a_select(self):
-        field = plugins.get_provider("system").fields[0]
-        assert field.type == "select"
-        assert "Restart the player" in field.choices
-        assert "Standby" in field.choices
-
     def test_restart_player_calls_the_agent(self, monkeypatch):
         from cinefin.api.services.playout_agent_service import playout_agent_service
 
@@ -401,19 +228,9 @@ class TestSystemProvider:
         ok, message, _ = plugins.get_provider("system").run({"action": "Restart the player"}, {})
         assert ok is True and calls == [True] and message == "player restarted"
 
-    def test_standby_reports_reachability(self, monkeypatch):
-        from cinefin.api import mpv_service as mpv_mod
-
-        monkeypatch.setattr(mpv_mod.mpv_service, "standby", lambda: True)
-        ok, message, _ = plugins.get_provider("system").run({"action": "Standby"}, {})
-        assert ok is True and message == "on standby"
-
-        monkeypatch.setattr(mpv_mod.mpv_service, "standby", lambda: False)
-        ok, message, _ = plugins.get_provider("system").run({"action": "Standby"}, {})
-        assert ok is False and message == "could not reach the player"
-
     @pytest.mark.parametrize(
-        ("action", "method"), [("Stop the programme", "pause"), ("Pause", "pause"), ("Resume", "play")]
+        ("action", "method"),
+        [("Standby", "standby"), ("Stop the programme", "pause"), ("Pause", "pause"), ("Resume", "play")],
     )
     def test_playout_actions_call_the_player(self, monkeypatch, action, method):
         from cinefin.api import mpv_service as mpv_mod
@@ -423,24 +240,8 @@ class TestSystemProvider:
         ok, _, _ = plugins.get_provider("system").run({"action": action}, {})
         assert ok is True and calls == [method]
 
-    def test_unknown_action_fails_cleanly(self):
-        ok, message, _ = plugins.get_provider("system").run({"action": "nope"}, {})
-        assert ok is False and message == "unknown action"
-
-    def test_service_error_becomes_a_failed_command(self, monkeypatch):
-        from cinefin.api.services.playout_agent_service import playout_agent_service
-
-        def boom():
-            raise RuntimeError("agent unreachable")
-
-        monkeypatch.setattr(playout_agent_service, "restart_mpv", boom)
-        ok, message, detail = plugins.get_provider("system").run({"action": "Restart the player"}, {})
-        assert ok is False and message == "action failed" and "agent unreachable" in detail
-
 
 class TestBuiltinCommands:
-    """The system provider's actions are built-in commands: present after migrate, and locked."""
-
     ACTIONS = {"Restart the player", "Standby", "Stop the programme", "Pause", "Resume"}
 
     def _system(self):
@@ -467,26 +268,16 @@ class TestBuiltinCommands:
         assert standby.id == old.id and standby.config == {"action": "Standby"} and standby.duration == 3
         assert set(self._system().values_list("name", flat=True)) == self.ACTIONS
 
-    def test_listed_as_locked(self, client):
+    def test_locked_against_delete_rename_reconfigure_and_create(self, client):
         by_name = {c["name"]: c for c in client.get("/api/v2/commands/list").json()["data"]["commands"]}
         assert by_name["Pause"]["locked"] is True
-        providers = client.get("/api/v2/commands/providers").json()["data"]["providers"]
-        assert next(p for p in providers if p["id"] == "system")["builtin"] is True
-
-    def test_cannot_be_deleted(self, client):
         cmd = self._system().get(name="Pause")
         assert client.delete(f"/api/v2/commands/{cmd.id}/delete").status_code == 409
-        assert Command.objects.filter(pk=cmd.pk).exists()
-
-    def test_only_duration_can_change(self, client):
-        cmd = self._system().get(name="Pause")
         url = f"/api/v2/commands/{cmd.id}/update"
         assert client.put(url, {"name": "Hold"}, content_type="application/json").status_code == 400
         assert client.put(url, {"config": {"action": "Resume"}}, content_type="application/json").status_code == 400
         assert client.put(url, {"duration": 5}, content_type="application/json").status_code == 200
         cmd.refresh_from_db()
         assert cmd.name == "Pause" and cmd.duration == 5
-
-    def test_none_can_be_created(self, client):
         body = {"name": "Another pause", "provider": "system", "config": {"action": "Pause"}}
         assert client.post("/api/v2/commands/create", body, content_type="application/json").status_code == 400

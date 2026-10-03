@@ -114,6 +114,13 @@ export interface EditorContext {
 	pickTrailer: () => Promise<PickedItem | null>;
 }
 
+/** The props every block config panel takes. */
+export interface ConfigProps {
+	block: EditorBlock;
+	ctx: EditorContext;
+	commit: (mutate: () => void) => void;
+}
+
 export interface PaletteEntry {
 	type: string;
 	desc: string;
@@ -130,10 +137,12 @@ export const HELP = {
 		'and its minimum duration has passed, then the show moves on.'
 } as const;
 
-/** What a command targets, as its provider describes it (e.g. "POST http://…"). */
-export function commandTarget(cmd: CommandInfo | null | undefined): string {
-	return cmd?.summary ?? '';
-}
+/** Select options for "Feature 1" … "Feature n". */
+export const featureOptions = (n: number) =>
+	Array.from({ length: n }, (_, i) => ({ value: String(i + 1), label: `Feature ${i + 1}` }));
+
+export const idOptions = (list: { id: number; name: string }[]) =>
+	list.map((o) => ({ value: String(o.id), label: o.name }));
 
 export function commandSummary(cmd: CommandInfo | null | undefined, holdBlack: boolean): string {
 	if (!cmd) return 'No command selected';
@@ -142,19 +151,27 @@ export function commandSummary(cmd: CommandInfo | null | undefined, holdBlack: b
 			? `Holds black ≥${cmd.duration}s`
 			: 'Holds black while it runs'
 		: 'Fires before the next item';
-	return [cmd.provider_label, mode, commandTarget(cmd)].filter(Boolean).join(' · ');
+	return [cmd.provider_label, mode, cmd.summary].filter(Boolean).join(' · ');
 }
 
-export function filterDescription(content: BlockContent): string {
-	const filters: string[] = [];
-	if (content.genre_names?.length) filters.push(content.genre_names.join(', '));
-	if (content.certification) filters.push(content.certification);
-	if (content.year_from && content.year_to) filters.push(`${content.year_from}-${content.year_to}`);
-	else if (content.year_from) filters.push(`${content.year_from}+`);
-	else if (content.year_to) filters.push(`≤${content.year_to}`);
-	if (content.runtime_from && content.runtime_to)
-		filters.push(`${content.runtime_from}-${content.runtime_to} min`);
-	else if (content.runtime_from) filters.push(`≥${content.runtime_from} min`);
-	else if (content.runtime_to) filters.push(`≤${content.runtime_to} min`);
-	return filters.join(', ');
+/** "1990-1999", "1990+" or "≤1999" (`le` styles the last); '' with neither bound. */
+export function yearRange(from?: number | null, to?: number | null, le = '≤'): string {
+	if (from && to) return `${from}-${to}`;
+	return from ? `${from}+` : to ? `${le}${to}` : '';
+}
+
+export function runtimeRange(from?: number | null, to?: number | null): string {
+	if (from && to) return `${from}-${to} min`;
+	return from ? `≥${from} min` : to ? `≤${to} min` : '';
+}
+
+export function filterDescription(c: BlockContent): string {
+	return [
+		c.genre_names?.join(', '),
+		c.certification,
+		yearRange(c.year_from, c.year_to),
+		runtimeRange(c.runtime_from, c.runtime_to)
+	]
+		.filter(Boolean)
+		.join(', ');
 }

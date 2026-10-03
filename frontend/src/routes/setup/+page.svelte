@@ -1,61 +1,42 @@
 <script lang="ts">
-	// First-run setup wizard. Setup is finalised at the end of step 1 (POST
-	// /installer/complete); steps 2-5 hit the regular settings/playout/sync
-	// endpoints, which the installer-redirect middleware only allows once setup
-	// is complete. The step reached is persisted server-side so closing the
-	// browser resumes at steps 2-5.
+	// First-run setup. Step 1 finalises setup (POST /installer/complete); steps 2-5 use the
+	// regular endpoints and resume from the server-kept step after a closed browser.
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import {
-		ArrowLeft,
-		ArrowRight,
-		Check,
 		CircleAlert,
 		CircleCheck,
 		CircleX,
+		Film,
+		Flag,
 		House,
-		Plug
+		MonitorSpeaker,
+		Plug,
+		Ticket
 	} from '@lucide/svelte';
 	import { api, toApiError, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
+	import { raw } from '$lib/settings/form.svelte';
 	import { onInvalidate } from '$lib/invalidate';
-	import { unwrapLoose } from '$lib/jobs';
-	import type { ApiJob } from '$lib/jobs';
+	import { unwrapLoose, type ApiJob } from '$lib/jobs';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import AddPlayerWizard from '$lib/playout/AddPlayerWizard.svelte';
+	import WizardFrame, { type RailGroup, type WizardAction } from '$lib/wizard/WizardFrame.svelte';
 	import { onMount } from 'svelte';
 
-	const STEP_META: Record<number, { title: string; subtitle: string }> = {
-		1: {
-			title: 'Set up your theater',
-			subtitle:
-				'A name and an optional password. Continuing finishes setup, and the rest can be changed later in Settings.'
-		},
-		2: {
-			title: 'Connect the player',
-			subtitle:
-				'Cinefin plays your programmes through a player: the machine at your screen. Add it now, or skip and do it later in Settings › Playout.'
-		},
-		3: {
-			title: 'Your movies',
-			subtitle: 'Sync a movie library from Jellyfin or Plex'
-		},
-		4: {
-			title: 'Tickets',
-			subtitle: 'Auditorium size and ticket printing. Optional'
-		},
-		5: {
-			title: "You're all set",
-			subtitle: 'A quick check of how everything is looking.'
-		}
-	};
-	const STEP_LABELS = ['Your theater', 'Playback', 'Your movies', 'Tickets', 'Done'];
+	// The steps, in order: step n is GROUPS[n - 1] (the server keeps the number).
+	const GROUPS: Omit<RailGroup, 'done' | 'enabled'>[] = [
+		{ id: 'theater', label: 'Your theater', icon: House },
+		{ id: 'player', label: 'Player', icon: MonitorSpeaker },
+		{ id: 'movies', label: 'Movies', icon: Film },
+		{ id: 'tickets', label: 'Tickets', icon: Ticket },
+		{ id: 'done', label: 'Done', icon: Flag }
+	];
 
-	// null until the status check resolves — nothing renders before that, so a
-	// configured box never flashes the wizard on its way to the dashboard.
+	// null until the status check resolves, so a configured box never flashes the wizard.
 	let step = $state<number | null>(null);
 
 	let cinemaName = $state('');
@@ -64,26 +45,22 @@
 	let adminPassword = $state('');
 	let adminPasswordConfirm = $state('');
 	let step1Error = $state('');
-	// True once setup is finalised (POST /installer/complete). Re-submitting
-	// step 1 after that must NOT call /complete again (it 400s) — persist the
-	// editable fields via /settings and move on.
+	// Once finalised, re-submitting step 1 must not call /complete again (it 400s).
 	let finalized = $state(false);
-
-	let completing = $state(false); // step 1 finalise (POST /installer/complete)
+	let completing = $state(false);
 
 	let pairedWith = $state('');
-	let serverUrl = $state('');
 	let step2Loaded = false;
-	let step2Error = $state('');
 
-	let saving = $state(false); // shared by the steps that save (2-4)
+	let saving = $state(false); // shared by the steps that save (3-4)
 
 	let sourceType = $state('');
 	let sourceUrl = $state('');
 	let sourceToken = $state('');
 	let sourceLibraries = $state('Films,Movies');
 	let startSync = $state(true);
-	let testResult = $state<{ kind: 'pending' | 'ok' | 'error'; message: string } | null>(null);
+	const TEST_COLOUR = { ok: 'text-success', error: 'text-danger', pending: 'text-muted' };
+	let testResult = $state<{ kind: keyof typeof TEST_COLOUR; message: string } | null>(null);
 	let testing = $state(false);
 	let step3Error = $state('');
 
@@ -94,16 +71,18 @@
 	let step4Error = $state('');
 
 	type CheckState = 'ok' | 'warn' | 'err' | 'pending';
-	interface CheckAction {
-		label: string;
-		href?: string;
-		step?: number;
-	}
 	interface CheckRow {
 		state: CheckState;
 		sub: string;
-		action?: CheckAction;
+		action?: { label: string; href: string };
 	}
+	const CHECK_COLOUR: Record<CheckState, string> = {
+		ok: 'text-success',
+		warn: 'text-warning',
+		err: 'text-danger',
+		pending: 'text-muted'
+	};
+	const CHECK_ICON = { ok: CircleCheck, warn: CircleAlert, err: CircleX };
 	const CHECK_TITLES: Record<string, string> = {
 		player: 'Player',
 		media: 'Media library'
@@ -128,12 +107,11 @@
 			configured = !!data?.configured;
 			wizardStep = data?.wizard_step || 0;
 		} catch {
-			// Offline status check — just show the form.
+			// Offline status check: just show the form.
 		}
 
 		finalized = configured;
-		// Setup already done: normally leave, but honour an in-progress
-		// post-finalise step so a reload/closed browser doesn't lose it.
+		// Setup done: leave, unless a post-finalise step is in progress.
 		if (configured) {
 			if (wizardStep >= 2 && wizardStep <= 5) {
 				goStep(wizardStep);
@@ -145,10 +123,8 @@
 		step = 1;
 	}
 
-	function goStep(n: number) {
+	function goStep(n: number): void {
 		step = n;
-		// Steps 2-4 are post-finalise: remember where we are server-side
-		// (best-effort).
 		if (n >= 2)
 			void api.POST('/api/v2/installer/wizard-step', { body: { step: n } }).catch(() => {});
 		if (n === 2 && !step2Loaded) void loadStep2();
@@ -171,69 +147,35 @@
 			step1Error = 'Please enter a theater name';
 			return;
 		}
-		// Optional admin password — blank leaves auth off.
 		if (adminPassword && adminPassword !== adminPasswordConfirm) {
 			step1Error = 'Passwords do not match';
 			return;
 		}
-		// Already finalised (came Back to step 1)? /complete would 400 — just
-		// persist the editable fields and continue.
-		void (finalized ? saveStep1AndContinue() : finalizeSetup());
+		void finishStep1();
 	}
 
-	// Re-visited step 1: name/ratings go through the regular settings endpoint
-	// (the session is authenticated post-finalise); the admin password can't be
-	// changed here.
-	async function saveStep1AndContinue() {
-		step1Error = '';
+	// Creates the account, logs the session in and marks setup done, atomically. Re-visited
+	// once finalised, it only saves (the admin password can't be changed here; /complete 400s).
+	async function finishStep1() {
+		const wasFinal = finalized;
+		const cinema = { cinema_name: cinemaName.trim(), ratings_system: ratingsSystem };
 		completing = true;
 		try {
-			await mutate(
-				api.POST('/api/v2/settings/', {
-					body: {
-						cinema_name: cinemaName.trim(),
-						ratings_system: ratingsSystem
-					}
-				})
-			);
+			if (wasFinal) {
+				await mutate(api.POST('/api/v2/settings/', { body: cinema }));
+			} else {
+				const admin = {
+					admin_password: adminPassword,
+					admin_username: adminUsername.trim() || 'admin'
+				};
+				const body = { ...cinema, start_sync: false, ...(adminPassword ? admin : {}) };
+				await mutate(api.POST('/api/v2/installer/complete', { body }));
+				finalized = true;
+			}
 			goStep(2);
 		} catch (e) {
-			step1Error = errorMessage(e, 'Could not save changes. Please try again.');
-		} finally {
-			completing = false;
-		}
-	}
-
-	// End of step 1: one atomic POST /installer/complete that creates the
-	// account, logs the session in, and marks setup done.
-	async function finalizeSetup() {
-		step1Error = '';
-		const name = cinemaName.trim();
-		const body: {
-			cinema_name: string;
-			ratings_system: string;
-			admin_username?: string;
-			admin_password?: string;
-			start_sync: boolean;
-		} = {
-			cinema_name: name,
-			ratings_system: ratingsSystem,
-			start_sync: false
-		};
-		if (adminPassword) {
-			body.admin_password = adminPassword;
-			body.admin_username = adminUsername.trim() || 'admin';
-		}
-
-		completing = true;
-		try {
-			const result = await api.POST('/api/v2/installer/complete', { body });
-			if (result.error !== undefined || !result.data)
-				throw toApiError(result.error, result.response);
-			finalized = true;
-			goStep(2);
-		} catch (e) {
-			step1Error = errorMessage(e, 'Setup failed. Please try again.');
+			const fail = wasFinal ? 'Could not save changes.' : 'Setup failed.';
+			step1Error = errorMessage(e, `${fail} Please try again.`);
 		} finally {
 			completing = false;
 		}
@@ -241,37 +183,20 @@
 
 	async function loadStep2() {
 		step2Loaded = true;
-		// Prefill the streaming base URL from the saved value, else this origin.
-		// An unset one is saved straight away: pairing shows the ident on the
-		// player at once, and the ident streams from this URL.
+		// The player streams everything from the streaming base URL: an unset one is saved
+		// as this browser's address (edited in Settings › Playout).
 		try {
 			const data = await unwrap(api.GET('/api/v2/settings/'));
-			serverUrl = data.settings.playout_server_url || window.location.origin;
 			if (!data.settings.playout_server_url) {
-				await mutate(api.POST('/api/v2/settings/', { body: { playout_server_url: serverUrl } }));
+				await mutate(
+					api.POST('/api/v2/settings/', {
+						body: { playout_server_url: window.location.origin }
+					})
+				);
 			}
 		} catch {
-			serverUrl = serverUrl || window.location.origin;
+			/* best effort: Settings › Playout shows it */
 		}
-	}
-
-	async function saveStep2() {
-		step2Error = '';
-		saving = true;
-		try {
-			await mutate(
-				api.POST('/api/v2/settings/', { body: { playout_server_url: serverUrl.trim() } })
-			);
-			goStep(3);
-		} catch (e) {
-			step2Error = errorMessage(e, 'Could not save. Please try again.');
-		} finally {
-			saving = false;
-		}
-	}
-
-	function onSourceTypeChange() {
-		testResult = null;
 	}
 
 	async function testConnection() {
@@ -282,12 +207,12 @@
 		testing = true;
 		testResult = { kind: 'pending', message: 'Connecting…' };
 		try {
-			const result = await api.POST('/api/v2/installer/test-connection', {
-				body: { sync_type: sourceType, url: sourceUrl.trim(), token: sourceToken.trim() }
-			});
-			if (result.error !== undefined || !result.data)
-				throw toApiError(result.error, result.response);
-			const libs = result.data.libraries ?? [];
+			const data = await raw(
+				api.POST('/api/v2/installer/test-connection', {
+					body: { sync_type: sourceType, url: sourceUrl.trim(), token: sourceToken.trim() }
+				})
+			);
+			const libs = data.libraries ?? [];
 			if (libs.length) sourceLibraries = libs.join(',');
 			testResult = {
 				kind: 'ok',
@@ -313,25 +238,21 @@
 		}
 		saving = true;
 		try {
-			// Add a media source as a regular sync source and kick off the first
-			// sync if asked. Skipped cleanly when no server was chosen.
 			if (sourceType) {
-				const created = (await api.POST('/api/v2/sync/sources', {
-					body: {
-						name: sourceType === 'plex' ? 'Plex' : 'Jellyfin',
-						sync_type: sourceType,
-						url: sourceUrl.trim(),
-						token: sourceToken.trim(),
-						libraries: sourceLibraries.trim() || 'Films,Movies',
-						enabled: true
-					}
-				})) as unknown as {
-					error?: unknown;
-					response: Response;
-					data?: { source?: { id?: number } };
-				};
-				if (created.error !== undefined) throw toApiError(created.error, created.response);
-				const sourceId = created.data?.source?.id;
+				// The reply is the {success, data: {source}} envelope.
+				const created = await unwrapLoose<{ source?: { id?: number } }>(
+					api.POST('/api/v2/sync/sources', {
+						body: {
+							name: sourceType === 'plex' ? 'Plex' : 'Jellyfin',
+							sync_type: sourceType,
+							url: sourceUrl.trim(),
+							token: sourceToken.trim(),
+							libraries: sourceLibraries.trim() || 'Films,Movies',
+							enabled: true
+						}
+					})
+				);
+				const sourceId = created.source?.id;
 				if (startSync && sourceId != null) {
 					await api.POST('/api/v2/sync/sources/{source_id}/runs', {
 						params: { path: { source_id: sourceId } },
@@ -347,12 +268,8 @@
 		}
 	}
 
-	// ---- step 4: tickets ------------------------------------------------------
-
 	async function loadStep4() {
 		step4Loaded = true;
-
-		// Ticket settings live in general settings.
 		try {
 			const data = await unwrap(api.GET('/api/v2/settings/'));
 			const g = data.settings;
@@ -385,13 +302,10 @@
 		}
 	}
 
-	// ---- step 5: readiness checklist actions ----------------------------------
-
 	function startChecklist() {
 		if (checklistStop) return;
 		void refreshChecklist();
-		// The server pings the `setup` key on the real-time channel while setup is
-		// unfinished; re-probe on that instead of a local interval.
+		// The server pings the `setup` key while setup is unfinished.
 		checklistStop = onInvalidate('setup', () => void refreshChecklist());
 	}
 
@@ -400,353 +314,305 @@
 		checklistStop = null;
 	}
 
-	function setCheck(name: string, state: CheckState, sub: string, action?: CheckAction) {
-		checks[name] = { state, sub, action };
-	}
-
 	async function refreshChecklist() {
 		if (checklistBusy) return;
 		checklistBusy = true;
 		try {
-			// Each probe resolves to null on failure so one flaky endpoint
-			// doesn't blank the whole checklist.
+			// Each probe resolves to null on failure so one flaky endpoint can't blank the list.
+			const orNull = <T,>(p: Promise<T>) => p.catch(() => null);
 			const [mpv, sources, jobs, movies] = await Promise.all([
-				unwrapLoose<{ connected?: boolean }>(api.GET('/api/v2/mpv/status')).catch(() => null),
-				unwrapLoose<{ sources?: { id: number }[] }>(api.GET('/api/v2/sync/sources')).catch(
-					() => null
+				orNull(unwrapLoose<{ connected?: boolean }>(api.GET('/api/v2/mpv/status'))),
+				orNull(unwrapLoose<{ sources?: { id: number }[] }>(api.GET('/api/v2/sync/sources'))),
+				orNull(
+					unwrapLoose<{ jobs?: ApiJob[] }>(
+						api.GET('/api/v2/sync/jobs', { params: { query: { limit: 10 } } })
+					)
 				),
-				unwrapLoose<{ jobs?: ApiJob[] }>(
-					api.GET('/api/v2/sync/jobs', { params: { query: { limit: 10 } } })
-				).catch(() => null),
-				unwrap(api.GET('/api/v2/movies/list', { params: { query: { per_page: 1 } } })).catch(
-					() => null
-				)
+				orNull(unwrap(api.GET('/api/v2/movies/list', { params: { query: { per_page: 1 } } })))
 			]);
 
-			renderPlayerCheck(mpv);
-			renderMediaCheck(sources, jobs, movies);
+			checks.player = playerCheck(mpv);
+			checks.media = mediaCheck(sources, jobs, movies);
 		} finally {
 			checklistBusy = false;
 		}
 	}
 
-	function renderPlayerCheck(mpv: { connected?: boolean } | null) {
-		if (!mpv) {
-			setCheck('player', 'warn', "Couldn't check the player status");
-		} else if (mpv.connected) {
-			setCheck('player', 'ok', 'Connected and ready for playout');
-		} else {
-			setCheck(
-				'player',
-				'warn',
-				"Not connected - playback won't work until the playout host is up",
-				{
-					label: 'Playout settings',
-					href: `${base}/settings?tab=playout`
-				}
-			);
-		}
+	const row = (state: CheckState, sub: string, action?: CheckRow['action']): CheckRow => ({
+		state,
+		sub,
+		action
+	});
+
+	function playerCheck(mpv: { connected?: boolean } | null): CheckRow {
+		if (!mpv) return row('warn', "Couldn't check the player status");
+		if (mpv.connected) return row('ok', 'Connected and ready for playout');
+		return row('warn', "Not connected - playback won't work until the playout host is up", {
+			label: 'Playout settings',
+			href: `${base}/settings?tab=playout`
+		});
 	}
 
-	function renderMediaCheck(
+	function mediaCheck(
 		sourcesData: { sources?: { id: number }[] } | null,
 		jobsData: { jobs?: ApiJob[] } | null,
 		moviesData: { pagination?: { total?: number } } | null
-	) {
-		if (!sourcesData) {
-			setCheck('media', 'warn', "Couldn't check media sources");
-			return;
-		}
-		const sources = sourcesData.sources ?? [];
-		if (!sources.length) {
-			setCheck('media', 'warn', 'No media source configured - add one to sync your movies', {
-				label: 'Add source',
-				href: `${base}/settings?tab=library`
-			});
-			return;
-		}
+	): CheckRow {
+		if (!sourcesData) return row('warn', "Couldn't check media sources");
+		const library = (label: string) => ({ label, href: `${base}/settings?tab=library` });
+		if (!sourcesData.sources?.length)
+			return row(
+				'warn',
+				'No media source configured - add one to sync your movies',
+				library('Add source')
+			);
 
 		const movies = (n: number) => `${n} ${n === 1 ? 'movie' : 'movies'}`;
 		const jobs = jobsData?.jobs ?? [];
 		const active = jobs.find((j) => j.is_active);
-		if (active) {
-			if (active.state === 'queued') {
-				setCheck('media', 'pending', 'Initial sync queued - waiting to start…');
-			} else {
-				setCheck(
-					'media',
-					'pending',
-					`Syncing your library - ${movies(active.current || 0)} so far…`
-				);
-			}
-			return;
-		}
+		if (active)
+			return row(
+				'pending',
+				active.state === 'queued'
+					? 'Initial sync queued - waiting to start…'
+					: `Syncing your library - ${movies(active.current || 0)} so far…`
+			);
 
 		const latest = jobs[0] ?? null;
-		if (latest && latest.state === 'failed') {
-			setCheck('media', 'err', 'Last sync failed - open the sync panel to retry', {
-				label: 'Open sync',
-				href: `${base}/settings?tab=library`
-			});
-			return;
-		}
-
+		if (latest?.state === 'failed')
+			return row('err', 'Last sync failed - open the sync panel to retry', library('Open sync'));
 		const movieTotal = moviesData?.pagination?.total ?? null;
-		if (movieTotal) {
-			setCheck('media', 'ok', `Synced - ${movies(movieTotal)} in your library`);
-		} else if (latest) {
-			setCheck('media', 'warn', 'Sync finished but found no movies - check the library names', {
-				label: 'Open sync',
-				href: `${base}/settings?tab=library`
-			});
-		} else {
-			setCheck('media', 'warn', 'Source configured - no sync has run yet', {
-				label: 'Run sync',
-				href: `${base}/settings?tab=library`
-			});
-		}
+		if (movieTotal) return row('ok', `Synced - ${movies(movieTotal)} in your library`);
+		if (latest)
+			return row(
+				'warn',
+				'Sync finished but found no movies - check the library names',
+				library('Open sync')
+			);
+		return row('warn', 'Source configured - no sync has run yet', library('Run sync'));
 	}
 
-	async function finish() {
+	async function finish(): Promise<void> {
 		stopChecklist();
-		try {
-			await api.POST('/api/v2/installer/wizard-step', { body: { step: 0 } });
-		} catch {
-			/* still leave */
-		}
+		await api.POST('/api/v2/installer/wizard-step', { body: { step: 0 } }).catch(() => {}); // still leave
 		void goto(`${base}/`, { replaceState: true });
 	}
+
+	// A passed step can be clicked to go back to it once setup is finalised.
+	const rail = $derived<RailGroup[]>(
+		GROUPS.map((g, i) => ({
+			...g,
+			done: i + 1 < (step ?? 1),
+			enabled: finalized && i + 1 < (step ?? 1)
+		}))
+	);
+	const goGroup = (id: string) => goStep(GROUPS.findIndex((g) => g.id === id) + 1);
+
+	let step1Form = $state<HTMLFormElement>();
+	const back = (n: number): WizardAction => ({ label: 'Back', onclick: () => goStep(n) });
+	const skip = (n: number): WizardAction => ({ label: 'Skip for now', onclick: () => goStep(n) });
+	const saveNext = (save: () => Promise<void>): WizardAction => ({
+		label: saving ? 'Saving…' : 'Save and continue',
+		disabled: saving,
+		onclick: () => void save()
+	});
+	const frame = $derived.by(() => {
+		switch (step) {
+			case 1:
+				return {
+					title: 'Your theater',
+					subtitle:
+						'A name and an optional password. Continuing finishes setup; the rest can be changed later in Settings.',
+					next: {
+						label: completing ? 'Setting up…' : 'Continue',
+						disabled: completing,
+						onclick: () => step1Form?.requestSubmit()
+					},
+					error: step1Error
+				};
+			case 2:
+				return {
+					title: 'Player',
+					subtitle: `${pairedWith} is ready. Add more players any time in Settings › Playout.`,
+					back: back(1),
+					next: { label: 'Continue', onclick: (): void => goStep(3) }
+				};
+			case 3:
+				return {
+					title: 'Your movies',
+					subtitle: 'Sync a movie library from Jellyfin or Plex. Optional.',
+					back: back(2),
+					skip: skip(4),
+					next: saveNext(saveStep3),
+					error: step3Error
+				};
+			case 4:
+				return {
+					title: 'Tickets',
+					subtitle:
+						"Your auditorium's size and the thermal printer, if you will print tickets. Optional.",
+					back: back(3),
+					skip: skip(5),
+					next: saveNext(saveStep4),
+					error: step4Error
+				};
+			default:
+				return {
+					title: "You're all set",
+					subtitle: 'These checks update live. None of them block you.',
+					back: back(4),
+					next: {
+						label: 'Go to dashboard',
+						icon: 'home' as const,
+						onclick: (): void => void finish()
+					}
+				};
+		}
+	});
 </script>
+
+{#snippet label(id: string, text: string, optional = false)}
+	<label class="mb-1 block text-xs font-medium text-muted" for={id}
+		>{text}{#if optional}
+			<span class="font-normal text-faint">optional</span>{/if}</label
+	>
+{/snippet}
 
 <svelte:head>
 	<title>Set up Cinefin</title>
 </svelte:head>
 
-<div class="fixed inset-0 z-40 overflow-y-auto bg-bg">
+<div class="fixed inset-0 z-40 flex flex-col overflow-y-auto bg-bg">
 	{#if step === null}
 		<div class="flex h-full items-center justify-center">
 			<Spinner />
 		</div>
 	{:else}
-		<main class="mx-auto w-full max-w-2xl px-4 py-10">
-			<header class="mb-8 text-center">
-				<!-- The mark at 2× its grid (56px), warm-up playing — the wizard is
-				     the product's first paint, so it gets the ceremony (spec M1). -->
-				<svg
-					class="warmup mx-auto mb-4 text-text"
-					height="56"
-					viewBox="0 0 36 48"
-					fill="none"
-					aria-hidden="true"
+		<header class="flex h-16 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
+			<!-- The mark, warm-up playing: the wizard is the product's first paint, so it
+			     gets the ceremony (spec M1). -->
+			<svg class="warmup text-text" height="28" viewBox="0 0 36 48" fill="none" aria-hidden="true">
+				<path
+					class="fr"
+					fill-rule="evenodd"
+					clip-rule="evenodd"
+					d="M0 0h36v48H0V0Zm3 3h30v42H3V3Z"
+					fill="currentColor"
+				/>
+				<g class="perf" fill="currentColor">
+					<rect x="6" y="6" width="4" height="6" /><rect x="6" y="16" width="4" height="6" />
+					<rect x="6" y="26" width="4" height="6" /><rect x="6" y="36" width="4" height="6" />
+					<rect x="26" y="6" width="4" height="6" /><rect x="26" y="16" width="4" height="6" />
+					<rect x="26" y="26" width="4" height="6" /><rect x="26" y="36" width="4" height="6" />
+				</g>
+				<rect class="ch ch-r" x="13" y="6" width="10" height="10" fill="#FF2F4D" />
+				<rect class="ch ch-g" x="13" y="19" width="10" height="10" fill="#25E88A" />
+				<rect class="ch ch-b" x="13" y="32" width="10" height="10" fill="#3A7BFF" />
+			</svg>
+			<span class="font-display text-lg text-text">Cinefin</span>
+			<span class="text-sm text-faint">Setup</span>
+		</header>
+		<div class="flex-1">
+			{#if step === 2 && !pairedWith}
+				<AddPlayerWizard
+					rail={{ before: rail.slice(0, 1), after: rail.slice(2), onselect: goGroup }}
+					onback={() => goStep(1)}
+					onskip={() => goStep(3)}
+					onfinish={(host) => {
+						pairedWith = host.name;
+						goStep(3);
+					}}
+				/>
+			{:else}
+				<WizardFrame
+					groups={rail}
+					group={GROUPS[step - 1].id}
+					title={frame.title}
+					subtitle={frame.subtitle}
+					back={frame.back}
+					skip={frame.skip}
+					next={frame.next}
+					error={frame.error}
+					onselect={goGroup}
 				>
-					<path
-						class="fr"
-						fill-rule="evenodd"
-						clip-rule="evenodd"
-						d="M0 0h36v48H0V0Zm3 3h30v42H3V3Z"
-						fill="currentColor"
-					/>
-					<g class="perf" fill="currentColor">
-						<rect x="6" y="6" width="4" height="6" /><rect x="6" y="16" width="4" height="6" />
-						<rect x="6" y="26" width="4" height="6" /><rect x="6" y="36" width="4" height="6" />
-						<rect x="26" y="6" width="4" height="6" /><rect x="26" y="16" width="4" height="6" />
-						<rect x="26" y="26" width="4" height="6" /><rect x="26" y="36" width="4" height="6" />
-					</g>
-					<rect class="ch ch-r" x="13" y="6" width="10" height="10" fill="#FF2F4D" />
-					<rect class="ch ch-g" x="13" y="19" width="10" height="10" fill="#25E88A" />
-					<rect class="ch ch-b" x="13" y="32" width="10" height="10" fill="#3A7BFF" />
-				</svg>
-				<h1 class="text-xl font-semibold text-text">{STEP_META[step].title}</h1>
-				<p class="mx-auto mt-1.5 max-w-md text-sm text-muted">{STEP_META[step].subtitle}</p>
-				<ol class="mt-5 flex items-center justify-center gap-2" aria-hidden="true">
-					{#each STEP_LABELS as label, i (label)}
-						{@const n = i + 1}
-						<li
-							class="flex items-center gap-1.5 text-xs
-								{n === step ? 'text-text' : n < step ? 'text-accent' : 'text-faint'}"
-						>
-							<span
-								class="flex h-5 w-5 items-center justify-center rounded-sm border text-[0.65rem]
-									{n === step
-									? 'border-accent bg-accent text-on-accent'
-									: n < step
-										? 'border-accent text-accent'
-										: 'border-border-strong'}"
-							>
-								{#if n < step}<Check class="h-3 w-3" />{:else}{n}{/if}
-							</span>
-							{label}
-						</li>
-					{/each}
-				</ol>
-			</header>
-
-			{#if step === 1}
-				<form class="space-y-4" onsubmit={submitStep1}>
-					<section class="border border-border bg-surface-1 p-4">
-						<div class="mb-4">
-							<h2 class="text-sm font-semibold text-text">Your theater</h2>
-							<p class="mt-0.5 text-xs text-muted">A name. Everything else is optional.</p>
-						</div>
-						<div class="space-y-4">
-							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="cinema-name"
-									>Theater name</label
-								>
-								<Input id="cinema-name" bind:value={cinemaName} placeholder="e.g. The Roxy" />
-								<p class="mt-1 text-xs text-faint">Shown around the app and printed on tickets.</p>
-							</div>
-							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="ratings-system"
-									>Ratings system</label
-								>
-								<Select id="ratings-system" bind:value={ratingsSystem} class="w-full">
-									<option value="BBFC">BBFC (British - U, PG, 12, 12A, 15, 18, R18)</option>
-									<option value="MPAA">MPAA (US - G, PG, PG-13, R, NC-17)</option>
-								</Select>
-								<p class="mt-1 text-xs text-faint">
-									How age ratings are displayed and matched. Movies and trailers are classified
-									using this system.
-								</p>
-							</div>
-						</div>
-					</section>
-
-					<section class="border border-border bg-surface-1 p-4">
-						<div class="mb-4">
-							<h2 class="text-sm font-semibold text-text">
-								Secure your install
-								<span class="ml-1 text-xs font-normal text-accent">recommended</span>
-							</h2>
-							<p class="mt-0.5 text-xs text-muted">
-								Set a password to require a login before anyone can control the theater, run
-								commands, or restore backups. Leave blank to run without one.
-							</p>
-						</div>
-						<div class="space-y-4">
-							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="admin-username"
-									>Admin username</label
-								>
-								<Input id="admin-username" bind:value={adminUsername} placeholder="admin" />
-							</div>
-							<div class="grid gap-4 sm:grid-cols-2">
+					{#if step === 1}
+						<form class="space-y-6" bind:this={step1Form} onsubmit={submitStep1}>
+							<div class="space-y-4">
 								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="admin-password"
-										>Password <span class="font-normal text-faint">optional</span></label
-									>
-									<Input
-										id="admin-password"
-										type="password"
-										bind:value={adminPassword}
-										placeholder="Leave blank to skip"
-									/>
+									{@render label('cinema-name', 'Theater name')}
+									<Input id="cinema-name" bind:value={cinemaName} placeholder="e.g. The Roxy" />
+									<p class="mt-1 text-xs text-faint">
+										Shown around the app and printed on tickets.
+									</p>
 								</div>
 								<div>
-									<label
-										class="mb-1 block text-xs font-medium text-muted"
-										for="admin-password-confirm">Confirm password</label
-									>
-									<Input
-										id="admin-password-confirm"
-										type="password"
-										bind:value={adminPasswordConfirm}
-										placeholder="Repeat password"
-									/>
+									{@render label('ratings-system', 'Ratings system')}
+									<Select id="ratings-system" bind:value={ratingsSystem} class="w-full">
+										<option value="BBFC">BBFC (British - U, PG, 12, 12A, 15, 18, R18)</option>
+										<option value="MPAA">MPAA (US - G, PG, PG-13, R, NC-17)</option>
+									</Select>
+									<p class="mt-1 text-xs text-faint">
+										How age ratings are displayed and matched. Movies and trailers are classified
+										using this system.
+									</p>
 								</div>
 							</div>
-							<p class="text-xs text-faint">
-								Any password you like - this is a single-user home system.
-							</p>
-						</div>
-					</section>
-
-					{#if step1Error}
-						<div class="border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-							{step1Error}
-						</div>
-					{/if}
-
-					<div class="flex justify-end">
-						<Button type="submit" variant="primary" disabled={completing}>
-							{completing ? 'Setting up…' : 'Continue'}
-							<ArrowRight class="h-3.5 w-3.5" />
-						</Button>
-					</div>
-				</form>
-			{:else if step === 2}
-				<div class="space-y-4">
-					<section class="border border-border bg-surface-1 p-4">
-						<div class="space-y-4">
-							{#if pairedWith}
-								<p class="flex items-center gap-2 text-sm">
-									<CircleCheck class="h-4 w-4 text-success" />
-									<span><strong>{pairedWith}</strong> is ready.</span>
-								</p>
-							{:else}
-								<AddPlayerWizard onfinish={(host) => (pairedWith = host.name)} />
-							{/if}
-						</div>
-					</section>
-					<section class="border border-border bg-surface-1 p-4">
-						<div>
-							<label class="mb-1 block text-xs font-medium text-muted" for="set-server-url"
-								>Streaming base URL</label
-							>
-							<Input
-								id="set-server-url"
-								bind:value={serverUrl}
-								placeholder="http://cinema.local:8000"
-							/>
-							<p class="mt-1 text-xs text-faint">
-								The player streams idents, movies, trailers and custom media from Cinefin at this
-								URL, so the playout machine must be able to reach it. Prefilled with this browser's
-								address. Change it if the machine sees Cinefin differently. Blank uses the server
-								default.
-							</p>
-						</div>
-					</section>
-
-					{#if step2Error}
-						<div class="border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-							{step2Error}
-						</div>
-					{/if}
-
-					<div class="flex items-center justify-between">
-						<Button variant="ghost" onclick={() => goStep(1)}>
-							<ArrowLeft class="h-3.5 w-3.5" /> Back
-						</Button>
-						<div class="flex items-center gap-2">
-							<Button variant="ghost" onclick={() => goStep(3)}>Skip for now</Button>
-							<Button variant="primary" disabled={saving} onclick={saveStep2}>
-								{saving ? 'Saving…' : 'Save & continue'}
-								<ArrowRight class="h-3.5 w-3.5" />
-							</Button>
-						</div>
-					</div>
-				</div>
-			{:else if step === 3}
-				<div class="space-y-4">
-					<section class="border border-border bg-surface-1 p-4">
-						<div class="mb-4">
-							<h2 class="text-sm font-semibold text-text">
-								Media library <span class="ml-1 text-xs font-normal text-faint">optional</span>
-							</h2>
-							<p class="mt-0.5 text-xs text-muted">
-								Connect a Jellyfin or Plex server to sync your movies. Optional
-							</p>
-						</div>
+							<section class="border border-border bg-surface-1 p-4">
+								<div class="mb-4">
+									<h2 class="text-sm font-semibold text-text">
+										Secure your install
+										<span class="ml-1 text-xs font-normal text-accent">recommended</span>
+									</h2>
+									<p class="mt-0.5 text-xs text-muted">
+										Set a password to require a login before anyone can control the theater, run
+										commands, or restore backups. Leave blank to run without one.
+									</p>
+								</div>
+								<div class="space-y-4">
+									<div>
+										{@render label('admin-username', 'Admin username')}
+										<Input id="admin-username" bind:value={adminUsername} placeholder="admin" />
+									</div>
+									<div class="grid gap-4 sm:grid-cols-2">
+										<div>
+											{@render label('admin-password', 'Password', true)}
+											<Input
+												id="admin-password"
+												type="password"
+												bind:value={adminPassword}
+												placeholder="Leave blank to skip"
+											/>
+										</div>
+										<div>
+											{@render label('admin-password-confirm', 'Confirm password')}
+											<Input
+												id="admin-password-confirm"
+												type="password"
+												bind:value={adminPasswordConfirm}
+												placeholder="Repeat password"
+											/>
+										</div>
+									</div>
+									<p class="text-xs text-faint">
+										Any password you like - this is a single-user home system.
+									</p>
+								</div>
+							</section>
+						</form>
+					{:else if step === 2}
+						<p class="flex items-center gap-2 text-sm">
+							<CircleCheck class="h-4 w-4 text-success" />
+							<span><strong>{pairedWith}</strong> is paired and playing through Cinefin.</span>
+						</p>
+					{:else if step === 3}
 						<div class="space-y-4">
 							<div class="grid gap-4 sm:grid-cols-[10rem_1fr]">
 								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="source-type"
-										>Server</label
-									>
+									{@render label('source-type', 'Server')}
 									<Select
 										id="source-type"
 										bind:value={sourceType}
-										onchange={onSourceTypeChange}
+										onchange={() => (testResult = null)}
 										class="w-full"
 									>
 										<option value="">- None -</option>
@@ -755,9 +621,7 @@
 									</Select>
 								</div>
 								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="source-url"
-										>Server URL</label
-									>
+									{@render label('source-url', 'Server URL')}
 									<Input
 										id="source-url"
 										bind:value={sourceUrl}
@@ -767,9 +631,7 @@
 								</div>
 							</div>
 							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="source-token"
-									>API token</label
-								>
+								{@render label('source-token', 'API token')}
 								<Input
 									id="source-token"
 									bind:value={sourceToken}
@@ -782,22 +644,13 @@
 									<Plug class="h-3.5 w-3.5" /> Test connection
 								</Button>
 								{#if testResult}
-									<span
-										class="text-xs
-											{testResult.kind === 'ok'
-											? 'text-success'
-											: testResult.kind === 'error'
-												? 'text-danger'
-												: 'text-muted'}"
-									>
+									<span class="text-xs {TEST_COLOUR[testResult.kind]}">
 										{testResult.message}
 									</span>
 								{/if}
 							</div>
 							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="source-libraries"
-									>Libraries</label
-								>
+								{@render label('source-libraries', 'Libraries')}
 								<Input
 									id="source-libraries"
 									bind:value={sourceLibraries}
@@ -820,57 +673,20 @@
 								Start syncing movies now
 							</label>
 						</div>
-					</section>
-
-					{#if step3Error}
-						<div class="border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-							{step3Error}
-						</div>
-					{/if}
-
-					<div class="flex items-center justify-between">
-						<Button variant="ghost" onclick={() => goStep(2)}>
-							<ArrowLeft class="h-3.5 w-3.5" /> Back
-						</Button>
-						<div class="flex items-center gap-2">
-							<Button variant="ghost" onclick={() => goStep(4)}>Skip for now</Button>
-							<Button variant="primary" disabled={saving} onclick={saveStep3}>
-								{saving ? 'Saving…' : 'Save & continue'}
-								<ArrowRight class="h-3.5 w-3.5" />
-							</Button>
-						</div>
-					</div>
-				</div>
-			{:else if step === 4}
-				<div class="space-y-4">
-					<section class="border border-border bg-surface-1 p-4">
-						<div class="mb-4">
-							<h2 class="text-sm font-semibold text-text">
-								Ticket printer <span class="ml-1 text-xs font-normal text-faint">optional</span>
-							</h2>
-							<p class="mt-0.5 text-xs text-muted">
-								Set your auditorium size and thermal printer device if you'll be printing tickets.
-							</p>
-						</div>
+					{:else if step === 4}
 						<div class="space-y-4">
 							<div class="grid gap-4 sm:grid-cols-2">
 								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="set-rows"
-										>Rows</label
-									>
+									{@render label('set-rows', 'Rows')}
 									<Input id="set-rows" type="number" bind:value={ticketRows} />
 								</div>
 								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="set-seats"
-										>Seats per row</label
-									>
+									{@render label('set-seats', 'Seats per row')}
 									<Input id="set-seats" type="number" bind:value={ticketSeats} />
 								</div>
 							</div>
 							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="set-printer-device"
-									>Printer device</label
-								>
+								{@render label('set-printer-device', 'Printer device')}
 								<Input
 									id="set-printer-device"
 									bind:value={printerDevice}
@@ -878,55 +694,18 @@
 								/>
 							</div>
 						</div>
-					</section>
-
-					{#if step4Error}
-						<div class="border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
-							{step4Error}
-						</div>
-					{/if}
-
-					<div class="flex items-center justify-between">
-						<Button variant="ghost" onclick={() => goStep(3)}>
-							<ArrowLeft class="h-3.5 w-3.5" /> Back
-						</Button>
-						<div class="flex items-center gap-2">
-							<Button variant="ghost" onclick={() => goStep(5)}>Skip for now</Button>
-							<Button variant="primary" disabled={saving} onclick={saveStep4}>
-								{saving ? 'Saving…' : 'Save & continue'}
-								<ArrowRight class="h-3.5 w-3.5" />
-							</Button>
-						</div>
-					</div>
-				</div>
-			{:else if step === 5}
-				<div class="space-y-4">
-					<section class="border border-border bg-surface-1 p-4">
-						<div class="mb-4">
-							<h2 class="text-sm font-semibold text-text">You're all set</h2>
-							<p class="mt-0.5 text-xs text-muted">
-								These checks update live. None of them block you.
-							</p>
-						</div>
+					{:else}
 						<ul class="divide-y divide-border" aria-live="polite">
 							{#each Object.entries(checks) as [name, row] (name)}
 								<li class="flex items-center gap-3 py-3">
 									<span
-										class="flex h-5 w-5 shrink-0 items-center justify-center
-											{row.state === 'ok'
-											? 'text-success'
-											: row.state === 'warn'
-												? 'text-warning'
-												: row.state === 'err'
-													? 'text-danger'
-													: 'text-muted'}"
+										class="flex h-5 w-5 shrink-0 items-center justify-center {CHECK_COLOUR[
+											row.state
+										]}"
 									>
-										{#if row.state === 'ok'}
-											<CircleCheck class="h-4.5 w-4.5" />
-										{:else if row.state === 'warn'}
-											<CircleAlert class="h-4.5 w-4.5" />
-										{:else if row.state === 'err'}
-											<CircleX class="h-4.5 w-4.5" />
+										{#if row.state !== 'pending'}
+											{@const Icon = CHECK_ICON[row.state]}
+											<Icon class="h-4.5 w-4.5" />
 										{:else}
 											<i class="lamp-pending h-2 w-2 bg-faint" aria-hidden="true"></i>
 										{/if}
@@ -936,39 +715,17 @@
 										<span class="block text-xs text-muted">{row.sub}</span>
 									</span>
 									{#if row.action}
-										{#if row.action.step}
-											<button
-												type="button"
-												class="shrink-0 text-xs text-accent hover:underline"
-												onclick={() => goStep(row.action!.step!)}
-											>
-												{row.action.label}
-											</button>
-										{:else}
-											<a
-												class="shrink-0 text-xs text-accent hover:underline"
-												href={row.action.href}
-											>
-												{row.action.label}
-											</a>
-										{/if}
+										<a class="shrink-0 text-xs text-accent hover:underline" href={row.action.href}>
+											{row.action.label}
+										</a>
 									{/if}
 								</li>
 							{/each}
 						</ul>
-					</section>
-
-					<div class="flex items-center justify-between">
-						<Button variant="ghost" onclick={() => goStep(4)}>
-							<ArrowLeft class="h-3.5 w-3.5" /> Back
-						</Button>
-						<Button variant="primary" onclick={finish}>
-							<House class="h-3.5 w-3.5" /> Go to dashboard
-						</Button>
-					</div>
-				</div>
+					{/if}
+				</WizardFrame>
 			{/if}
-		</main>
+		</div>
 	{/if}
 </div>
 
@@ -994,31 +751,17 @@
 		.warmup .perf {
 			animation: frame-in 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) 0.6s both;
 		}
-		.lamp-pending {
-			animation: lamp-pulse 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
-		}
 	}
+	/* No `to` frames: they default to the element's own (opaque, untransformed) style. */
 	@keyframes warm-strike {
 		from {
 			opacity: 0;
 			transform: translateY(4px) scaleY(0.72);
 		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
 	}
 	@keyframes frame-in {
 		from {
 			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-	@keyframes lamp-pulse {
-		50% {
-			opacity: 0.3;
 		}
 	}
 </style>

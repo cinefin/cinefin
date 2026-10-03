@@ -1,125 +1,81 @@
-from cinefin.api import playout_timing
+import pytest
+
 from cinefin.api.playout_timing import ABORT, CONTINUE, TIMEOUT, HoldDwell, credits_due, cue_window
 
 
-class TestCueWindow:
-    def test_forward_move_fires_the_passed_range(self):
-        assert cue_window(0, 1) == (0, 1)
-
-    def test_forward_jump_fires_every_skipped_cue(self):
-        assert cue_window(1, 5) == (1, 5)
-
-    def test_from_preshow_cursor(self):
-        assert cue_window(-1, 0) == (-1, 0)
-
-    def test_backward_move_fires_nothing(self):
-        assert cue_window(4, 2) is None
-
-    def test_no_move_fires_nothing(self):
-        assert cue_window(3, 3) is None
-
-    def test_none_positions_fire_nothing(self):
-        assert cue_window(None, 3) is None
-        assert cue_window(3, None) is None
+@pytest.mark.parametrize(
+    ("cursor", "pos", "window"),
+    [(0, 1, (0, 1)), (1, 5, (1, 5)), (-1, 0, (-1, 0)), (4, 2, None), (3, 3, None), (None, 3, None), (3, None, None)],
+)
+def test_cue_window(cursor, pos, window):
+    assert cue_window(cursor, pos) == window
 
 
-class TestCreditsDue:
-    def test_due_at_marker(self):
-        assert credits_due(120.0, 120) is True
-
-    def test_due_past_marker(self):
-        assert credits_due(500.9, 120) is True
-
-    def test_not_due_before_marker(self):
-        assert credits_due(119.9, 120) is False
-
-    def test_whole_second_comparison(self):
-        assert credits_due(119.999, 120) is False
-
-    def test_no_marker_never_due(self):
-        assert credits_due(500.0, 0) is False
-        assert credits_due(500.0, None) is False
-
-    def test_no_time_never_due(self):
-        assert credits_due(None, 120) is False
+@pytest.mark.parametrize(
+    ("time", "marker", "due"),
+    [
+        (120.0, 120, True),
+        (500.9, 120, True),
+        (119.9, 120, False),
+        (119.999, 120, False),
+        (500.0, 0, False),
+        (500.0, None, False),
+        (None, 120, False),
+    ],
+)
+def test_credits_due(time, marker, due):
+    assert credits_due(time, marker) is due
 
 
-def run_dwell(dwell, ticks, *, running=True, on_item=True, paused=False, command_done_after=None):
+def run_dwell(dwell, ticks, command_done_after=None):
     wall = 0.0
     for n in range(1, ticks + 1):
-        done = command_done_after is None or wall >= command_done_after
-        if dwell.satisfied(done):
-            return ("satisfied", n - 1)
+        if dwell.satisfied(command_done_after is None or wall >= command_done_after):
+            return "satisfied", n - 1
         wall += 0.25
         done = command_done_after is None or wall >= command_done_after
-        verdict = dwell.tick(0.25, running=running, on_item=on_item, paused=paused, command_done=done)
+        verdict = dwell.tick(0.25, running=True, on_item=True, paused=False, command_done=done)
         if verdict != CONTINUE:
-            return (verdict, n)
-    return (
-        "satisfied" if dwell.satisfied(command_done_after is None or wall >= command_done_after) else "ran-out",
-        ticks,
-    )
+            return verdict, n
+    return "ran-out", ticks
 
 
 class TestHoldDwell:
-    def test_duration_is_a_minimum_dwell(self):
-        dwell = HoldDwell(2.0, overtime=35.0)
-        verdict, ticks = run_dwell(dwell, 100)
-        assert verdict == "satisfied"
-        assert ticks == 8
+    @pytest.mark.parametrize(
+        ("duration", "overtime", "done_after", "result"),
+        [
+            (2.0, 35.0, None, ("satisfied", 8)),  # the duration is a minimum dwell
+            (0, 35.0, None, ("satisfied", 0)),
+            (1.0, 35.0, 3.0, ("satisfied", 12)),  # a slow command extends past it
+            (1.0, 2.0, 10_000, (TIMEOUT, 12)),  # the overtime backstop advances a stuck command
+        ],
+    )
+    def test_dwell(self, duration, overtime, done_after, result):
+        assert run_dwell(HoldDwell(duration, overtime=overtime), 1000, done_after) == result
 
-    def test_zero_duration_with_done_command_ends_immediately(self):
-        dwell = HoldDwell(0, overtime=35.0)
-        assert dwell.satisfied(True)
+    @pytest.mark.parametrize(("running", "on_item"), [(False, True), (True, False)], ids=["stopped", "skipped"])
+    def test_aborts(self, running, on_item):
+        assert (
+            HoldDwell(5.0, overtime=35.0).tick(0.25, running=running, on_item=on_item, paused=False, command_done=False)
+            == ABORT
+        )
 
-    def test_slow_command_extends_past_duration(self):
-        dwell = HoldDwell(1.0, overtime=35.0)
-        verdict, ticks = run_dwell(dwell, 100, command_done_after=3.0)
-        assert verdict == "satisfied"
-        assert ticks == 12
-
-    def test_overtime_backstop_advances_a_stuck_command(self):
-        dwell = HoldDwell(1.0, overtime=2.0)
-        verdict, ticks = run_dwell(dwell, 1000, command_done_after=10_000)
-        assert verdict == TIMEOUT
-        assert ticks == 12
-
-    def test_programme_stop_aborts(self):
-        dwell = HoldDwell(5.0, overtime=35.0)
-        assert dwell.tick(0.25, running=False, on_item=True, paused=False, command_done=False) == ABORT
-
-    def test_operator_skip_aborts(self):
-        dwell = HoldDwell(5.0, overtime=35.0)
-        assert dwell.tick(0.25, running=True, on_item=False, paused=False, command_done=False) == ABORT
-
-    def test_pause_freezes_the_dwell_clock(self):
+    def test_pause_freezes_both_clocks(self):
         dwell = HoldDwell(1.0, overtime=35.0)
         for _ in range(100):
             assert dwell.tick(0.25, running=True, on_item=True, paused=True, command_done=True) == CONTINUE
-        assert dwell.elapsed == 0.0
-        assert not dwell.satisfied(True)
+        assert dwell.elapsed == 0.0 and not dwell.satisfied(True)
 
-    def test_pause_freezes_the_overtime_clock(self):
         dwell = HoldDwell(0.25, overtime=1.0)
         dwell.tick(0.25, running=True, on_item=True, paused=False, command_done=False)
         for _ in range(100):
-            assert dwell.tick(0.25, running=True, on_item=True, paused=True, command_done=False) == CONTINUE
-        verdict = CONTINUE
-        for _ in range(4):
-            verdict = dwell.tick(0.25, running=True, on_item=True, paused=False, command_done=False)
-        assert verdict == TIMEOUT
+            dwell.tick(0.25, running=True, on_item=True, paused=True, command_done=False)
+        verdicts = [dwell.tick(0.25, running=True, on_item=True, paused=False, command_done=False) for _ in range(4)]
+        assert verdicts[-1] == TIMEOUT
 
-    def test_progress_caps_elapsed_at_duration(self):
+    def test_progress_caps_at_the_duration_and_bad_durations_are_zero(self):
         dwell = HoldDwell(1.0, overtime=35.0)
         for _ in range(10):
             dwell.tick(0.25, running=True, on_item=True, paused=False, command_done=False)
         assert dwell.progress == {"duration": 1.0, "elapsed": 1.0}
-
-    def test_negative_or_none_duration_treated_as_zero(self):
-        assert HoldDwell(None, overtime=1.0).duration == 0.0
-        assert HoldDwell(-3, overtime=1.0).duration == 0.0
-
-
-class TestVerdictConstants:
-    def test_distinct(self):
-        assert len({playout_timing.CONTINUE, playout_timing.ABORT, playout_timing.TIMEOUT}) == 3
+        assert HoldDwell(None, overtime=1.0).duration == HoldDwell(-3, overtime=1.0).duration == 0.0

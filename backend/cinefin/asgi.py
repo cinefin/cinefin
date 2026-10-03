@@ -1,10 +1,4 @@
-"""
-ASGI entrypoint for cinefin.
-
-Django serves all HTTP (the REST API, media/streaming, the SPA) via its own ASGI
-app; the one real-time WebSocket (/ws/events) is handled by a small raw-ASGI app
-mounted alongside it. Run under an ASGI server (uvicorn) — see docker/.
-"""
+"""ASGI entrypoint: Django serves all HTTP; the /ws/events WebSocket is a small raw-ASGI app beside it."""
 
 import os
 

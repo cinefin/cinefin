@@ -1,8 +1,5 @@
 <script lang="ts">
-	// A programme's features as an overlapping stack in running order. Past `max`
-	// films a "+N" badge counts the rest and the window slides to keep the playing
-	// feature in view. With `currentId` the playing feature is lit and on top;
-	// finished ones dim. No films: a placeholder.
+	// A programme's features as an overlapping stack; with `currentId` the playing one is lit.
 	import { Film } from '@lucide/svelte';
 
 	interface Feature {

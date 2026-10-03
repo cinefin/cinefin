@@ -2,11 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 
-	/**
-	 * A user-media tag badge. When the tag carries a colour it tints the chip
-	 * with that hue (a faint fill + the colour as text, matching the quiet-tint
-	 * badge look); with no colour it falls back to the neutral outline badge.
-	 */
+	/** A user-media tag badge, tinted with the tag's colour when it has one. */
 	interface Props {
 		color?: string | null;
 		class?: string;
@@ -15,8 +11,6 @@
 
 	let { color = null, class: cls = '', children }: Props = $props();
 
-	// A 6-digit hex + "22" alpha (~13%) gives the same soft-tint fill the token
-	// badges use, and the solid hue reads as the text/border.
 	const tinted = $derived(!!color && /^#[0-9a-fA-F]{6}$/.test(color));
 </script>
 

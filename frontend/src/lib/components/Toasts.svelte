@@ -18,9 +18,7 @@
 </script>
 
 {#if toasts.list.length}
-	<!-- One global stack, mounted once in the app layout. Sits top-centre just
-	     below the h-14 topbar so it never obscures a page's own controls (the
-	     Settings save bar in particular lives bottom-right). -->
+	<!-- Top-centre below the topbar, clear of the Settings save bar (bottom-right). -->
 	<div
 		class="pointer-events-none fixed top-16 left-1/2 z-50 flex w-96 max-w-[calc(100vw-2rem)]
 			-translate-x-1/2 flex-col gap-2"

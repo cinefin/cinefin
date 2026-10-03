@@ -1,6 +1,6 @@
 <script lang="ts">
-	// The settings of one ticket element (any kind but columns), whether it is a line of its own or
-	// an item in a columns cell. Changes go back through `onpatch`, which records and saves them.
+	// One ticket element's settings (any kind but columns), as a line or an item in a cell. Changes go
+	// back through `onpatch`, which records and saves them.
 	import Field from '$lib/settings/Field.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
@@ -14,6 +14,7 @@
 		QR_RENDERS,
 		TEXT_SIZES,
 		TOKENS,
+		type Choice,
 		type TicketElement
 	} from './kinds';
 
@@ -24,6 +25,10 @@
 	let { el, onpatch }: Props = $props();
 
 	const uid = $props.id();
+	const QR_MODES = [
+		{ id: 'fun', label: 'A surprise link' },
+		{ id: 'content', label: 'Fixed content' }
+	];
 	const val = (e: Event) => (e.currentTarget as HTMLInputElement).value;
 	const checked = (e: Event) => (e.currentTarget as HTMLInputElement).checked;
 	const inputCls =
@@ -74,6 +79,27 @@
 	</Field>
 {/snippet}
 
+{#snippet contentInput()}
+	<Field label="Content" forId="{uid}-content">
+		<input
+			id="{uid}-content"
+			type="text"
+			class={inputCls}
+			bind:this={contentField}
+			value={el.content ?? ''}
+			oninput={(e) => onpatch('content', val(e))}
+		/>
+	</Field>
+{/snippet}
+
+{#snippet select(label: string, key: keyof TicketElement, value: string, choices: Choice[])}
+	<Field {label} forId="{uid}-{key}">
+		<Select id="{uid}-{key}" {value} onchange={(e) => onpatch(key, val(e))}>
+			{#each choices as c (c.id)}<option value={c.id}>{c.label}</option>{/each}
+		</Select>
+	</Field>
+{/snippet}
+
 {#snippet tokens()}
 	<div class="flex flex-wrap gap-1.5" role="group" aria-label="Insert a detail">
 		{#each TOKENS as t (t.id)}
@@ -101,25 +127,8 @@
 		{@render tokens()}
 	{:else if el.type === 'barcode'}
 		<div class="grid gap-3 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
-			<Field label="Type" forId="{uid}-symbology">
-				<Select
-					id="{uid}-symbology"
-					value={el.symbology || 'code128'}
-					onchange={(e) => onpatch('symbology', val(e))}
-				>
-					{#each BARCODES as b (b.id)}<option value={b.id}>{b.label}</option>{/each}
-				</Select>
-			</Field>
-			<Field label="Content" forId="{uid}-content">
-				<input
-					id="{uid}-content"
-					type="text"
-					class={inputCls}
-					bind:this={contentField}
-					value={el.content ?? ''}
-					oninput={(e) => onpatch('content', val(e))}
-				/>
-			</Field>
+			{@render select('Type', 'symbology', el.symbology || 'code128', BARCODES)}
+			{@render contentInput()}
 		</div>
 		{@render tokens()}
 		<p class="text-xs text-muted">
@@ -128,49 +137,15 @@
 		</p>
 	{:else if el.type === 'qr'}
 		<div class="grid gap-3 sm:grid-cols-2">
-			<Field label="Opens" forId="{uid}-mode">
-				<Select
-					id="{uid}-mode"
-					value={el.mode === 'fun' ? 'fun' : 'content'}
-					onchange={(e) => onpatch('mode', val(e))}
-				>
-					<option value="fun">A surprise link</option>
-					<option value="content">Fixed content</option>
-				</Select>
-			</Field>
-			<Field label="Error correction" forId="{uid}-error">
-				<Select
-					id="{uid}-error"
-					value={el.error || 'low'}
-					onchange={(e) => onpatch('error', val(e))}
-				>
-					{#each QR_ERRORS as q (q.id)}<option value={q.id}>{q.label}</option>{/each}
-				</Select>
-			</Field>
-			<Field label="Drawn by" forId="{uid}-render">
-				<Select
-					id="{uid}-render"
-					value={el.render || 'image'}
-					onchange={(e) => onpatch('render', val(e))}
-				>
-					{#each QR_RENDERS as r (r.id)}<option value={r.id}>{r.label}</option>{/each}
-				</Select>
-			</Field>
+			{@render select('Opens', 'mode', el.mode === 'fun' ? 'fun' : 'content', QR_MODES)}
+			{@render select('Error correction', 'error', el.error || 'low', QR_ERRORS)}
+			{@render select('Drawn by', 'render', el.render || 'image', QR_RENDERS)}
 		</div>
 		{@render width(50)}
 		{#if el.mode === 'fun'}
 			<p class="text-xs text-muted">One of the design's surprise links, picked at random.</p>
 		{:else}
-			<Field label="Content" forId="{uid}-content">
-				<input
-					id="{uid}-content"
-					type="text"
-					class={inputCls}
-					bind:this={contentField}
-					value={el.content ?? ''}
-					oninput={(e) => onpatch('content', val(e))}
-				/>
-			</Field>
+			{@render contentInput()}
 			{@render tokens()}
 		{/if}
 		<p class="text-xs text-muted">

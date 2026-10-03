@@ -4,19 +4,11 @@
 	import ConfigField from '../ConfigField.svelte';
 	import ConfigForm from '../ConfigForm.svelte';
 	import { pickTrailerIntoBlock } from '../pick-actions';
-	import type { EditorBlock, EditorContext } from '../types';
+	import type { ConfigProps } from '../types';
 
-	interface Props {
-		block: EditorBlock;
-		ctx: EditorContext;
-		commit: (mutate: () => void) => void;
-	}
+	let { block, ctx, commit }: ConfigProps = $props();
 
-	let { block, ctx, commit }: Props = $props();
-
-	async function chooseTrailer(): Promise<void> {
-		await pickTrailerIntoBlock(block, ctx, commit);
-	}
+	const choose = () => void pickTrailerIntoBlock(block, ctx, commit);
 </script>
 
 <ConfigForm>
@@ -25,11 +17,11 @@
 			<span class="min-w-0 truncate text-sm" title={block.content.title || ''}>
 				{block.content.title || 'Trailer'}
 			</span>
-			<Button size="sm" class="shrink-0" onclick={() => void chooseTrailer()}>
+			<Button size="sm" class="shrink-0" onclick={choose}>
 				<ArrowLeftRight size={12} /> Change
 			</Button>
 		{:else}
-			<Button size="sm" onclick={() => void chooseTrailer()}>
+			<Button size="sm" onclick={choose}>
 				<Clapperboard size={12} /> Choose trailer…
 			</Button>
 		{/if}

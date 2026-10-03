@@ -1,11 +1,7 @@
 <script lang="ts">
 	import type { KioskFilmish } from './types';
 
-	interface Props {
-		film?: KioskFilmish | null;
-		cls?: string;
-	}
-	let { film = null, cls = '' }: Props = $props();
+	let { film = null, cls = '' }: { film?: KioskFilmish | null; cls?: string } = $props();
 
 	let failedSrc = $state<string | null>(null);
 	const missing = $derived(!film?.poster || failedSrc === film.poster);

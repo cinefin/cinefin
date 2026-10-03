@@ -20,7 +20,7 @@
 	import { api } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { showToast } from '$lib/toast.svelte';
-	import { SettingsStore, formatStamp } from '$lib/settings/form.svelte';
+	import { SettingsStore, attempt, formatStamp } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -42,23 +42,21 @@
 	const confirm = (text: string, opts?: { confirmLabel?: string }) =>
 		confirmDialog.confirm(text, opts);
 
-	type Section =
-		| 'playout'
-		| 'cinema'
-		| 'tickets'
-		| 'kiosk'
-		| 'library'
-		| 'appearance'
-		| 'plugins'
-		| 'security'
-		| 'backup';
+	const BLURBS = {
+		playout: 'The machine at the screen, its picture and sound, and what plays around a programme.',
+		cinema:
+			"Your theater's identity and seating, and the certification cards shown before features.",
+		tickets: 'Ticket designs and the thermal printer they print on.',
+		kiosk: 'Defaults for every kiosk screen; each display can still override them.',
+		library: 'The one media server your films come from, and the TMDB key that enriches them.',
+		appearance: 'How the web app looks - the navbar logo, accent colour and clock format.',
+		plugins: 'The kinds of action your commands can run, and the connection settings they need.',
+		security: 'Require a login to reach Cinefin, and mint API keys for programmatic access.',
+		backup: 'Save a complete copy of your Cinefin database, and restore it if something goes wrong.'
+	};
+	type Section = keyof typeof BLURBS;
 
-	interface NavItem {
-		id: Section;
-		label: string;
-		icon: LucideIcon;
-	}
-	const NAV: { group: string; items: NavItem[] }[] = [
+	const NAV: { group: string; items: { id: Section; label: string; icon: LucideIcon }[] }[] = [
 		{
 			group: 'Core',
 			items: [
@@ -84,7 +82,7 @@
 			]
 		}
 	];
-	const ALL_SECTIONS = NAV.flatMap((g) => g.items.map((i) => i.id));
+	const ITEMS = NAV.flatMap((g) => g.items);
 
 	let ticketsTab = $state<'designs' | 'printer'>('designs');
 	let section = $state<Section>('playout');
@@ -93,7 +91,7 @@
 	// already here (the health menu) navigates without remounting the page.
 	$effect.pre(() => {
 		const tab = page.url.searchParams.get('tab') as Section;
-		if (ALL_SECTIONS.includes(tab)) section = tab;
+		if (ITEMS.some((i) => i.id === tab)) section = tab;
 		if (page.url.searchParams.get('view') === 'printer') ticketsTab = 'printer';
 	});
 
@@ -105,46 +103,7 @@
 		replaceState(url, {});
 	}
 
-	const HEADINGS: Record<Section, { title: string; blurb: string }> = {
-		playout: {
-			title: 'Playout',
-			blurb: 'The machine at the screen, its picture and sound, and what plays around a programme.'
-		},
-		cinema: {
-			title: 'Theater',
-			blurb:
-				"Your theater's identity and seating, and the certification cards shown before features."
-		},
-		tickets: {
-			title: 'Tickets',
-			blurb: 'Ticket designs and the thermal printer they print on.'
-		},
-		kiosk: {
-			title: 'Kiosk display',
-			blurb: 'Defaults for every kiosk screen; each display can still override them.'
-		},
-		library: {
-			title: 'Library source',
-			blurb: 'The one media server your films come from, and the TMDB key that enriches them.'
-		},
-		appearance: {
-			title: 'Appearance',
-			blurb: 'How the web app looks - the navbar logo, accent colour and clock format.'
-		},
-		plugins: {
-			title: 'Plugins',
-			blurb: 'The kinds of action your commands can run, and the connection settings they need.'
-		},
-		security: {
-			title: 'Security',
-			blurb: 'Require a login to reach Cinefin, and mint API keys for programmatic access.'
-		},
-		backup: {
-			title: 'Backup & restore',
-			blurb:
-				'Save a complete copy of your Cinefin database, and restore it if something goes wrong.'
-		}
-	};
+	const current = $derived(ITEMS.find((i) => i.id === section)!);
 
 	async function save() {
 		const result = await store.save();
@@ -162,20 +121,15 @@
 	}
 
 	async function reset() {
-		if (
-			!(await confirm('Reset all settings to their defaults? This cannot be undone.', {
-				confirmLabel: 'Reset'
-			}))
-		) {
-			return;
-		}
-		try {
+		const ok = await confirm('Reset all settings to their defaults? This cannot be undone.', {
+			confirmLabel: 'Reset'
+		});
+		if (!ok) return;
+		await attempt(async () => {
 			await mutate(api.POST('/api/v2/settings/reset/'));
 			showToast('Settings reset to defaults', 'success');
 			await store.load();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to reset settings', 'error');
-		}
+		}, 'Failed to reset settings');
 	}
 </script>
 
@@ -222,10 +176,8 @@
 
 		<div class="min-w-0 flex-1">
 			<header class="mb-4">
-				<h2 class="text-base font-medium">
-					{HEADINGS[section].title}
-				</h2>
-				<p class="mt-1 max-w-3xl text-sm text-muted">{HEADINGS[section].blurb}</p>
+				<h2 class="text-base font-medium">{current.label}</h2>
+				<p class="mt-1 max-w-3xl text-sm text-muted">{BLURBS[section]}</p>
 			</header>
 
 			{#if section === 'playout'}

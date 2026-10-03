@@ -1,77 +1,46 @@
 <script lang="ts">
 	import { AlertTriangle, RefreshCw, Save } from '@lucide/svelte';
 	import { showToast } from '$lib/toast.svelte';
+	import { query } from '$lib/api/query.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import HostConfigFields from '$lib/playout/HostConfigFields.svelte';
-	import {
-		loadHostConfig,
-		saveHostConfig,
-		type Hardware,
-		type LaunchConfig
-	} from '$lib/playout/host-config';
+	import { loadHostConfig, saveHostConfig } from '$lib/playout/host-config';
 
-	interface Props {
-		hostId: number;
-		kind: string;
-	}
+	const { hostId }: { hostId: number } = $props();
 
-	const { hostId, kind }: Props = $props();
-
-	let config = $state<LaunchConfig | null>(null);
-	let hardware = $state<Hardware | null>(null);
-	let loading = $state(true);
-	let loadError = $state<string | null>(null);
+	const host = query(() => loadHostConfig(hostId));
 	let saving = $state(false);
 	let restartPending = $state(false);
 
-	async function load() {
-		loading = true;
-		loadError = null;
-		try {
-			({ config, hardware } = await loadHostConfig(hostId));
-		} catch (e) {
-			loadError = e instanceof Error ? e.message : String(e);
-		} finally {
-			loading = false;
-		}
-	}
-
-	$effect(() => {
-		if (kind === 'agent') void load();
-		else loading = false;
-	});
-
 	async function save(thenRestart: boolean) {
-		if (!config) return;
+		if (!host.data) return;
+		const draft = host.data.config;
 		saving = true;
-		try {
-			restartPending = await saveHostConfig(hostId, config, thenRestart);
+		await attempt(async () => {
+			restartPending = await saveHostConfig(hostId, draft, thenRestart);
 			showToast(
 				thenRestart && !restartPending ? 'Saved. The player is restarting' : 'Saved',
 				'success'
 			);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : String(e), 'error');
-		} finally {
-			saving = false;
-		}
+		}, 'Could not save');
+		saving = false;
 	}
 </script>
 
-{#if kind !== 'agent'}
-	<p class="p-3 text-sm text-muted">
-		A local mpv host has no agent, so Cinefin cannot configure it. Set its display and audio through
-		mpv's own options when you launch it.
-	</p>
-{:else if loading}
+{#if host.loading}
 	<div class="p-3"><Spinner size="sm" label="Reading the host's configuration…" /></div>
-{:else if loadError}
-	<div class="p-3"><ErrorState compact message={loadError} retry={() => void load()} /></div>
-{:else if config}
+{:else if host.error}
+	<div class="p-3"><ErrorState compact error={host.error} retry={() => void host.load()} /></div>
+{:else if host.data}
 	<div class="max-w-2xl space-y-5 p-4">
-		<HostConfigFields bind:config {hardware} idPrefix="hc-{hostId}" />
+		<HostConfigFields
+			bind:config={host.data.config}
+			hardware={host.data.hardware}
+			idPrefix="hc-{hostId}"
+		/>
 
 		<div class="flex flex-wrap items-center gap-2 border-t border-border pt-3">
 			<Button variant="primary" disabled={saving} onclick={() => void save(false)}>

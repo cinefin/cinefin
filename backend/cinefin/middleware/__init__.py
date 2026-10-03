@@ -1,6 +1,4 @@
-"""
-Cinefin middleware package.
-"""
+"""Cinefin middleware."""
 
 from .auth_gate import AuthGateMiddleware
 from .installer_redirect import InstallerRedirectMiddleware

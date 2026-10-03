@@ -68,88 +68,42 @@ export interface ProgrammeItemIn {
 	details: Record<string, unknown>;
 }
 
+// Where a saved item's display title lands, and its fallback.
+const TITLE_FIELD: Record<string, [keyof BlockContent, string]> = {
+	movie: ['title', 'Movie'],
+	command: ['name', 'Command'],
+	bumper: ['title', 'User media'],
+	trailer: ['title', 'Trailer']
+};
+
+// Each known type keeps exactly its default fields, filled from the saved details.
 export function programmeItemsToBlocks(items: ProgrammeItemIn[], uid: () => string): EditorBlock[] {
 	return items.map((item, index) => {
 		const d = item.details as BlockContent & Record<string, unknown>;
-		let content: BlockContent;
-		switch (item.type) {
-			case 'movie':
-				content = {
-					movie_id: (d.movie_id as number | null) ?? null,
-					title: item.title || 'Movie',
-					audio_track: (d.audio_track as number | null) ?? null,
-					subtitle_track: (d.subtitle_track as number | null) ?? null,
-					credits_command_id: (d.credits_command_id as number | null) ?? null
-				};
-				break;
-			case 'trailer_rule':
-				content = {
-					reference_movie_id: d.reference_movie_id ?? null,
-					bound_to_block_order: d.bound_to_block_order ?? null,
-					rule_id: d.rule_id ?? null,
-					count: d.count || 3,
-					genre_ids: (d.genre_ids as number[] | undefined) ?? [],
-					certificate_ceiling: (d.certificate_ceiling as string | undefined) ?? '',
-					year_from: (d.year_from as number | null | undefined) ?? null,
-					year_to: (d.year_to as number | null | undefined) ?? null,
-					trailer_tag_id: d.trailer_tag_id ?? null
-				};
-				break;
-			case 'command':
-				content = {
-					command_id: d.command_id ?? null,
-					name: item.title || 'Command',
-					hold_black: d.hold_black ?? false
-				};
-				break;
-			// The retired `random_bumper` type loads as a tag-carrying bumper.
-			case 'bumper':
-			case 'random_bumper':
-				content = {
-					bumper_id: d.bumper_id ?? null,
-					title: item.title || 'User media',
-					tag_id: d.tag_id ?? null,
-					tag_name: (d.tag_name as string | null) ?? null,
-					count: d.count || 1
-				};
-				break;
-			case 'trailer':
-				content = { trailer_id: d.trailer_id ?? null, title: item.title || 'Trailer' };
-				break;
-			case 'random_movie':
-				content = {
-					genre_ids: d.genre_ids ?? [],
-					genre_names: d.genre_names ?? [],
-					certification: d.certification ?? null,
-					year_from: d.year_from ?? null,
-					year_to: d.year_to ?? null,
-					runtime_from: d.runtime_from ?? null,
-					runtime_to: d.runtime_to ?? null,
-					count: d.count || 1
-				};
-				break;
-			case 'certification':
-				content = { reference_movie_id: d.reference_movie_id ?? null };
-				break;
-			case 'audio_bumper':
-				content = {
-					reference_movie_id: d.reference_movie_id ?? null,
-					bumper_id: d.bumper_id ?? null,
-					bumper_title: (d.bumper_title as string | null) ?? null
-				};
-				break;
-			default:
-				content = { ...(d as BlockContent) };
+		// The retired `random_bumper` type loads as a tag-carrying bumper.
+		const type = item.type === 'random_bumper' ? 'bumper' : item.type;
+		const defaults = defaultProgrammeContent(type) as Record<string, unknown>;
+		let content: BlockContent = { ...(d as BlockContent) };
+		if (Object.keys(defaults).length) {
+			const c: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(defaults)) c[k] = d[k] ?? v;
+			if ('count' in defaults) c.count = d.count || defaults.count;
+			if (type === 'trailer_rule') {
+				c.bound_to_block_order = d.bound_to_block_order ?? null;
+				c.rule_id = d.rule_id ?? null;
+			}
+			const titled = TITLE_FIELD[type];
+			if (titled) c[titled[0]] = item.title || titled[1];
+			content = c as BlockContent;
 		}
 		return {
 			uid: uid(),
-			// Normalise the retired `random_bumper` to `bumper`.
-			type: item.type === 'random_bumper' ? 'bumper' : item.type,
+			type,
 			order: item.order ?? index,
 			content,
 			details: {
 				year: (d.year as number | null) ?? null,
-				certification: (d.certification as string | null) ?? null,
+				certification: d.certification ?? null,
 				thumbnail_url: (d.thumbnail_url as string | null) ?? null,
 				duration: (d.duration as number | null) ?? null,
 				matching_movies: (d.matching_count as number | null) ?? null
@@ -158,28 +112,22 @@ export function programmeItemsToBlocks(items: ProgrammeItemIn[], uid: () => stri
 	});
 }
 
+// The field each block type must have set, and what to say when it isn't. A trailer rule is
+// always valid: its reference movie is optional, and empty criteria pick any trailers.
+const PROGRAMME_REQUIRED: Record<string, [keyof BlockContent, string]> = {
+	movie: ['movie_id', 'Choose a movie'],
+	trailer: ['trailer_id', 'Choose a trailer'],
+	command: ['command_id', 'Choose a command'],
+	certification: ['reference_movie_id', 'Choose a movie']
+};
+
 export function programmeBlockError(block: EditorBlock): string | null {
-	switch (block.type) {
-		case 'movie':
-			return block.content.movie_id ? null : 'Choose a movie';
-		case 'trailer':
-			return block.content.trailer_id ? null : 'Choose a trailer';
-		case 'bumper':
-			if (block.content.tag_id) return null;
-			return block.content.bumper_id ? null : 'Choose a clip or a tag';
-		case 'command':
-			return block.content.command_id ? null : 'Choose a command';
-		case 'certification':
-			return block.content.reference_movie_id ? null : 'Choose a movie';
-		case 'audio_bumper':
-			if (block.content.bumper_id || block.content.reference_movie_id) return null;
-			return 'Choose which feature';
-		case 'trailer_rule':
-			// Always valid: reference movie optional, empty criteria picks any trailers.
-			return null;
-		default:
-			return null;
-	}
+	const c = block.content;
+	if (block.type === 'bumper') return c.tag_id || c.bumper_id ? null : 'Choose a clip or a tag';
+	if (block.type === 'audio_bumper')
+		return c.bumper_id || c.reference_movie_id ? null : 'Choose which feature';
+	const required = PROGRAMME_REQUIRED[block.type];
+	return required && !c[required[0]] ? required[1] : null;
 }
 
 export function programmeBlockTitle(block: EditorBlock): string {

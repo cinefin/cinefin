@@ -3,10 +3,7 @@
 	import type { KioskController } from './controller.svelte';
 	import { countdownText, dayLabel, fmtClock, isRunning } from './time';
 
-	interface Props {
-		kiosk: KioskController;
-	}
-	let { kiosk }: Props = $props();
+	let { kiosk }: { kiosk: KioskController } = $props();
 
 	const screenings = $derived(kiosk.activeScreenings.slice(0, 10));
 </script>

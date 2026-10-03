@@ -1,14 +1,12 @@
 /**
- * "Can Cinefin reach the playout host?" — the reachability feed behind the
- * dashboard's playout notice. Two distinct failure states with different fixes:
- * `unconfigured` (no active PlayoutHost) vs `unreachable` (host set, agent
- * silent) — `GET /playout/agent/status` separates them (`enabled` vs
- * `reachable`). Subscribe from an $effect and return the cleanup.
+ * "Can Cinefin reach the playout host?" — `unconfigured` (no active host) and `unreachable`
+ * (host set, agent silent) have different fixes; /playout/agent/status separates them.
  */
 import { api, unwrap } from '$lib/api/client';
 import { onInvalidate } from '$lib/invalidate';
+import { refCounted } from './refcount';
 
-export type PlayoutReachState = 'ok' | 'unconfigured' | 'unreachable';
+type PlayoutReachState = 'ok' | 'unconfigured' | 'unreachable';
 
 class PlayoutReachStore {
 	/** Null while unknown (first load, or every poll so far failed to reach us). */
@@ -19,26 +17,14 @@ class PlayoutReachStore {
 	hostCount = $state(0);
 	checked = $state(false);
 
-	#unsub: (() => void) | null = null;
-	#subscribers = 0;
 	#inFlight = false;
 	/** Consecutive unreachable readings, so one blip can't raise the notice. */
 	#strikes = 0;
 
-	subscribe(): () => void {
-		this.#subscribers += 1;
-		if (this.#subscribers === 1) {
-			void this.refresh();
-			this.#unsub = onInvalidate('agent', () => void this.refresh());
-		}
-		return () => {
-			this.#subscribers -= 1;
-			if (this.#subscribers === 0) {
-				this.#unsub?.();
-				this.#unsub = null;
-			}
-		};
-	}
+	subscribe = refCounted(() => {
+		void this.refresh();
+		return onInvalidate('agent', () => void this.refresh());
+	});
 
 	async refresh(): Promise<void> {
 		// A poll in flight keeps the last verdict on screen — no flicker or stampede.

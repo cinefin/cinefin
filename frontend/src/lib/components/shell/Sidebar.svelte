@@ -37,17 +37,12 @@
 	></button>
 {/if}
 
-<!-- Desktop: sticky and viewport-height, so the footer (version, log out,
-     collapse) is always on screen and the nav scrolls internally — static
-     would stretch the rail to the page's full height on long pages and
-     push the footer below the fold. -->
+<!-- Desktop: sticky and viewport-height, so the footer stays on screen and the nav scrolls. -->
 <aside
 	class="fixed inset-y-0 left-0 z-30 flex flex-col border-r border-border bg-shell
 		transition-transform md:sticky md:top-0 md:h-dvh md:translate-x-0 {display.rail ? 'w-14' : 'w-56'}
 		{open ? 'translate-x-0' : '-translate-x-full'}"
 >
-	<!-- The logo sits on the sidebar's own shell with no rule under it, so the
-	     sidebar reads as one column; the accent band belongs to the page's topbar. -->
 	<div class="flex h-14 items-center {display.rail ? 'justify-center' : 'px-5'}">
 		{#if display.rail}
 			<Logo markClass="h-7" />
@@ -92,9 +87,7 @@
 		{/each}
 	</nav>
 
-	<!-- Footer: running version, and — when the auth gate is on — Log out.
-	     /logout/ is a plain Django view outside the SPA's base, so the link is a
-	     full navigation that lands on /login/. -->
+	<!-- Version, and Log out when auth is on (/logout/ is a Django view: a full navigation). -->
 	<div
 		class="flex border-t border-border text-xs {display.rail
 			? 'flex-col items-stretch'

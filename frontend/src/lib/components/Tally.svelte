@@ -1,10 +1,5 @@
 <script lang="ts">
-	/**
-	 * The tally lamp — the one loud state, as on a studio wall: a solid red
-	 * block, lit or dark, never blinking (spec §06). Reserved for ON AIR;
-	 * everything else is a StatusLamp. Carries --color-live (the brand red),
-	 * not the quieter working danger.
-	 */
+	/** The tally — the one loud state, reserved for on air: a solid --color-live block. */
 	interface Props {
 		label?: string;
 		class?: string;

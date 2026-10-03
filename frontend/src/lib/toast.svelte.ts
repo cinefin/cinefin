@@ -30,3 +30,8 @@ export const toasts = new ToastStore();
 export function showToast(message: string, kind: ToastKind = 'info'): void {
 	toasts.show(message, kind);
 }
+
+/** Toast a failed action as "<prefix>: <reason>". */
+export function toastFailure(prefix: string, e: unknown): void {
+	showToast(`${prefix}: ${e instanceof Error ? e.message : e}`, 'error');
+}

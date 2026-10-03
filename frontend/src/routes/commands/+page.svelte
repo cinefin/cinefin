@@ -19,6 +19,7 @@
 	import { query } from '$lib/api/query.svelte';
 	import { formatTime } from '$lib/format';
 	import { showToast as toast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import FilterBar from '$lib/components/FilterBar.svelte';
 	import type { components } from '$lib/api/types.gen';
 	import Badge from '$lib/components/ui/Badge.svelte';
@@ -50,15 +51,11 @@
 	const providersQ = query(async () => await unwrap(api.GET('/api/v2/commands/providers')));
 	const providers = $derived(providersQ.data?.providers ?? []);
 	const providerById = $derived(new Map(providers.map((p) => [p.id, p])));
-	// The picker offers enabled plugins only — plus the one the command being edited
-	// already uses, so a command whose plugin was later disabled stays editable.
-	// Built-in providers' commands come ready-made — none can be created for them.
+	// Enabled plugins, plus the edited command's own (so a later-disabled one stays editable).
 	const pickerProviders = $derived(
 		providers.filter((p) => !p.builtin && (p.enabled || p.id === fProvider))
 	);
 
-	// A command runs only if its provider is loaded AND enabled. A disabled one is
-	// loaded but off (show a badge); a missing one is gone (unknown provider).
 	const providerDisabled = (c: CommandItem) => providerById.get(c.provider)?.enabled === false;
 	const canRun = (c: CommandItem) => providerById.get(c.provider)?.enabled === true;
 
@@ -66,8 +63,7 @@
 	let providerFilter = $state('');
 
 	function clearFilters() {
-		search = '';
-		providerFilter = '';
+		search = providerFilter = '';
 	}
 
 	function usageSummary(c: CommandItem): string {
@@ -82,25 +78,17 @@
 	}
 
 	const allCommands = $derived(commandsQ.data?.commands ?? []);
-	const filtered = $derived(
-		allCommands.filter((c) => {
-			if (search) {
-				const q = search.toLowerCase();
-				if (!c.name.toLowerCase().includes(q) && !c.summary.toLowerCase().includes(q)) return false;
-			}
-			if (providerFilter && c.provider !== providerFilter) return false;
-			return true;
-		})
-	);
-	const filtersActive = $derived(Boolean(search || providerFilter));
-	const counts = $derived.by(() => {
-		const c: Record<string, number> = { all: allCommands.length };
-		for (const cmd of allCommands) c[cmd.provider] = (c[cmd.provider] || 0) + 1;
-		return c;
+	const filtered = $derived.by(() => {
+		const q = search.toLowerCase();
+		return allCommands.filter(
+			(c) =>
+				(!q || c.name.toLowerCase().includes(q) || c.summary.toLowerCase().includes(q)) &&
+				(!providerFilter || c.provider === providerFilter)
+		);
 	});
-	// Loaded providers, plus any id still on a command whose plugin is gone.
+	const filtersActive = $derived(Boolean(search || providerFilter));
+	// Loaded providers (built-in first), plus any id still on a command whose plugin is gone.
 	const filterOptions = $derived.by(() => {
-		// Built-in providers (the system actions) group first.
 		const opts = [...providers]
 			.sort((a, b) => Number(b.builtin) - Number(a.builtin))
 			.map((p) => ({ id: p.id, label: p.label }));
@@ -110,7 +98,7 @@
 		return opts;
 	});
 
-	// One group per provider (built-in first); a search or filter shows one flat group.
+	// A search or filter shows one flat group.
 	const groups = $derived.by(() => {
 		if (filtersActive)
 			return [{ id: 'results', label: 'Results', builtin: false, commands: filtered }];
@@ -141,40 +129,25 @@
 		const warning = usage
 			? ` It is still in use (${usage.replace(/^Used in /, '')}) - those blocks will simply stop firing.`
 			: '';
-		if (
-			await confirmDialog!.confirm(`Delete command “${c.name}”?${warning}`, {
-				confirmLabel: 'Delete'
-			})
-		) {
-			void deleteCommand(c.id);
-		}
-	}
-
-	async function deleteCommand(id: number) {
-		try {
+		const msg = `Delete command “${c.name}”?${warning}`;
+		if (!(await confirmDialog!.confirm(msg, { confirmLabel: 'Delete' }))) return;
+		await attempt(async () => {
 			await api.DELETE('/api/v2/commands/{command_id}/delete', {
-				params: { path: { command_id: id } }
+				params: { path: { command_id: c.id } }
 			});
 			toast('Command deleted', 'success');
 			void commandsQ.load();
-		} catch (e) {
-			toast(toApiError(e).message || 'Failed to delete command', 'error');
-		}
+		}, 'Failed to delete command');
 	}
 
 	async function runCommand(id: number) {
-		try {
+		await attempt(async () => {
 			const data = await unwrap(
 				api.POST('/api/v2/commands/{command_id}/execute', { params: { path: { command_id: id } } })
 			);
-			const result = data.result;
-			toast(
-				result.ok ? `Command succeeded (${result.detail})` : `Command failed (${result.detail})`,
-				result.ok ? 'success' : 'error'
-			);
-		} catch (e) {
-			toast(toApiError(e).message || 'Failed to run command', 'error');
-		}
+			const { ok, detail } = data.result;
+			toast(`Command ${ok ? 'succeeded' : 'failed'} (${detail})`, ok ? 'success' : 'error');
+		}, 'Failed to run command');
 	}
 
 	let modalOpen = $state(false);
@@ -190,26 +163,24 @@
 	let fValues = $state<FormValues>({});
 	const fProviderInfo = $derived<ProviderInfo | undefined>(providerById.get(fProvider));
 
-	function resetForm() {
-		fName = '';
-		// Default to an enabled provider — a disabled one can't run.
-		const enabled = providers.filter((p) => p.enabled);
-		fProvider = enabled.find((p) => p.id === 'rest')?.id ?? enabled[0]?.id ?? 'rest';
-		fDuration = '';
-		fValues = toFormValues(providerById.get(fProvider)?.fields ?? [], {});
-		testResult = null;
-	}
-
 	// Editing a built-in command changes only its duration.
 	const locked = $derived(editing?.locked ?? false);
 
-	function fillForm(c: CommandItem, nameSuffix = '') {
-		fName = (c.name || '') + nameSuffix;
-		fProvider = c.provider;
-		fDuration = c.duration ? String(c.duration) : '';
-		fValues = toFormValues(providerById.get(c.provider)?.fields ?? [], c.config ?? {});
+	function openModal(title: string, c: CommandItem | null, edit = false, nameSuffix = '') {
+		editing = edit ? c : null;
+		modalTitle = title;
+		// A new command defaults to an enabled provider — a disabled one can't run.
+		const enabled = providers.filter((p) => p.enabled);
+		fName = c ? (c.name || '') + nameSuffix : '';
+		fProvider = c?.provider ?? enabled.find((p) => p.id === 'rest')?.id ?? enabled[0]?.id ?? 'rest';
+		fDuration = c?.duration ? String(c.duration) : '';
+		fValues = toFormValues(providerById.get(fProvider)?.fields ?? [], c?.config ?? {});
 		testResult = null;
+		modalOpen = true;
 	}
+	const showCreateModal = () => openModal('Create command', null);
+	const editCommand = (c: CommandItem) => openModal('Edit command', c, true);
+	const duplicateCommand = (c: CommandItem) => openModal('Duplicate command', c, false, ' (Copy)');
 
 	function switchProvider(id: string) {
 		fProvider = id;
@@ -219,33 +190,7 @@
 		testResult = null;
 	}
 
-	function showCreateModal() {
-		editing = null;
-		modalTitle = 'Create command';
-		resetForm();
-		modalOpen = true;
-	}
-
-	function editCommand(c: CommandItem) {
-		editing = c;
-		modalTitle = 'Edit command';
-		fillForm(c);
-		modalOpen = true;
-	}
-
-	function duplicateCommand(c: CommandItem) {
-		editing = null;
-		modalTitle = 'Duplicate command';
-		fillForm(c, ' (Copy)');
-		modalOpen = true;
-	}
-
-	function collectForm(): {
-		name: string;
-		provider: string;
-		config: Record<string, unknown>;
-		duration: number;
-	} | null {
+	function collectForm() {
 		if (!fProviderInfo) {
 			toast(`The "${fProvider}" provider is not loaded - pick another one`, 'error');
 			return null;
@@ -271,7 +216,7 @@
 			return;
 		}
 		saveBusy = true;
-		try {
+		await attempt(async () => {
 			if (editing) {
 				await unwrap(
 					api.PUT('/api/v2/commands/{command_id}/update', {
@@ -287,29 +232,23 @@
 			modalOpen = false;
 			editing = null;
 			void commandsQ.load();
-		} catch (e) {
-			toast(toApiError(e).message || 'Failed to save command', 'error');
-		} finally {
-			saveBusy = false;
-		}
+		}, 'Failed to save command');
+		saveBusy = false;
 	}
 
 	async function testCurrentForm() {
 		const payload = collectForm();
 		if (!payload) return;
 		testBusy = true;
-		try {
+		await attempt(async () => {
 			const data = await unwrap(
 				api.POST('/api/v2/commands/test', {
 					body: { provider: payload.provider, config: payload.config }
 				})
 			);
 			testResult = data.result;
-		} catch (e) {
-			toast(toApiError(e).message || 'Test failed', 'error');
-		} finally {
-			testBusy = false;
-		}
+		}, 'Test failed');
+		testBusy = false;
 	}
 
 	// Autocomplete values from the provider (e.g. Home Assistant's services and entities).
@@ -380,7 +319,9 @@
 			onchange: (v) => (providerFilter = v)
 		}
 	]}
-	count={filtersActive ? `${filtered.length} of ${counts.all}` : `${counts.all} total`}
+	count={filtersActive
+		? `${filtered.length} of ${allCommands.length}`
+		: `${allCommands.length} total`}
 	onreset={clearFilters}
 />
 
@@ -468,10 +409,14 @@
 	</div>
 {/if}
 
+{#snippet label(id: string, text: string)}
+	<label class="mb-1 block text-sm text-muted" for={id}>{text}</label>
+{/snippet}
+
 <Dialog bind:open={modalOpen} title={modalTitle}>
 	<div class="space-y-4">
 		<div>
-			<label class="mb-1 block text-sm text-muted" for="cmd-name">Command name *</label>
+			{@render label('cmd-name', 'Command name *')}
 			<Input id="cmd-name" bind:value={fName} disabled={locked} />
 			<p class="mt-1 text-xs text-faint">
 				{locked
@@ -482,7 +427,7 @@
 
 		{#if !locked}
 			<div>
-				<label class="mb-1 block text-sm text-muted" for="cmd-provider">Provider *</label>
+				{@render label('cmd-provider', 'Provider *')}
 				<Select
 					id="cmd-provider"
 					value={fProvider}
@@ -535,7 +480,7 @@
 		{/if}
 
 		<div>
-			<label class="mb-1 block text-sm text-muted" for="cmd-duration">Duration (seconds)</label>
+			{@render label('cmd-duration', 'Duration (seconds)')}
 			<Input id="cmd-duration" type="number" bind:value={fDuration} />
 			<p class="mt-1 text-xs text-faint">
 				Roughly how long the action takes. Only used when a rundown block has "hold black screen"

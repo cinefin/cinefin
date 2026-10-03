@@ -1,10 +1,6 @@
 <script lang="ts">
-	/**
-	 * A player's screen and sound fields, over a loaded launch config (see
-	 * host-config.ts). Used by Settings › Playout (HostConfigPanel, with its save
-	 * bar) and the Add a player wizard (with the test card and test sound beside
-	 * the screen and sound choices, via `screenAction` / `soundAction`).
-	 */
+	// A player's screen and sound fields (Settings › Playout and the Add a player wizard,
+	// which puts its test card and test sound beside them via `screenAction` / `soundAction`).
 	import type { Snippet } from 'svelte';
 	import { AlertTriangle, ChevronRight } from '@lucide/svelte';
 	import Input from '$lib/components/ui/Input.svelte';
@@ -25,16 +21,7 @@
 	let { config = $bindable(), hardware, idPrefix, screenAction, soundAction }: Props = $props();
 
 	const SPDIF_CODECS = ['ac3', 'eac3', 'dts', 'dts-hd', 'truehd'];
-	const HWDEC = [
-		'auto',
-		'auto-safe',
-		'auto-copy',
-		'no',
-		'nvdec',
-		'vaapi',
-		'videotoolbox',
-		'd3d11va'
-	];
+	const HWDEC = 'auto auto-safe auto-copy no nvdec vaapi videotoolbox d3d11va'.split(' ');
 	const CHANNELS = ['auto', 'stereo', '5.1', '7.1'];
 	// gpu_context has no enumeration from the host; "" lets mpv choose.
 	const GPU_CONTEXTS = ['', 'displayvk', 'drm', 'wayland', 'x11egl', 'win'];
@@ -48,6 +35,12 @@
 		config.audio.spdif_passthrough = on ? [...current, codec] : current.filter((c) => c !== codec);
 	}
 </script>
+
+{#snippet options(values: string[])}
+	{#each values as v (v)}
+		<option value={v}>{v}</option>
+	{/each}
+{/snippet}
 
 {#if hardware?.note}
 	<p class="flex items-start gap-2 text-xs text-warning">
@@ -66,9 +59,7 @@
 					class="min-w-0 flex-1 basis-48"
 				>
 					<option value="">- choose an output -</option>
-					{#each hardware?.drm_connectors ?? [] as c (c)}
-						<option value={c}>{c}</option>
-					{/each}
+					{@render options(hardware?.drm_connectors ?? [])}
 					{#if config.graphics.drm_connector && !(hardware?.drm_connectors ?? []).includes(config.graphics.drm_connector)}
 						<option value={config.graphics.drm_connector}>
 							{config.graphics.drm_connector} (not detected)
@@ -162,17 +153,13 @@
 					{/if}
 					<Field label="Video output" forId="{idPrefix}-vo">
 						<Select id="{idPrefix}-vo" bind:value={config.graphics.vo} class="w-full">
-							{#each hardware?.mpv?.vo ?? [config.graphics.vo] as v (v)}
-								<option value={v}>{v}</option>
-							{/each}
+							{@render options(hardware?.mpv?.vo ?? [config.graphics.vo])}
 						</Select>
 					</Field>
 					<Field label="GPU API" forId="{idPrefix}-api">
 						<Select id="{idPrefix}-api" bind:value={config.graphics.gpu_api} class="w-full">
 							<option value="">Auto (mpv decides)</option>
-							{#each hardware?.mpv?.gpu_apis ?? [] as a (a)}
-								<option value={a}>{a}</option>
-							{/each}
+							{@render options(hardware?.mpv?.gpu_apis ?? [])}
 						</Select>
 					</Field>
 					<Field label="GPU context" forId="{idPrefix}-ctx">
@@ -187,9 +174,7 @@
 					</Field>
 					<Field label="Hardware decoding" forId="{idPrefix}-hwdec">
 						<Select id="{idPrefix}-hwdec" bind:value={config.graphics.hwdec} class="w-full">
-							{#each HWDEC as h (h)}
-								<option value={h}>{h}</option>
-							{/each}
+							{@render options(HWDEC)}
 						</Select>
 					</Field>
 				</div>
@@ -213,9 +198,7 @@
 				<div class="grid gap-x-6 gap-y-4 sm:grid-cols-2">
 					<Field label="Channels" forId="{idPrefix}-ch">
 						<Select id="{idPrefix}-ch" bind:value={config.audio.channels} class="w-full">
-							{#each CHANNELS as c (c)}
-								<option value={c}>{c}</option>
-							{/each}
+							{@render options(CHANNELS)}
 						</Select>
 					</Field>
 					<Field label="Maximum volume" forId="{idPrefix}-vol" hint="Percent. mpv's volume-max.">

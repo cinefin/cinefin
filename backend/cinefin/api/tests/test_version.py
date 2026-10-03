@@ -1,5 +1,3 @@
-"""Version channel derivation and the /version endpoint."""
-
 import pytest
 
 from cinefin import version
@@ -7,39 +5,25 @@ from cinefin import version
 pytestmark = pytest.mark.django_db
 
 
-def test_channel_env_override_wins(monkeypatch):
-    monkeypatch.setenv("CINEFIN_CHANNEL", "edge")
-    monkeypatch.setenv("CINEFIN_VERSION", "v1.2.3")  # would derive "release"
-    assert version.get_channel() == "edge"
-
-
-def test_channel_derives_release_from_exact_tag(monkeypatch):
-    monkeypatch.delenv("CINEFIN_CHANNEL", raising=False)
-    monkeypatch.setenv("CINEFIN_VERSION", "v1.2.3")
-    assert version.get_channel() == "release"
-
-
-def test_channel_derives_edge_from_describe(monkeypatch):
-    monkeypatch.delenv("CINEFIN_CHANNEL", raising=False)
-    monkeypatch.setenv("CINEFIN_VERSION", "v1.2.3-5-gabc1234")
-    assert version.get_channel() == "edge"
-
-
-def test_channel_derives_dev(monkeypatch):
-    monkeypatch.delenv("CINEFIN_CHANNEL", raising=False)
-    monkeypatch.setenv("CINEFIN_VERSION", "dev")
-    assert version.get_channel() == "dev"
-
-
-def test_version_info_includes_channel(monkeypatch):
-    monkeypatch.setenv("CINEFIN_CHANNEL", "edge")
-    assert version.get_version_info()["channel"] == "edge"
+@pytest.mark.parametrize(
+    ("channel", "version_str", "expected"),
+    [
+        ("edge", "v1.2.3", "edge"),  # the env override wins
+        (None, "v1.2.3", "release"),
+        (None, "v1.2.3-5-gabc1234", "edge"),
+        (None, "dev", "dev"),
+    ],
+)
+def test_channel(monkeypatch, channel, version_str, expected):
+    if channel:
+        monkeypatch.setenv("CINEFIN_CHANNEL", channel)
+    else:
+        monkeypatch.delenv("CINEFIN_CHANNEL", raising=False)
+    monkeypatch.setenv("CINEFIN_VERSION", version_str)
+    assert version.get_channel() == expected
 
 
 def test_version_endpoint_returns_channel(client, monkeypatch):
     monkeypatch.setenv("CINEFIN_CHANNEL", "dev")
-    resp = client.get("/api/v2/version")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert set(body) >= {"version", "channel", "commit"}
-    assert body["channel"] == "dev"
+    body = client.get("/api/v2/version").json()
+    assert set(body) >= {"version", "channel", "commit"} and body["channel"] == "dev"

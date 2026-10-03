@@ -1,3 +1,5 @@
+"""The playout service: the programme lifecycle, standby, manual mode and cues over MPV."""
+
 import logging
 import re
 import threading
@@ -5,7 +7,7 @@ import time
 
 from . import playout_timing
 from .exceptions import UnprocessableEntityError
-from .models import MoviePlayback, Playlist, PlaylistItem, PlayoutHost, PlayoutSession
+from .models import Playlist, PlayoutHost, PlayoutSession
 from .mpv_controller import MPVController
 from .services import standby as standby_spec
 from .utils.assets import system_black_stream_url
@@ -27,11 +29,12 @@ _KIND_LABELS = {
 }
 
 
-def _labelled(kind, name):
+def manual_title(kind, title):
+    """The window title for an item of ``kind`` called ``title``."""
     label = _KIND_LABELS.get(kind)
     if not label:
-        return name or None
-    return f"{label}: {name}" if name else label
+        return title or None
+    return f"{label}: {title}" if title else label
 
 
 def item_title(item):
@@ -54,12 +57,7 @@ def item_title(item):
         name = item.certification.certification if item.certification else None
     if not name and item.programme_block:
         name = item.programme_block.cached_title
-    return _labelled(kind, name)
-
-
-def manual_title(kind, title):
-    """The window title for a manual-mode item."""
-    return _labelled(kind, title)
+    return manual_title(kind, name)
 
 
 # Standby loads its ident with per-file options after a playlist index argument,
@@ -81,6 +79,8 @@ COVER_STEPS_PER_SECOND = 25
 # How long the reveal waits for the next entry's first frame before lifting the cover anyway.
 COVER_FIRST_FRAME_WAIT = 3.0
 
+_SUB_BORDER_STYLES = ("outline-and-shadow", "opaque-box", "background-box")
+
 
 class ProgrammeState:
     """The programme lifecycle. Pause is mpv's own, and a finished programme goes
@@ -92,11 +92,20 @@ class ProgrammeState:
     RUNNING = "running"  # started
 
 
-class MPVService:
-    """Service to manage MPV instances and handle programme playback"""
+def _delegate(name, default=False):
+    """A method that connects on demand and forwards to the controller's ``name``."""
 
+    def method(self, *args):
+        if not self._ensure_connected():
+            return default
+        return getattr(self.controller, name)(*args)
+
+    method.__name__ = name
+    return method
+
+
+class MPVService:
     def __init__(self):
-        """Initialize MPV service with lazy loading"""
         self.controller = None
         # The PlayoutHost the controller was connected to, and a problem with
         # its player worth showing in Settings (an mpv too old for standby).
@@ -116,27 +125,21 @@ class MPVService:
         # methods can call each other without self-deadlock.
         self._playout_lock = threading.RLock()
 
-        # Serialises connection setup. Both runserver and gunicorn are
-        # multi-threaded, so concurrent status polls can race the lazy connect on
-        # the first hit; without this each thread would build its own
-        # MPVController, and because a WSMPV self-heals its socket the orphaned
-        # ones never die — they keep firing duplicate events (and duplicate
-        # advances, which skip items). Guards _ensure_connected's connect path.
+        # Serialises connection setup: concurrent status polls can race the lazy
+        # connect, and because a WSMPV self-heals its socket an orphaned
+        # controller never dies; it keeps firing duplicate events (and duplicate
+        # advances, which skip items).
         self._connect_lock = threading.Lock()
 
-        # Track audio/subtitle settings per programme block
-        self.audio_set = {}
-        self.subtitle_set = {}
-
-        # Track credits command execution per playlist item
+        # MoviePlayback ids whose audio/subtitle tracks are already set.
+        self._tracks_done = set()
+        # Playlist item ids whose credits command has fired.
         self.credits_executed = {}
-
         # Last programme item order reached; command cues fire when the
         # cursor moves forward past them. -1 = still in pre-show.
         self._programme_cursor = -1
 
-        # True while a hold-black command item is on screen (surfaced in status)
-        self._executing_command = False
+        self._executing_command = False  # a hold-black command item is on screen
         self._hold_progress = None  # {'duration','elapsed'} while a hold-black command runs
         # Cued title card: its mpv index, when to pause into it (0 = first frame, else after the
         # fade-in) and whether it has started (armed by its file-start, so standby's clock can't trip it).
@@ -146,9 +149,8 @@ class MPVService:
         # Bumped by each fade off standby, so an older reveal never lifts a newer cover.
         self._cover_gen = 0
 
-        # Live playback cache, updated from the mpv property observers so the SSE
-        # status stream (and its poll fallback) can build a snapshot with no
-        # per-request mpv round-trips. See services/playout_events.py.
+        # Live playback cache, updated from the mpv property observers so the
+        # status push can build a snapshot with no per-request mpv round-trips.
         self._live = {"time": None, "duration": None, "pause": None, "playlist_pos": None, "file": None}
 
         # Manual mode: one-off items played outside any programme, 1:1 with MPV's
@@ -156,24 +158,22 @@ class MPVService:
         # player on standby, as at a programme's end). Empty = not in manual mode.
         self.manual_items = []
 
-        # Don't auto-connect - use lazy initialization instead
-
     @property
     def executing_command(self) -> bool:
-        """True while a hold-black command item is holding the screen."""
         return self._executing_command
 
+    @property
+    def running(self):
+        return self.programme_state == ProgrammeState.RUNNING
+
     def _set_state(self, new_state):
-        """Move the programme lifecycle to ``new_state``, persist it and push the status."""
         self.programme_state = new_state
         self._persist_session()
-        self._notify_live()  # push the programme-state change to the SSE stream
+        self._notify_live()
 
     def _persist_session(self):
         """Snapshot the lifecycle to the DB so a restarted process can re-attach.
-
-        Never allowed to break playback: DB errors are logged and swallowed.
-        """
+        Never allowed to break playback."""
         try:
             session = PlayoutSession.load()
             session.state = self.programme_state
@@ -186,13 +186,9 @@ class MPVService:
             logger.exception("Failed to persist playout session")
 
     def _restore_session(self):
-        """
-        Re-attach to a screening after a process restart.
-
-        MPV keeps playing across Django restarts; if the persisted session says
-        a programme was loaded/running and MPV still has a playlist, restore the
-        in-memory lifecycle instead of reporting "no programme loaded".
-        """
+        """Re-attach to a screening after a process restart: MPV keeps playing
+        across Django restarts, so a persisted loaded/running session whose
+        playlist MPV still has is restored."""
         if self._session_restored:
             return
         self._session_restored = True
@@ -202,17 +198,9 @@ class MPVService:
                 return
 
             mpv_playlist = self.controller.get_playlist() if self.controller else []
-            if not mpv_playlist or len(mpv_playlist) <= session.playlist_offset:
-                # MPV was restarted too (or playlist gone) — session is stale
-                logger.info("Persisted playout session is stale (MPV has no matching playlist); clearing")
-                session.state = ProgrammeState.NOT_LOADED
-                session.programme = None
-                session.save()
-                return
-
             playlist = Playlist.objects.filter(programme_id=session.programme_id).first()
-            if playlist is None:
-                logger.info("Persisted playout session references a missing playlist; clearing")
+            if not mpv_playlist or len(mpv_playlist) <= session.playlist_offset or playlist is None:
+                logger.info("Persisted playout session is stale (no matching MPV playlist or playlist); clearing")
                 session.state = ProgrammeState.NOT_LOADED
                 session.programme = None
                 session.save()
@@ -224,7 +212,7 @@ class MPVService:
             self._programme_cursor = session.programme_cursor
             self.programme_state = session.state
             self.credits_executed = dict.fromkeys(session.credits_executed, True)
-            self._build_track_maps()
+            self._tracks_done = set()
             # A hold-black item may have set loop-file before the restart; its
             # watcher thread died with the old process, so clear the loop or
             # the black clip repeats forever.
@@ -236,30 +224,24 @@ class MPVService:
         except Exception:
             logger.exception("Failed to restore playout session")
 
-    @property
-    def running(self):
-        """True while the programme lifecycle is RUNNING (read-only, derived from programme_state)."""
-        return self.programme_state == ProgrammeState.RUNNING
-
-    def unload_for_host_switch(self):
-        """The active playout host changed: stop/clear any loaded programme and
-        drop the control link so the next connect targets the new host's agent.
-
-        standby() runs against the *old* controller and host, so it leaves that
-        host on standby and persists the session as NOT_LOADED. We then tear the controller down; ``_ensure_connected``
-        rebuilds it against the newly-active host. Best-effort throughout — a
-        wedged or unreachable old host must not block the switch."""
-        try:
-            if self.controller is not None and getattr(self.controller, "_connected", False):
-                self.standby()
-        except Exception:  # noqa: BLE001 — never let the old host block a switch
-            logger.debug("standby during host switch failed", exc_info=True)
+    def _drop_controller(self):
         if self.controller is not None:
             try:
                 self.controller.terminate()
-            except Exception:  # noqa: BLE001
-                logger.debug("controller terminate during host switch failed", exc_info=True)
+            except Exception:  # noqa: BLE001 - best effort; never block a reconnect or switch
+                logger.debug("controller terminate failed", exc_info=True)
         self.controller = None
+
+    def unload_for_host_switch(self):
+        """The active playout host changed: leave the old host on standby and drop
+        the control link so the next connect targets the new host. Best-effort:
+        a wedged old host must not block the switch."""
+        try:
+            if self.controller is not None and getattr(self.controller, "_connected", False):
+                self.standby()
+        except Exception:  # noqa: BLE001
+            logger.debug("standby during host switch failed", exc_info=True)
+        self._drop_controller()
         self._host = None
         self._lazy_initialized = False
         self._session_restored = False
@@ -270,47 +252,30 @@ class MPVService:
         self._persist_session()
 
     def _connect(self):
-        """Connect to MPV over the active playout host's agent WebSocket.
-
-        Idempotent: tears down any existing controller first. A WSMPV reconnects
-        its own socket, so a controller that is merely dereferenced keeps its
-        agent link alive and keeps dispatching events into this singleton
-        (duplicate logs + duplicate advances). Only ever called under
-        _connect_lock, so the teardown can't race a concurrent connect.
-        """
+        """Connect to the active playout host. Tears down any existing controller
+        first (a dereferenced WSMPV keeps its link alive and keeps dispatching
+        events). Only called under _connect_lock."""
         try:
-            if self.controller is not None:
-                try:
-                    self.controller.terminate()
-                except Exception:  # noqa: BLE001 — best effort; never block a reconnect
-                    logger.debug("terminate of previous controller failed", exc_info=True)
-                self.controller = None
-
+            self._drop_controller()
             self.controller = MPVController()
             self._host = PlayoutHost.get_active()
 
-            # The controller doesn't raise when MPV isn't running (it degrades to
-            # a disconnected state, logged once by the controller) — so treat a
-            # non-connected controller as a failed connect rather than reporting
-            # "connected" and holding a dead controller.
+            # The controller degrades to disconnected rather than raising.
             if not getattr(self.controller, "_connected", False):
                 self.controller = None
                 return False
 
-            # Register event handlers
-            self.controller.add_event_handler("file_end", self._handle_file_end)
-            self.controller.add_event_handler("file_start", self._handle_file_start)
-            self.controller.add_event_handler("playlist_change", self._handle_playlist_change)
-            self.controller.add_event_handler("time_pos", self._handle_time_pos)
-            self.controller.add_event_handler("pause", self._handle_pause)
+            c = self.controller
+            c.add_event_handler("file_end", self._handle_file_end)
+            c.add_event_handler("file_start", self._handle_file_start)
+            c.add_event_handler("playlist_change", self._handle_playlist_change)
+            c.add_event_handler("time_pos", self._handle_time_pos)
+            c.add_event_handler("pause", self._handle_pause)
             # A dropped link: push the status so every surface shows the player offline.
-            self.controller.add_event_handler("quit", lambda _value: self._notify_live())
+            c.add_event_handler("quit", lambda _value: self._notify_live())
 
             self._check_mpv_version()
-            # Apply the room's subtitle style now that we're connected. Purely
-            # cosmetic — never let it break the connection.
             self.apply_subtitle_style()
-
             logger.info("MPV service connected")
             return True
         except Exception as e:
@@ -318,42 +283,32 @@ class MPVService:
             self.controller = None
             return False
 
-    # mpv border-style enum for each Cinefin subtitle style.
-    _SUB_BORDER_STYLES = {
-        "outline-and-shadow": "outline-and-shadow",
-        "opaque-box": "opaque-box",
-        "background-box": "background-box",
-    }
-
     def apply_subtitle_style(self):
         """Apply the room's subtitle style (Settings → playout.subtitles) to the
-        live player via set_property — no restart. Cosmetic and best-effort: a
-        disconnected player or a bad value is swallowed. Per-block subtitle
-        *track* selection is unaffected."""
+        live player. Cosmetic and best-effort."""
         if not self.controller or not getattr(self.controller, "_connected", False):
             return
         from cinefin.api.models import Settings
 
         s = Settings.get("playout.subtitles") or {}
+        border = s.get("border_style")
         props = {
             "sub-font-size": s.get("font_size", 55),
             "sub-color": s.get("color", "#FFFFFF"),
-            "sub-border-style": self._SUB_BORDER_STYLES.get(s.get("border_style"), "outline-and-shadow"),
+            "sub-border-style": border if border in _SUB_BORDER_STYLES else "outline-and-shadow",
             "sub-back-color": s.get("back_color", "#000000"),
             "sub-pos": s.get("position", 100),
             "sub-margin-y": s.get("margin_y", 22),
             "sub-use-margins": "yes" if s.get("use_margins", True) else "no",
             "sub-bold": "yes" if s.get("bold", False) else "no",
         }
-        # Cosmetic + best-effort: a property missing on the host's mpv version
-        # (e.g. sub-margin-y on older builds) is harmless, so apply quietly —
-        # set_property(quiet=True) logs a miss at DEBUG, not ERROR.
+        # Quietly: a property missing on an older mpv (e.g. sub-margin-y) is harmless.
         for name, value in props.items():
             self.controller.set_property(name, value, quiet=True)
 
     def _check_mpv_version(self):
         """A local mpv must be 0.38 or newer for standby's per-file options (an
-        agent's mpv is the player's business). Warns once per connect."""
+        agent's mpv is the player's business)."""
         self.player_warning = ""
         if (self.controller.transport or ("",))[0] != "socket":
             return
@@ -364,15 +319,10 @@ class MPVService:
             logger.warning("Local player: %s", self.player_warning)
 
     def _ensure_connected(self):
-        """Ensure MPV connection is active with lazy initialization"""
-        # Double-checked under _connect_lock so only one thread ever builds the
-        # controller — concurrent callers that lose the race reuse it rather than
-        # spawning duplicate, self-healing controllers (see _connect_lock).
+        # Double-checked under _connect_lock so only one thread ever builds the controller.
         if not self._lazy_initialized or not self.controller:
             with self._connect_lock:
                 if not self._lazy_initialized or not self.controller:
-                    if not self._lazy_initialized:
-                        logger.info("Lazy initializing MPV service...")
                     self._lazy_initialized = True
                     if not self._connect():
                         return False
@@ -380,20 +330,16 @@ class MPVService:
         return True
 
     def ensure_link(self):
-        """Keep the control link to the active agent open (called by the playout
-        link keeper, ``services/playout_link.py``). Returns False when the agent
-        could not be reached, so the keeper backs off.
-
-        A controller connected to a host that is no longer the active one (or
-        with a stale token after re-pairing) is torn down first, the same way a
-        host switch does it. Local-socket hosts are left to connect on demand."""
+        """Keep the control link to the active agent open (called by
+        ``services/playout_link.py``); False when the agent could not be reached.
+        A controller for a host that is no longer active (or a stale token) is
+        torn down first. Local-socket hosts are left to connect on demand."""
         from .mpv_controller import _transport_config
 
         want = _transport_config()
         if want is None or want[0] != "ws":
             return True
-        controller = self.controller
-        if controller is not None and getattr(controller, "transport", want) != want:
+        if self.controller is not None and getattr(self.controller, "transport", want) != want:
             logger.info("The active playout host changed; reconnecting")
             self.unload_for_host_switch()
         return self._ensure_connected()
@@ -403,7 +349,6 @@ class MPVService:
         return self.current_programme is None and not self.manual_items
 
     def _clear(self):
-        """Forget the programme and the manual queue."""
         self._programme_cursor = -1
         self.manual_items = []
         self.current_programme = None
@@ -479,21 +424,6 @@ class MPVService:
             time.sleep(0.2)
         return True
 
-    def _build_track_maps(self):
-        """(Re)build the per-movie audio/subtitle bookkeeping from the playlist."""
-        self.audio_set.clear()
-        self.subtitle_set.clear()
-        for item in self.current_playlist.items.all():
-            if item.content_type == "movie":
-                movie_playback = item.content_object
-                if movie_playback is None:
-                    # Wrapper was deleted (movie removed from library) —
-                    # skip; playback falls back to the stored file path.
-                    logger.warning(f"Playlist item {item.id} has no MoviePlayback; skipping track setup")
-                    continue
-                self.audio_set[movie_playback.id] = False
-                self.subtitle_set[movie_playback.id] = False
-
     def load_programme(self, programme):
         """Cue a programme behind standby.
 
@@ -503,31 +433,31 @@ class MPVService:
         a title card. A title card starts at once and holds paused (see
         _title_started); without one, standby holds until start_programme."""
         logger.info(f"Loading programme: {programme.name}")
-
         if not self._ensure_connected():
             return False
 
         with self._playout_lock:
             try:
-                # An empty programme (no resolvable items) could never complete:
-                # refuse it before touching any state.
-                playlist = Playlist.objects.get(programme=programme)
+                playlist = Playlist.objects.filter(programme=programme).first()
+                if playlist is None:
+                    logger.error(f"No playlist found for programme: {programme.name}")
+                    return False
                 items = list(
                     playlist.items.select_related(
                         "movie_playback__movie", "trailer", "bumper", "command", "certification", "programme_block"
                     ).order_by("order")
                 )
+                # An empty programme could never complete: refuse it before touching any state.
                 if not items:
                     logger.error(f"Programme '{programme.name}' has an empty playlist; refusing to load")
                     return False
 
-                # Clears any loaded programme or manual queue (a programme, or a
-                # screening's lead-in, replaces manual play).
+                # Clears any loaded programme or manual queue.
                 if not self._ensure_standby():
                     logger.error("The player did not go to standby; not loading the programme")
                     return False
 
-                title_url = programme.get_title_stream_url() if hasattr(programme, "get_title_stream_url") else None
+                title_url = programme.get_title_stream_url()
                 c = self.controller
                 c.playlist_clear()  # keeps the current entry: standby
                 if title_url and not c.enqueue_file(title_url, title=f"Programme: {programme.name}"):
@@ -536,9 +466,8 @@ class MPVService:
                 if self.playlist_offset != (2 if title_url else 1):
                     return self._abort_load(f"standby (the player's playlist has {self.playlist_offset} entries)")
 
-                # Every item MUST land in MPV's playlist: the DB playlist is 1:1
-                # with MPV's, so a dropped append would misalign every later
-                # item's cues, audio and credits markers. Abort instead.
+                # Every item MUST land in MPV's playlist: a dropped append would
+                # misalign every later item's cues, audio and credits markers.
                 for item in items:
                     if not c.enqueue_file(item.file, title=item_title(item)):
                         return self._abort_load(f"item {item.order} ({item.file})")
@@ -547,8 +476,8 @@ class MPVService:
                 self.current_playlist = playlist
                 self._programme_cursor = -1
                 self.credits_executed.clear()
-                self._build_track_maps()
-                self._set_state(ProgrammeState.LOADED)  # persists the offset too
+                self._tracks_done = set()
+                self._set_state(ProgrammeState.LOADED)
                 logger.info(f"Programme loaded: {len(items)} items after standby (offset {self.playlist_offset})")
 
                 if title_url:
@@ -559,10 +488,6 @@ class MPVService:
                     self._leave_standby(1, reveal=0.0 if fade_in > 0 else COVER_REVEAL_SECONDS)
                     c.pause(False)
                 return True
-
-            except Playlist.DoesNotExist:
-                logger.error(f"No playlist found for programme: {programme.name}")
-                return False
             except Exception as e:
                 logger.error(f"Error loading programme: {e}")
                 return False
@@ -579,7 +504,6 @@ class MPVService:
             if not self.current_programme or not self.current_playlist:
                 logger.error("No programme loaded")
                 return False
-
             logger.info(f"Starting programme playback: {self.current_programme.name}")
             self._set_state(ProgrammeState.RUNNING)
             if self.controller.get_property("playlist_pos") in (None, 0):
@@ -592,8 +516,7 @@ class MPVService:
         ``reveal`` seconds once the entry shows its first frame (0 lifts it at
         once). Only the fade runs here, under the playout lock; the reveal runs
         on its own thread. The move always happens, and the cover is always
-        lifted, whatever fails. With standby not on screen there is nothing to
-        fade, so this just moves."""
+        lifted, whatever fails. With standby not on screen this just moves."""
         c = self.controller
         if c.get_property("playlist_pos") != 0:
             return c.playlist_jump(index)
@@ -674,25 +597,26 @@ class MPVService:
             }
         )
 
-    def _handle_file_end(self, event_data):
-        """A file ended. MPV advances the playlist itself; a file or stream that
-        failed to open or dropped (reason "error") is logged against its item,
-        since it would otherwise look like a normal end."""
-        if self.running and self.current_playlist and (event_data or {}).get("reason") == "error":
-            self._log_playback_error()
+    def _current_item(self, pos=None):
+        """The programme's playlist item at mpv index ``pos`` (default: the current one), or None."""
+        if pos is None:
+            pos = self.controller.get_property("playlist_pos")
+        if pos is None or pos < self.playlist_offset:
+            return None
+        return self.current_playlist.items.filter(order=pos - self.playlist_offset).first()
 
-    def _log_playback_error(self):
-        """Emit a WARNING naming the playlist item MPV failed to play, if known."""
+    def _handle_file_end(self, event_data):
+        """A file ended (MPV advances by itself). One that failed to open or
+        dropped (reason "error") is logged against its item, since it would
+        otherwise look like a normal end."""
+        if not (self.running and self.current_playlist and (event_data or {}).get("reason") == "error"):
+            return
         try:
-            pos = self.controller.get_property("playlist_pos") if self.controller else None
-            if pos is None:
-                logger.warning("MPV reported a playback error (file failed to open or dropped)")
-                return
-            order = pos - self.playlist_offset
-            item = self.current_playlist.items.filter(order=order).first() if order >= 0 else None
+            pos = self.controller.get_property("playlist_pos")
+            item = self._current_item(pos)
             if item is not None:
                 logger.warning(
-                    f"MPV playback error on '{item.file}' ({item.content_type}, order {order}); "
+                    f"MPV playback error on '{item.file}' ({item.content_type}, order {item.order}); "
                     f"advancing to the next item"
                 )
             else:
@@ -702,37 +626,26 @@ class MPVService:
 
     @staticmethod
     def _is_black_clip(filepath):
-        """True if a file/URL is the system black clip — the streamed URL
-        (/stream/system/black/) or, defensively, a legacy local path."""
         return bool(filepath) and ("/stream/system/black" in filepath or "system/black.mp4" in filepath)
 
     def _is_end_sentinel_position(self):
-        """
-        True when MPV is on the trailing "system" black item (programme end).
-
-        Command items play the same system/black.mp4 placeholder in local mode,
-        so the file path alone can't identify the end of the programme — the
-        current playlist item's content_type can.
-        """
+        """True when MPV is on the trailing "system" black item (programme end).
+        Hold-black command items play the same clip, so the path alone can't tell."""
         try:
             pos = self.controller.get_property("playlist_pos") if self.controller else None
             if pos is None or not self.current_playlist:
-                return True  # can't tell — fall back to the old path-based behaviour
-            programme_pos = pos - self.playlist_offset
-            if programme_pos < 0:
+                return True  # can't tell: treat the black clip as the end
+            if pos < self.playlist_offset:
                 return False  # still in pre-show
-            item = self.current_playlist.items.filter(order=programme_pos).first()
+            item = self._current_item(pos)
             return item is None or item.content_type == "system"
         except Exception:
             logger.exception("Failed to resolve playlist position for black.mp4 disambiguation")
             return True
 
     def _handle_file_start(self, filepath):
-        """Handle when a file starts"""
         logger.info(f"File started: {filepath}")
-
-        # New file → cache it and clear the stale duration (refetched lazily on
-        # the next time-pos), then push the stream.
+        # The duration is refetched lazily on the next time-pos.
         self._live["file"] = filepath
         self._live["duration"] = None
         self._notify_live()
@@ -745,99 +658,69 @@ class MPVService:
             self.standby()
             return
 
-        # The black sentinel at the end of a programme: go to standby. Hold-black
-        # command items play the same clip, so confirm it's really the end
-        # sentinel via the playlist item's content_type.
-        if filepath and self._is_black_clip(filepath) and self.running and self._is_end_sentinel_position():
+        if self._is_black_clip(filepath) and self.running and self._is_end_sentinel_position():
             logger.info("Programme ended; going to standby")
             self.standby()
             return
 
-        if not self.current_playlist:
-            return
-
-        # Configure tracks for movies
-        threading.Thread(target=self._configure_tracks_for_file, args=(filepath,), daemon=True).start()
+        if self.current_playlist:
+            threading.Thread(target=self._configure_tracks_for_file, args=(filepath,), daemon=True).start()
 
     def _handle_playlist_change(self, position):
-        """
-        Handle playlist position changes: advance the programme cursor, fire
-        any command cues passed over, and run hold-black command items.
-
-        Cue policy: moving forward fires every cue between the old and new
-        cursor, in order — a jump that skips items still fires their cues.
-        Moving backward fires nothing (the cues re-fire when playback passes
-        them again).
-        """
+        """Advance the programme cursor, fire any command cues passed over, and
+        run hold-black command items. Moving forward fires every cue between the
+        old and new cursor, in order; moving backward fires nothing (the cues
+        re-fire when playback passes them again)."""
         self._live["playlist_pos"] = position
-        self._notify_live()  # discrete change → push the stream immediately
+        self._notify_live()
         if not self.running or not self.current_playlist:
             return
-
-        logger.debug(f"Playlist position changed to {position}")
-
         if position is None or position < self.playlist_offset:
             return
-        programme_item_order = position - self.playlist_offset
-
+        order = position - self.playlist_offset
         previous_order = self._programme_cursor
-        self._programme_cursor = programme_item_order
+        self._programme_cursor = order
         self._persist_session()
 
         try:
-            window = playout_timing.cue_window(previous_order, programme_item_order)
+            window = playout_timing.cue_window(previous_order, order)
             if window:
                 self._fire_cues_between(*window)
 
-            item = self.current_playlist.items.filter(order=programme_item_order).first()
+            item = self._current_item(position)
             if item is None:
-                logger.warning(f"Playlist item not found for programme order {programme_item_order}")
-                return
-            logger.debug(f"MPV index {position} -> programme item order {programme_item_order} ({item.content_type})")
-
-            if item.content_type == "command":
-                # Hold-black item: fire its command and keep black on screen
-                # for the command's duration (thread — never block the event
-                # handler).
+                logger.warning(f"Playlist item not found for programme order {order}")
+            elif item.content_type == "command":
+                # Never block the event handler.
                 threading.Thread(target=self._run_hold_item, args=(item, position), daemon=True).start()
         except Exception as e:
             logger.error(f"Error handling playlist position change: {e}")
 
     def _fire_cues_between(self, previous_order, new_order):
         """Fire instant command cues in (previous_order, new_order], in order."""
-        cues = list(
-            self.current_playlist.cues.filter(
-                fires_before_order__gt=previous_order, fires_before_order__lte=new_order
-            ).order_by("fires_before_order", "seq")
-        )
-        if not cues:
-            return
-
         from cinefin.api.services import command_runner
 
         commands = []
-        for cue in cues:
+        for cue in self.current_playlist.cues.filter(
+            fires_before_order__gt=previous_order, fires_before_order__lte=new_order
+        ).order_by("fires_before_order", "seq"):
             if cue.command is None:
                 logger.warning(f"Command cue '{cue.command_name}' points at a deleted command; skipping")
-                continue
-            commands.append(cue.command)
+            else:
+                commands.append(cue.command)
         if commands:
             logger.info(f"Firing {len(commands)} command cue(s) for items {previous_order + 1}..{new_order}")
             command_runner.execute_many_sequential(commands, trigger="block")
 
     def _run_hold_item(self, item, mpv_position):
-        """
-        Run a hold-black command item: fire the command, keep the black clip
+        """Run a hold-black command item: fire the command, keep the black clip
         looping until the command has finished AND its duration has elapsed
         (pause-aware), then advance.
 
-        The system black clip is only a few seconds long, so the loop-file
-        setting is what actually holds the screen — Command.duration is a
-        minimum dwell, not a cap: a command that outlives it keeps black up
-        until it completes (providers time out at TIMEOUT_SECONDS, so this
-        is bounded). A deleted command with no duration falls back to letting
-        the black clip play out once at its natural length.
-        """
+        The black clip is only a few seconds long, so loop-file is what holds the
+        screen; Command.duration is a minimum dwell, not a cap (providers time
+        out at TIMEOUT_SECONDS, so this is bounded). A deleted command with no
+        duration lets the black clip play out once."""
         from django.db import close_old_connections
 
         from cinefin.api.services import command_runner
@@ -863,13 +746,9 @@ class MPVService:
                 return
 
         self._executing_command = True
-        # The dwell/overtime clock is pure (playout_timing.HoldDwell); this
-        # loop only sleeps, gathers observations and acts on the verdict.
         # Overtime is the backstop for a runner thread that never signals.
         dwell = playout_timing.HoldDwell(hold_seconds, overtime=command_runner.TIMEOUT_SECONDS + 5.0)
-        # Expose the hold's own clock: MPV reports the looping black clip's
-        # few-second file length, so status surfaces would show "5s" for every
-        # command. get_status() overrides position/duration from this.
+        # MPV reports the looping clip's few-second length, so status shows the hold's own clock.
         self._hold_progress = dwell.progress
         looped = self.controller.set_property("loop-file", "inf")
         try:
@@ -898,26 +777,21 @@ class MPVService:
                 self.controller.set_property("loop-file", "no")
 
         name = command.name if command else "<deleted>"
-        # Only advance if MPV is still on THIS hold's entry. A failing stream
-        # before adjacent holds makes MPV error-advance multiple times in
-        # quick succession (native open + ytdl fallback each fire an error),
-        # leaving a stale hold thread whose unconditional next() would cut the
-        # NEXT hold short mid-dwell.
+        # Only advance if MPV is still on THIS hold's entry: a failing stream
+        # before adjacent holds can error-advance several times, and a stale hold
+        # thread's next() would cut the NEXT hold short.
         if self.controller.get_property("playlist_pos") == mpv_position:
             logger.info(f"Hold complete ('{name}', {hold_seconds}s minimum), advancing")
             self.controller.next()
         else:
             logger.info(f"Hold '{name}' superseded (playback moved on); not advancing")
 
-    def _programme_started(self) -> bool:
-        # NOT_LOADED counts as "still cueing": a title's file-start can land before load_programme sets LOADED.
-        return self.programme_state == ProgrammeState.RUNNING
-
     def _title_started(self):
         """The cued title card began (after standby): pause on its first frame, or arm the
-        fade-in hold. Dropped once the programme starts or playback moves past the title."""
+        fade-in hold. Dropped once the programme starts or playback moves past the title.
+        (NOT_LOADED still counts as cueing: the file-start can land before LOADED is set.)"""
         pos = self.controller.get_property("playlist_pos") if self.controller else None
-        if self._programme_started() or (pos is not None and pos > self._title_index):
+        if self.running or (pos is not None and pos > self._title_index):
             self._title_pause_at = None
         elif pos == self._title_index:
             if self._title_pause_at:
@@ -930,7 +804,7 @@ class MPVService:
         """Pause the armed title card once its fade-in is done (never past its end, which would
         advance into the programme)."""
         pos = self.controller.get_property("playlist_pos") if self.controller else None
-        if self._programme_started() or (pos is not None and pos != self._title_index):
+        if self.running or (pos is not None and pos != self._title_index):
             self._title_pause_at, self._title_armed = None, False
             return
         if pos is None:
@@ -941,10 +815,7 @@ class MPVService:
             self.controller.pause()
 
     def _handle_time_pos(self, time_pos):
-        """Handle time position changes and check for credits markers"""
-        # Cache for the SSE snapshot (the stream ticks position itself, so no
-        # publish here). Duration isn't known until the file loads, so fetch it
-        # once — lazily, on the first tick after a file start clears it.
+        """Cache the position, hold a fading title card, and fire a feature's credits command."""
         self._live["time"] = time_pos
         if self._live["duration"] is None and self.controller:
             d = self.controller.get_property("duration")
@@ -956,198 +827,89 @@ class MPVService:
 
         if not self.running or not self.current_playlist or time_pos is None:
             return
-
         try:
-            # Get current playlist position
-            current_pos = self.controller.get_property("playlist_pos")
-            if current_pos is None or current_pos < self.playlist_offset:
+            item = self._current_item()
+            if item is None or item.content_type != "movie" or self.credits_executed.get(item.id):
                 return
+            playback = item.content_object
+            if playback is None:
+                return
+            movie, command = playback.movie, playback.credits_command
+            if command and playout_timing.credits_due(time_pos, movie.credits_marker):
+                logger.info(
+                    f"Credits marker reached at {int(time_pos)}s (marker: {movie.credits_marker}s) for '{movie.title}'"
+                )
+                from cinefin.api.services import command_runner
 
-            programme_item_order = current_pos - self.playlist_offset
-
-            # Get the playlist item
-            item = self.current_playlist.items.get(order=programme_item_order)
-
-            # Check if this is a movie and we haven't executed its credits command yet
-            if item.content_type == "movie" and not self.credits_executed.get(item.id, False):
-                movie_playback = item.content_object
-                if isinstance(movie_playback, MoviePlayback):
-                    movie = movie_playback.movie
-                    credits_marker = movie.credits_marker
-                    credits_command = movie_playback.credits_command
-
-                    # Execute the command when playback reaches or passes the marker
-                    if credits_command and playout_timing.credits_due(time_pos, credits_marker):
-                        logger.info(
-                            f"Credits marker reached at {int(time_pos)}s (marker: {credits_marker}s) "
-                            f"for '{movie.title}'"
-                        )
-                        # Execute in a thread to avoid blocking
-                        threading.Thread(
-                            target=self._execute_credits_command, args=(credits_command,), daemon=True
-                        ).start()
-                        self.credits_executed[item.id] = True
-                        self._persist_session()
-
-        except PlaylistItem.DoesNotExist:
-            pass
+                threading.Thread(
+                    target=command_runner.execute,
+                    args=(command,),
+                    kwargs={"trigger": "credits", "wait": True},
+                    daemon=True,
+                ).start()
+                self.credits_executed[item.id] = True
+                self._persist_session()
         except Exception as e:
             logger.error(f"Error checking credits marker: {e}")
 
     def _handle_pause(self, paused):
-        """Cache pause state (observed) and push the stream."""
         self._live["pause"] = paused
         self._notify_live()
 
     def _notify_live(self):
-        """Wake the SSE playout stream(s) so they push the latest snapshot."""
+        """Wake the playout status push."""
         try:
             from cinefin.api.services.playout_events import playout_event_bus
 
             playout_event_bus.publish()
-        except Exception:  # noqa: BLE001 — never let a notify break an event handler
+        except Exception:  # noqa: BLE001 - never let a notify break an event handler
             pass
 
     def _configure_tracks_for_file(self, filepath):
-        """Configure audio and subtitle tracks for the current file"""
+        """Select the block's audio and subtitle tracks when its feature starts."""
         if not self.current_playlist:
             return
-
         try:
-            # Find the playlist item for this file
-            for item in self.current_playlist.items.all():
-                if item.file == filepath and item.content_type == "movie":
-                    # content_object is a MoviePlayback instance, not a ProgrammeBlock
-                    movie_playback = item.content_object
-                    if movie_playback is None:
-                        logger.warning(f"Playlist item {item.id} has no MoviePlayback; skipping track config")
-                        continue
-                    movie_id = movie_playback.id
-
-                    # The one INFO line for this block; the per-track detail
-                    # below is DEBUG-level chatter (10+ lines per movie start).
-                    logger.info(
-                        f"Configuring tracks for {filepath}: MoviePlayback ID {movie_id}, "
-                        f"audio_track: {movie_playback.audio_track_index}, "
-                        f"subtitle_track: {movie_playback.subtitle_track_index}"
-                    )
-
-                    # Small delay to ensure file is loaded
-                    time.sleep(0.5)
-
-                    # Get available tracks for debugging
-                    tracks = self.controller.get_track_list()
-                    if tracks:
-                        logger.debug(f"Raw track list: {tracks}")
-                        # Handle both dict and string formats
-                        if isinstance(tracks, list) and len(tracks) > 0:
-                            if isinstance(tracks[0], dict):
-                                audio_tracks = [t for t in tracks if t.get("type") == "audio"]
-                                subtitle_tracks = [t for t in tracks if t.get("type") == "sub"]
-                                logger.debug(
-                                    f"Available tracks - Audio: {len(audio_tracks)}, Subtitles: {len(subtitle_tracks)}"
-                                )
-                            else:
-                                logger.debug(f"Track list contains {len(tracks)} items (non-dict format)")
-
-                    # Set audio track
-                    if not self.audio_set.get(movie_id, False) and movie_playback.audio_track_index is not None:
-                        logger.debug(
-                            f"Setting audio track {movie_playback.audio_track_index} for MoviePlayback {movie_id}"
-                        )
-                        # MPV uses 1-based indexing for tracks
-                        # Note: audio_track_index 0 -> MPV track 1
-                        mpv_audio_track = movie_playback.audio_track_index + 1
-                        logger.debug(
-                            f"Setting MPV audio track to {mpv_audio_track} (0-based index {movie_playback.audio_track_index})"
-                        )
-                        result = self.controller.set_audio_track(mpv_audio_track)
-                        logger.debug(f"Audio track set result: {result}")
-                        self.audio_set[movie_id] = True
-
-                    # Set subtitle track
-                    if not self.subtitle_set.get(movie_id, False):
-                        # Always enable subtitle visibility so tracks can be changed later
-                        self.controller.enable_subtitles()
-
-                        if movie_playback.subtitle_track_index is not None:
-                            logger.debug(
-                                f"Setting subtitle track {movie_playback.subtitle_track_index} for MoviePlayback {movie_id}"
-                            )
-                            # MPV uses 1-based indexing for tracks
-                            # Note: subtitle_track_index 0 -> MPV track 1
-                            mpv_subtitle_track = movie_playback.subtitle_track_index + 1
-                            logger.debug(
-                                f"Setting MPV subtitle track to {mpv_subtitle_track} (0-based index {movie_playback.subtitle_track_index})"
-                            )
-                            result = self.controller.set_subtitle_track(mpv_subtitle_track)
-                            logger.debug(f"Subtitle track set result: {result}")
-                        else:
-                            logger.debug(
-                                "No subtitle track specified, setting to 0 (disabled) but keeping visibility enabled"
-                            )
-                            # Set subtitle track to 0 (no track) but keep visibility enabled
-                            self.controller.set_subtitle_track(0)
-                        self.subtitle_set[movie_id] = True
-                    break
-
+            item = next(
+                (
+                    i
+                    for i in self.current_playlist.items.all()
+                    if i.file == filepath and i.content_type == "movie" and i.content_object is not None
+                ),
+                None,
+            )
+            if item is None:
+                return
+            playback = item.content_object
+            if playback.id in self._tracks_done:
+                return
+            logger.info(
+                f"Configuring tracks for {filepath}: MoviePlayback ID {playback.id}, "
+                f"audio_track: {playback.audio_track_index}, subtitle_track: {playback.subtitle_track_index}"
+            )
+            time.sleep(0.5)  # let the file load
+            # MPV track ids are 1-based; ours are 0-based.
+            if playback.audio_track_index is not None:
+                self.controller.set_audio_track(playback.audio_track_index + 1)
+            # Subtitles stay visible so the track can be changed later; track 0 is none.
+            self.controller.enable_subtitles()
+            sub = playback.subtitle_track_index
+            self.controller.set_subtitle_track(0 if sub is None else sub + 1)
+            self._tracks_done.add(playback.id)
         except Exception as e:
             logger.error(f"Error configuring tracks for file {filepath}: {e}", exc_info=True)
 
-    def _execute_credits_command(self, command):
-        """Execute a credits command via the command runner (recorded in history)"""
-        from cinefin.api.services import command_runner
-
-        command_runner.execute(command, trigger="credits", wait=True)
-
-    # Delegation methods for backward compatibility
-    def play(self):
-        """Start/resume playback"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.play()
-
-    def pause(self):
-        """Pause playback"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.pause()
-
-    def toggle_pause(self):
-        """Toggle pause state"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.toggle_pause()
-
-    def stop(self):
-        """Stop playback"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.stop()
-
-    def next(self):
-        """Go to next playlist item"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.next()
-
-    def previous(self):
-        """Go to previous playlist item"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.previous()
-
-    def seek(self, position):
-        """Seek to position"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.seek(position)
-
-    def keypress(self, key):
-        """Send keypress to MPV"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.keypress(key)
+    play = _delegate("play")
+    pause = _delegate("pause")
+    next = _delegate("next")
+    previous = _delegate("previous")
+    seek = _delegate("seek")
+    seek_relative = _delegate("seek_relative")
+    playlist_jump = _delegate("playlist_jump")
+    _mpv_command = _delegate("_mpv_command")
+    get_status = _delegate("get_status", None)
+    get_playlist = _delegate("get_playlist", None)
+    get_track_list = _delegate("get_track_list", None)
 
     def manual_add(self, title, kind, url, now=False):
         """Play (``now``) or queue a one-off item. The caller ends any loaded programme first.
@@ -1192,7 +954,7 @@ class MPVService:
             return ok
 
     def manual_move(self, index, to):
-        """Reorder the queue: move item ``index`` to position ``to``."""
+        """Move queued item ``index`` to position ``to``."""
         with self._playout_lock:
             n = len(self.manual_items)
             if not (0 <= index < n and 0 <= to < n) or index == to or not self._ensure_connected():
@@ -1203,12 +965,6 @@ class MPVService:
                 self.manual_items.insert(to, self.manual_items.pop(index))
             self._notify_live()
             return ok
-
-    def get_status(self):
-        """Get current playback status"""
-        if not self._ensure_connected():
-            return None
-        return self.controller.get_status()
 
     def snapshot(self):
         """What status needs from the player, in five reads: pause, time, duration,
@@ -1230,248 +986,57 @@ class MPVService:
             logger.debug("Player snapshot failed: %s", e)
             return None
 
-    def get_playlist(self):
-        """Get current MPV playlist"""
-        if not self._ensure_connected():
-            return None
-        return self.controller.get_playlist()
-
-    def get_track_list(self):
-        """Get available tracks"""
-        if not self._ensure_connected():
-            return None
-        return self.controller.get_track_list()
-
-    # Backward compatibility properties
-    @property
-    def connector(self):
-        """Backward compatibility: return controller as connector"""
-        return self.controller
-
-    @property
-    def mpv_index(self):
-        """Backward compatibility: get playlist index"""
-        if self.controller:
-            return self.controller.get_property("playlist_pos") or 0
-        return 0
-
-    @property
-    def playlist_index(self):
-        """Backward compatibility: get playlist index"""
-        return self.mpv_index
-
-    @property
-    def programme(self):
-        """Backward compatibility: get current programme"""
-        return self.current_programme
-
-    @property
-    def playlist(self):
-        """Backward compatibility: get current playlist"""
-        return self.current_playlist
-
-    def set_audio_track(self, index):
-        """Set audio track by index"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.set_audio_track(index)
-
-    def set_subtitle_track(self, index):
-        """Set subtitle track by index"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.set_subtitle_track(index)
-
-    def enable_subtitles(self):
-        """Enable subtitle visibility"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.enable_subtitles()
-
-    def disable_subtitles(self):
-        """Disable subtitle visibility"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.disable_subtitles()
-
-    # Volume control methods
-    def set_volume(self, volume):
-        """Set volume level (0-100)"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.set_volume(volume)
-
-    def volume_up(self):
-        """Increase volume"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.volume_up()
-
-    def volume_down(self):
-        """Decrease volume"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.volume_down()
-
-    def mute(self):
-        """Mute audio"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.mute()
-
-    def unmute(self):
-        """Unmute audio"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.unmute()
-
-    def toggle_mute(self):
-        """Toggle mute state"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.toggle_mute()
-
-    # Advanced seeking methods
-    def seek_relative(self, seconds):
-        """Seek relative to current position"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.seek_relative(seconds)
-
-    def seek_percentage(self, percent):
-        """Seek to percentage of file"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.seek_percentage(percent)
-
-    # Track selection methods
-    def select_audio_track(self, track_id):
-        """Select audio track by ID"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.select_audio_track(track_id)
-
-    def select_subtitle_track(self, track_id):
-        """Select subtitle track by ID"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.select_subtitle_track(track_id)
-
-    # Playlist control methods
     def get_playlist_info(self):
-        """Get detailed playlist information"""
+        """MPV's playlist, each entry labelled and mapped to its programme position."""
+        empty = {"playlist": [], "current_index": 0, "total_items": 0, "programme_offset": 0}
         if not self._ensure_connected():
-            return {"playlist": [], "current_index": 0, "total_items": 0, "programme_offset": 0}
-
+            return empty
         try:
             mpv_playlist = self.controller.get_playlist() or []
             current_index = self.controller.get_property("playlist_pos") or 0
-
-            # Build playlist info with programme position mapping
-            playlist_items = []
-            for i, item in enumerate(mpv_playlist):
-                # Pre-show entries (before the programme offset) are standby
-                # and the generated title card: label them rather than showing
-                # a URL fragment or a file path on the player.
-                if i < self.playlist_offset:
-                    title = self._preshow_title(item.get("filename", ""))
-                else:
-                    title = self.getFileName(item.get("filename", "")) or f"Item {i + 1}"
-                programme_position = None
-
-                # Calculate programme position (excluding the pre-show entries)
-                if i >= self.playlist_offset:
-                    programme_position = i - self.playlist_offset
-
-                playlist_items.append(
+            offset = self.playlist_offset
+            items = []
+            for i, entry in enumerate(mpv_playlist):
+                file = entry.get("filename", "")
+                # Pre-show entries are standby and the title card: label them.
+                preshow = i < offset
+                items.append(
                     {
                         "index": i,
-                        "title": title,
-                        "type": self._guess_file_type(item.get("filename", "")),
-                        "file": item.get("filename", ""),
+                        "title": self._preshow_title(file) if preshow else (self.getFileName(file) or f"Item {i + 1}"),
+                        "type": self._guess_file_type(file),
+                        "file": file,
                         "current": i == current_index,
-                        "programme_position": programme_position,
+                        "programme_position": None if preshow else i - offset,
                     }
                 )
-
             return {
-                "playlist": playlist_items,
+                "playlist": items,
                 "current_index": current_index,
                 "total_items": len(mpv_playlist),
-                "programme_offset": self.playlist_offset,
+                "programme_offset": offset,
             }
         except Exception as e:
             logger.error(f"Error getting playlist info: {e}")
-            return {"playlist": [], "current_index": 0, "total_items": 0, "programme_offset": 0}
+            return empty
 
-    def playlist_jump(self, index):
-        """Jump to specific playlist item"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.playlist_jump(index)
-
-    # Speed control methods
-    def set_speed(self, speed):
-        """Set playback speed"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.set_speed(speed)
-
-    # Fullscreen control methods
-    def toggle_fullscreen(self):
-        """Toggle fullscreen mode"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.toggle_fullscreen()
-
-    def set_fullscreen(self, enabled):
-        """Set fullscreen state"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.set_fullscreen(enabled)
-
-    # Chapter navigation methods
-    def chapter_next(self):
-        """Go to next chapter"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.chapter_next()
-
-    def chapter_previous(self):
-        """Go to previous chapter"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.chapter_previous()
-
-    def chapter_seek(self, chapter_number):
-        """Seek to specific chapter"""
-        if not self._ensure_connected():
-            return False
-        return self.controller.chapter_seek(chapter_number)
-
-    # Helper methods
-    def getFileName(self, path):
-        """
-        Display-usable last path segment. Stream URLs end "/?t=<token>", so
-        strip the query string and trailing slash first — a naive last-segment
-        split surfaces the bare token ("?t=…") as a title.
-        """
+    @staticmethod
+    def getFileName(path):
+        """Display-usable last path segment. Stream URLs end "/?t=<token>", so
+        strip the query string and trailing slash first."""
         if not path:
             return ""
-        trimmed = path.split("?")[0].rstrip("/")
-        return trimmed.split("/")[-1] or path
+        return path.split("?")[0].rstrip("/").split("/")[-1] or path
 
     def in_preshow(self, position) -> bool:
         """True while standby or the title card is on screen ahead of the programme's
-        first item. Positional: programme items occupy mpv indices
-        ``playlist_offset + order``, so anything before the offset is pre-show."""
+        first item (anything before ``playlist_offset``)."""
         if not self.current_playlist or self.playlist_offset <= 0:
             return False
         return position is not None and position < self.playlist_offset
 
     @staticmethod
     def _preshow_title(url):
-        """Friendly label for a pre-show entry (standby / title card)."""
         path = (url or "").split("?")[0]
         if "/stream/title/" in path:
             return "Title card"
@@ -1479,38 +1044,21 @@ class MPVService:
             return "Black"
         return "Standby"
 
-    def _guess_file_type(self, filename):
-        """Guess file type from filename"""
+    @staticmethod
+    def _guess_file_type(filename):
         if not filename:
             return "unknown"
-
-        ext = filename.lower().split(".")[-1] if "." in filename else ""
-
-        if ext in ["mp4", "mkv", "avi", "mov", "wmv"]:
-            if "trailer" in filename.lower():
+        lower = filename.lower()
+        ext = lower.split(".")[-1] if "." in lower else ""
+        if ext in ("mp4", "mkv", "avi", "mov", "wmv"):
+            if "trailer" in lower:
                 return "trailer"
-            elif "bumper" in filename.lower() or "ident" in filename.lower():
+            if "bumper" in lower or "ident" in lower:
                 return "bumper"
-            else:
-                return "movie"
-        elif ext in ["mp3", "wav", "flac"]:
-            return "audio"
-        else:
-            return "video"
-
-    @property
-    def _connected(self):
-        """Backward compatibility: get connection status"""
-        return self.controller and self.controller._connected if self.controller else False
-
-    def _mpv_command(self, command, *args):
-        """Backward compatibility: execute MPV command"""
-        if not self._ensure_connected():
-            return False
-        return self.controller._mpv_command(command, *args)
+            return "movie"
+        return "audio" if ext in ("mp3", "wav", "flac") else "video"
 
     def terminate(self):
-        """Terminate the MPV service and cleanup resources"""
         logger.info("Terminating MPV service...")
         try:
             if self.controller:
@@ -1518,10 +1066,8 @@ class MPVService:
             self.controller = None
             self._lazy_initialized = False
             self._set_state(ProgrammeState.NOT_LOADED)
-            logger.info("MPV service terminated")
         except Exception as e:
             logger.error(f"Error terminating MPV service: {e}")
 
 
-# Singleton instance for use in Django
 mpv_service = MPVService()

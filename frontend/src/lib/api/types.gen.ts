@@ -13,10 +13,7 @@ export interface paths {
         };
         /**
          * Backup Download
-         * @description Stream a full backup zip (consistent DB snapshot + manifest).
-         *
-         *     The zip is built to a temp file and streamed with FileResponse; the temp
-         *     file is removed once the response has been fully sent.
+         * @description Stream a full backup zip (DB snapshot + manifest) from a temp file removed once it's sent.
          */
         get: operations["cinefin_api_ninja_views_backup_ninja_backup_download"];
         put?: never;
@@ -34,13 +31,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Backup Info
-         * @description Current database size, filename, last-modified and app version.
-         *
-         *     The absolute host path is never exposed — only the database filename.
-         *     Media files are not part of a backup (``includes_media`` is always False).
-         */
+        /** Backup Info */
         get: operations["cinefin_api_ninja_views_backup_ninja_backup_info"];
         put?: never;
         post?: never;
@@ -61,15 +52,7 @@ export interface paths {
         put?: never;
         /**
          * Backup Restore
-         * @description Restore from an uploaded backup zip (multipart field name: ``backup``).
-         *
-         *     The upload is validated in full before the live database is touched — the
-         *     zip must open, its manifest must parse and use a known format version, its
-         *     migration state must not be ahead of this code, and the embedded database
-         *     must pass a SQLite integrity check in a temp location. Only then is the live
-         *     database replaced atomically on disk. **A restart is required afterward** —
-         *     the running process keeps using the old connection until it is restarted
-         *     (``git pull`` / systemctl restart / docker restart).
+         * @description Restore from an uploaded backup zip; it is validated in full before the live database is touched.
          */
         post: operations["cinefin_api_ninja_views_backup_ninja_backup_restore"];
         delete?: never;
@@ -87,10 +70,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Create Command
-         * @description Create a new command.
-         */
+        /** Create Command */
         post: operations["cinefin_api_ninja_views_command_ninja_create_command"];
         delete?: never;
         options?: never;
@@ -105,10 +85,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List Commands
-         * @description List all commands with optional filtering.
-         */
+        /** List Commands */
         get: operations["cinefin_api_ninja_views_command_ninja_list_commands"];
         put?: never;
         post?: never;
@@ -262,26 +239,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/commands/{command_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Command Detail
-         * @description Get detailed information about a specific command.
-         */
-        get: operations["cinefin_api_ninja_views_command_ninja_get_command_detail"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/commands/{command_id}/delete": {
         parameters: {
             query?: never;
@@ -292,10 +249,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /**
-         * Delete Command
-         * @description Delete a command.
-         */
+        /** Delete Command */
         delete: operations["cinefin_api_ninja_views_command_ninja_delete_command"];
         options?: never;
         head?: never;
@@ -330,80 +284,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /**
-         * Update Command
-         * @description Update an existing command.
-         */
+        /** Update Command */
         put: operations["cinefin_api_ninja_views_command_ninja_update_command"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/docs/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Api Documentation Summary
-         * @description Get API documentation summary with links to auto-generated docs.
-         *
-         *     Returns:
-         *         200: API documentation summary with endpoint information
-         */
-        get: operations["cinefin_api_ninja_views_docs_ninja_api_documentation_summary"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/docs/interactive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Redirect To Ninja Docs
-         * @description Redirect to the interactive Django Ninja documentation.
-         *
-         *     Returns:
-         *         302: Redirect to interactive documentation
-         */
-        get: operations["cinefin_api_ninja_views_docs_ninja_redirect_to_ninja_docs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/docs/openapi.json": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Redirect To Openapi Spec
-         * @description Redirect to the OpenAPI specification JSON.
-         *
-         *     Returns:
-         *         302: Redirect to OpenAPI specification
-         */
-        get: operations["cinefin_api_ninja_views_docs_ninja_redirect_to_openapi_spec"];
-        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -418,10 +300,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Health Check
-         * @description Health check endpoint to verify API is running.
-         */
+        /** Health Check */
         get: operations["cinefin_api_ninja_api_health_check"];
         put?: never;
         post?: never;
@@ -551,23 +430,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/logs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Recent application log records */
-        get: operations["cinefin_api_ninja_views_logs_ninja_list_logs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/media/bulk-tag": {
         parameters: {
             query?: never;
@@ -653,7 +515,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Tag
-         * @description Delete a tag, untagging every media item that carries it.
+         * @description Delete a tag, untagging (not deleting) every media item that carries it.
          */
         delete: operations["cinefin_api_ninja_views_media_management_delete_tag"];
         options?: never;
@@ -688,7 +550,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Upload Media */
-        post: operations["cinefin_api_ninja_views_media_uploads_upload_media"];
+        post: operations["cinefin_api_ninja_views_media_management_upload_media"];
         delete?: never;
         options?: never;
         head?: never;
@@ -705,7 +567,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Youtube Download */
-        post: operations["cinefin_api_ninja_views_media_downloads_youtube_download"];
+        post: operations["cinefin_api_ninja_views_media_management_youtube_download"];
         delete?: never;
         options?: never;
         head?: never;
@@ -720,7 +582,7 @@ export interface paths {
             cookie?: never;
         };
         /** Youtube Progress */
-        get: operations["cinefin_api_ninja_views_media_downloads_youtube_progress"];
+        get: operations["cinefin_api_ninja_views_media_management_youtube_progress"];
         put?: never;
         post?: never;
         delete?: never;
@@ -759,7 +621,7 @@ export interface paths {
             cookie?: never;
         };
         /** Download Media */
-        get: operations["cinefin_api_ninja_views_media_movies_download_media"];
+        get: operations["cinefin_api_ninja_views_media_management_download_media"];
         put?: never;
         post?: never;
         delete?: never;
@@ -776,7 +638,7 @@ export interface paths {
             cookie?: never;
         };
         /** Get Media Screenshot */
-        get: operations["cinefin_api_ninja_views_media_movies_get_media_screenshot"];
+        get: operations["cinefin_api_ninja_views_media_management_get_media_screenshot"];
         put?: never;
         post?: never;
         delete?: never;
@@ -826,18 +688,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Clear Library Preview
-         * @description Counts for the clear-library confirmation (total + how many are in use).
-         */
+        /** Clear Library Preview */
         get: operations["cinefin_api_ninja_views_movies_ninja_clear_library_preview"];
         put?: never;
         /**
          * Clear Library
-         * @description Remove every movie from the library (DB only — playout is streaming, no files on disk).
-         *
-         *     Movies referenced by a programme/trailer rule are SET_NULL, so those slots empty out
-         *     rather than deleting the programme; the confirmation warns with `in_use`.
+         * @description Remove every movie from the library (DB only). Referencing programme/trailer-rule slots are SET_NULL.
          */
         post: operations["cinefin_api_ninja_views_movies_ninja_clear_library"];
         delete?: never;
@@ -932,23 +788,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/movies/{movie_id}/audio_tracks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Movie Audio Tracks */
-        get: operations["cinefin_api_ninja_views_movies_ninja_get_movie_audio_tracks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/movies/{movie_id}/certification": {
         parameters: {
             query?: never;
@@ -1000,23 +839,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/movies/{movie_id}/subtitle_tracks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Movie Subtitle Tracks */
-        get: operations["cinefin_api_ninja_views_movies_ninja_get_movie_subtitle_tracks"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/movies/{movie_id}/toggle_kiosk": {
         parameters: {
             query?: never;
@@ -1028,23 +850,6 @@ export interface paths {
         put?: never;
         /** Toggle Movie Kiosk */
         post: operations["cinefin_api_ninja_views_movies_ninja_toggle_movie_kiosk"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/mpv/chapters": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Send Mpv Command */
-        post: operations["mpv_send_chapter_command"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1068,57 +873,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/mpv/fullscreen": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Fullscreen */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_fullscreen"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/mpv/playback": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Playback */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_playback"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/mpv/playlist": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Playlist */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_playlist"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/mpv/property/{property_name}": {
         parameters: {
             query?: never;
@@ -1126,45 +880,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Mpv Property */
-        get: operations["cinefin_api_ninja_views_mpv_ninja_get_mpv_property"];
+        get?: never;
         put?: never;
         /** Set Mpv Property */
         post: operations["cinefin_api_ninja_views_mpv_ninja_set_mpv_property"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/mpv/seek": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Seek */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_seek"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/mpv/speed": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Speed */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_speed"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1188,40 +907,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/mpv/tracks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Tracks */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_tracks"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/mpv/volume": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Control Volume */
-        post: operations["cinefin_api_ninja_views_mpv_ninja_control_volume"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/playout/agent/restart": {
         parameters: {
             query?: never;
@@ -1231,10 +916,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Agent Restart Mpv
-         * @description Restart MPV via the playout agent (pushes the current launch config).
-         */
+        /** Agent Restart Mpv */
         post: operations["cinefin_api_ninja_views_playout_ninja_agent_restart_mpv"];
         delete?: never;
         options?: never;
@@ -1251,10 +933,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Agent Start Mpv
-         * @description Start MPV via the playout agent (it comes up on standby).
-         */
+        /** Agent Start Mpv */
         post: operations["cinefin_api_ninja_views_playout_ninja_agent_start_mpv"];
         delete?: never;
         options?: never;
@@ -1291,10 +970,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Agent Stop Mpv
-         * @description Stop MPV via the playout agent (graceful quit, then terminate).
-         */
+        /** Agent Stop Mpv */
         post: operations["cinefin_api_ninja_views_playout_ninja_agent_stop_mpv"];
         delete?: never;
         options?: never;
@@ -1335,23 +1011,6 @@ export interface paths {
          * @description Players announcing themselves on the local network (takes a couple of seconds).
          */
         get: operations["cinefin_api_ninja_views_playout_ninja_discover_players"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/playout/host/config": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Host Config */
-        get: operations["cinefin_api_ninja_views_playout_ninja_get_host_config"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1688,23 +1347,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/programmes/active": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Active Programme */
-        get: operations["cinefin_api_ninja_views_programmes_management_get_active_programme"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/programmes/bulk-delete": {
         parameters: {
             query?: never;
@@ -1785,10 +1427,7 @@ export interface paths {
         /** Update Programme */
         put: operations["cinefin_api_ninja_views_programmes_management_update_programme"];
         post?: never;
-        /**
-         * Delete Programme
-         * @description Delete a programme and all its associated blocks.
-         */
+        /** Delete Programme */
         delete: operations["cinefin_api_ninja_views_programmes_management_delete_programme"];
         options?: never;
         head?: never;
@@ -1826,10 +1465,7 @@ export interface paths {
         put?: never;
         /**
          * Duplicate Programme
-         * @description Create a copy of an existing programme, including all of its blocks.
-         *
-         *     The copy is named "<name> (copy)" and gets its own freshly generated
-         *     playlist.
+         * @description Copy a programme and its blocks as "<name> (copy)", with its own playlist.
          */
         post: operations["cinefin_api_ninja_views_programmes_management_duplicate_programme"];
         delete?: never;
@@ -1845,12 +1481,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Programme Playlist
-         * @description Get the current playlist for a programme with detailed item information.
-         *
-         *     Returns the complete playlist in playback order with file paths and metadata.
-         */
+        /** Get Programme Playlist */
         get: operations["cinefin_api_ninja_views_programmes_playlists_get_programme_playlist"];
         put?: never;
         post?: never;
@@ -1871,11 +1502,7 @@ export interface paths {
         put?: never;
         /**
          * Regenerate Playlist
-         * @description Regenerate the playlist for a programme.
-         *
-         *     Playlists are rebuilt automatically when a programme is saved and when it is
-         *     loaded for playout; this endpoint is the manual retry for a failed automatic
-         *     regeneration, and also re-rolls trailer-rule and random-movie selections.
+         * @description The manual retry for a failed automatic regeneration; also re-rolls trailer-rule and random picks.
          */
         post: operations["cinefin_api_ninja_views_programmes_playlists_regenerate_playlist"];
         delete?: never;
@@ -1893,12 +1520,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Run Programme
-         * @description Run a programme via the MPV service.
-         *
-         *     This will start playback of the programme's playlist.
-         */
+        /** Run Programme */
         post: operations["cinefin_api_ninja_views_programmes_management_run_programme"];
         delete?: never;
         options?: never;
@@ -1991,10 +1613,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List Schedules
-         * @description Get all schedules with filtering.
-         */
+        /** List Schedules */
         get: operations["cinefin_api_ninja_views_schedules_ninja_list_schedules"];
         put?: never;
         post?: never;
@@ -2240,26 +1859,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/settings/test-ratings/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Test Ratings
-         * @description Probe the certificate-rating provider for reachability (blank = the configured one; unreachable is ok=false).
-         */
-        post: operations["cinefin_api_ninja_views_settings_ninja_test_ratings"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/settings/test-tmdb/": {
         parameters: {
             query?: never;
@@ -2289,23 +1888,6 @@ export interface paths {
         };
         /** List Jobs */
         get: operations["cinefin_api_ninja_views_sync_ninja_list_jobs"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/sync/jobs/{job_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Job */
-        get: operations["cinefin_api_ninja_views_sync_ninja_get_job"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2379,8 +1961,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Source */
-        get: operations["cinefin_api_ninja_views_sync_ninja_get_source"];
+        get?: never;
         put?: never;
         post?: never;
         /** Delete Source */
@@ -2398,8 +1979,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Runs */
-        get: operations["cinefin_api_ninja_views_sync_ninja_list_runs"];
+        get?: never;
         put?: never;
         /** Start Run */
         post: operations["cinefin_api_ninja_views_sync_ninja_start_run"];
@@ -2437,23 +2017,6 @@ export interface paths {
         put?: never;
         /** Test Connection */
         post: operations["cinefin_api_ninja_views_sync_ninja_test_connection"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/sync/types": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Source Types */
-        get: operations["cinefin_api_ninja_views_sync_ninja_list_source_types"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2675,23 +2238,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/tickets/print/custom": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Print Custom Ticket */
-        post: operations["cinefin_api_ninja_views_ticket_ninja_print_custom_ticket"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/tickets/print/programme/{programme_id}": {
         parameters: {
             query?: never;
@@ -2784,40 +2330,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/tickets/settings": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Ticket Settings */
-        get: operations["cinefin_api_ninja_views_ticket_ninja_get_ticket_settings"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/tickets/settings/update": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Update Ticket Settings */
-        post: operations["cinefin_api_ninja_views_ticket_ninja_update_ticket_settings"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/tickets/test": {
         parameters: {
             query?: never;
@@ -2886,23 +2398,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/titlegen/programmes/{programme_id}/title-status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Programme Title Status */
-        get: operations["cinefin_api_ninja_views_titlegen_ninja_get_programme_title_status"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/titlegen/templates": {
         parameters: {
             query?: never;
@@ -2952,23 +2447,6 @@ export interface paths {
          * @description Server-rendered PNG thumbnail of a template; with programme_id, against that programme's real features.
          */
         get: operations["cinefin_api_ninja_views_titlegen_ninja_render_template_thumbnail"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v2/trailers/detail/{trailer_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Trailer Detail */
-        get: operations["cinefin_api_ninja_views_trailer_ninja_get_trailer_detail"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3178,23 +2656,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/trailers/list": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Trailers */
-        get: operations["cinefin_api_ninja_views_trailer_ninja_list_trailers"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/trailers/match-test": {
         parameters: {
             query?: never;
@@ -3305,26 +2766,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/trailers/tags/{tag_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Trailer Tag
-         * @description Delete a trailer tag; never refuses — references fall back to "any tag" (FK is SET_NULL).
-         */
-        delete: operations["cinefin_api_ninja_views_trailer_ninja_delete_trailer_tag"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/trailers/tmdb-search": {
         parameters: {
             query?: never;
@@ -3406,10 +2847,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Version
-         * @description Return the running application version, channel and commit.
-         */
+        /** Version */
         get: operations["cinefin_api_ninja_api_version"];
         put?: never;
         post?: never;
@@ -3427,14 +2865,10 @@ export interface components {
         APIKeyListResponse: {
             /** Data */
             data: components["schemas"]["APIKeySchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -3455,164 +2889,51 @@ export interface components {
              */
             prefix: string;
         };
-        /**
-         * APISummaryData
-         * @description API documentation summary data.
-         */
-        APISummaryData: {
-            /**
-             * Description
-             * @description API description
-             */
-            description: string;
-            /**
-             * Endpoints Summary
-             * @description Summary of available endpoints
-             */
-            endpoints_summary: {
-                [key: string]: unknown;
-            };
-            /**
-             * Ninja Docs Url
-             * @description URL to interactive Ninja documentation
-             */
-            ninja_docs_url: string;
-            /**
-             * Ninja Openapi Url
-             * @description URL to OpenAPI specification
-             */
-            ninja_openapi_url: string;
-            /**
-             * Title
-             * @description API title
-             */
-            title: string;
-            /**
-             * Version
-             * @description API version
-             */
-            version: string;
-        };
-        /**
-         * APISummaryResponseSchema
-         * @description Response schema for API documentation summary.
-         */
-        APISummaryResponseSchema: {
-            data: components["schemas"]["APISummaryData"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
-        /** ActiveProgrammeResponseDataSchema */
-        ActiveProgrammeResponseDataSchema: {
-            /** @description Currently active programme */
-            active_programme?: components["schemas"]["ProgrammeListItemSchema"] | null;
-        };
-        /** ActiveProgrammeResponseSchema */
-        ActiveProgrammeResponseSchema: {
-            /** @description Active programme data */
-            data: components["schemas"]["ActiveProgrammeResponseDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
         /** AgentActionDataSchema */
         AgentActionDataSchema: {
-            /**
-             * Action Message
-             * @description Agent's description of what happened
-             */
+            /** Action Message */
             action_message: string;
-            /**
-             * Mpv Running
-             * @description Whether MPV is running after the action
-             */
+            /** Mpv Running */
             mpv_running: boolean;
-            /**
-             * Ok
-             * @description Whether the action succeeded
-             */
+            /** Ok */
             ok: boolean;
         };
         /** AgentActionResponseSchema */
         AgentActionResponseSchema: {
-            /** @description Agent action result */
             data: components["schemas"]["AgentActionDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** AgentStatusDataSchema */
         AgentStatusDataSchema: {
-            /**
-             * Agent Version
-             * @description Agent version
-             */
+            /** Agent Version */
             agent_version?: string | null;
-            /**
-             * Autostart
-             * @description Agent launches MPV at its own boot
-             */
+            /** Autostart */
             autostart?: boolean | null;
-            /**
-             * Config Pushed At
-             * @description Unix time of the last config push
-             */
+            /** Config Pushed At */
             config_pushed_at?: number | null;
-            /**
-             * Enabled
-             * @description Whether agent management is enabled in settings
-             */
+            /** Enabled */
             enabled: boolean;
             /**
              * Error
              * @description Why the agent is unreachable, if it is
              */
             error?: string | null;
-            /**
-             * Mpv Mode
-             * @description child, external or stopped
-             */
+            /** Mpv Mode */
             mpv_mode?: string | null;
-            /**
-             * Mpv Pid
-             * @description MPV process ID (child mode)
-             */
+            /** Mpv Pid */
             mpv_pid?: number | null;
             /**
              * Mpv Running
-             * @description Whether an MPV instance is up
              * @default false
              */
             mpv_running: boolean;
-            /**
-             * Reachable
-             * @description Whether the agent answered
-             */
+            /** Reachable */
             reachable: boolean;
             /**
              * Restarts
@@ -3622,14 +2943,10 @@ export interface components {
             restarts: number;
             /**
              * Socket Responding
-             * @description MPV answering on the IPC socket
              * @default false
              */
             socket_responding: boolean;
-            /**
-             * Uptime Seconds
-             * @description MPV uptime in seconds
-             */
+            /** Uptime Seconds */
             uptime_seconds?: number | null;
             /**
              * Warning
@@ -3639,108 +2956,40 @@ export interface components {
         };
         /** AgentStatusResponseSchema */
         AgentStatusResponseSchema: {
-            /** @description Playout agent status */
             data: components["schemas"]["AgentStatusDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
-        };
-        /** AssociatedMovieSchema */
-        AssociatedMovieSchema: {
-            /**
-             * Id
-             * @description Movie ID
-             */
-            id: number;
-            /**
-             * Title
-             * @description Movie title
-             */
-            title: string;
-            /**
-             * Tmdbid
-             * @description TMDB ID
-             */
-            tmdbid?: number | null;
-            /**
-             * Year
-             * @description Movie release year
-             */
-            year?: number | null;
         };
         /** AudioTechInfoSchema */
         AudioTechInfoSchema: {
             /**
              * Channels
-             * @description Audio channel layout (e.g., 'stereo', '5.1')
+             * @description Channel layout, e.g. 'stereo', '5.1'
              */
             channels?: string | null;
-            /**
-             * Codec
-             * @description Audio codec
-             */
+            /** Codec */
             codec?: string | null;
-            /**
-             * Samplerate
-             * @description Audio sample rate in Hz
-             */
+            /** Samplerate */
             samplerate?: number | null;
-        };
-        /** AudioTrackListResponseSchema */
-        AudioTrackListResponseSchema: {
-            /** Data */
-            data: components["schemas"]["AudioTrackSchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
         };
         /** AudioTrackSchema */
         AudioTrackSchema: {
-            /**
-             * Channels
-             * @description Number of audio channels
-             */
+            /** Channels */
             channels: number;
-            /**
-             * Codec
-             * @description Audio codec used
-             */
+            /** Codec */
             codec: string;
-            /**
-             * Id
-             * @description Audio track unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Index
-             * @description Track index in media file
-             */
+            /** Index */
             index: number;
-            /**
-             * Language
-             * @description Audio track language
-             */
+            /** Language */
             language: string;
-            /**
-             * Title
-             * @description Audio track title
-             */
+            /** Title */
             title?: string | null;
         };
         /** BackupInfoDataSchema */
@@ -3763,14 +3012,10 @@ export interface components {
         /** BackupInfoResponseSchema */
         BackupInfoResponseSchema: {
             data: components["schemas"]["BackupInfoDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -3802,39 +3047,25 @@ export interface components {
         };
         /** BlockTracksDataSchema */
         BlockTracksDataSchema: {
-            /**
-             * Audio Track Index
-             * @description Audio track index now stored on the block
-             */
+            /** Audio Track Index */
             audio_track_index?: number | null;
-            /**
-             * Block Id
-             * @description Programme block that was updated
-             */
+            /** Block Id */
             block_id: number;
             /**
              * Playlist Items Updated
              * @description Generated playlist items whose MoviePlayback was updated in step with the block
              */
             playlist_items_updated: number;
-            /**
-             * Subtitle Track Index
-             * @description Subtitle track index now stored on the block
-             */
+            /** Subtitle Track Index */
             subtitle_track_index?: number | null;
         };
         /** BlockTracksResponseSchema */
         BlockTracksResponseSchema: {
-            /** @description The stored track selection */
             data: components["schemas"]["BlockTracksDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -3862,26 +3093,18 @@ export interface components {
         };
         /** BrandingLogoResponseSchema */
         BrandingLogoResponseSchema: {
-            /** @description Branding logo state */
             data: components["schemas"]["BrandingLogoDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** BulkDeleteDataSchema */
         BulkDeleteDataSchema: {
-            /**
-             * Deleted
-             * @description Number of programmes deleted
-             */
+            /** Deleted */
             deleted: number;
             /**
              * Missing
@@ -3892,86 +3115,57 @@ export interface components {
         /** BulkDeleteResponseSchema */
         BulkDeleteResponseSchema: {
             data: components["schemas"]["BulkDeleteDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** BulkKioskDataSchema */
         BulkKioskDataSchema: {
-            /**
-             * Kiosk Display
-             * @description Kiosk display value that was applied
-             */
+            /** Kiosk Display */
             kiosk_display: boolean;
             /**
              * Missing
              * @description Requested IDs that were not found
              */
             missing: number[];
-            /**
-             * Updated
-             * @description Number of movies updated
-             */
+            /** Updated */
             updated: number;
         };
         /** BulkKioskRequestSchema */
         BulkKioskRequestSchema: {
-            /**
-             * Ids
-             * @description Movie IDs to act on
-             */
+            /** Ids */
             ids: number[];
-            /**
-             * Kiosk Display
-             * @description Kiosk display value to apply to all movies
-             */
+            /** Kiosk Display */
             kiosk_display: boolean;
         };
         /** BulkKioskResponseSchema */
         BulkKioskResponseSchema: {
             data: components["schemas"]["BulkKioskDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** BulkMovieIdsSchema */
         BulkMovieIdsSchema: {
-            /**
-             * Ids
-             * @description Movie IDs to act on
-             */
+            /** Ids */
             ids: number[];
         };
         /** BulkProgrammeIdsSchema */
         BulkProgrammeIdsSchema: {
-            /**
-             * Ids
-             * @description Programme IDs to act on
-             */
+            /** Ids */
             ids: number[];
         };
         /** BulkTagDataSchema */
         BulkTagDataSchema: {
-            /**
-             * Action
-             * @description Action applied ('add' or 'remove')
-             */
+            /** Action */
             action: string;
             /**
              * Missing
@@ -3980,25 +3174,15 @@ export interface components {
             missing: number[];
             /** @description The tag added/removed (with fresh count) */
             tag?: components["schemas"]["TagSchema"] | null;
-            /**
-             * Updated
-             * @description Number of media items changed
-             */
+            /** Updated */
             updated: number;
         };
         /** BulkTagResponseSchema */
         BulkTagResponseSchema: {
-            /** @description Bulk-tag result */
             data: components["schemas"]["BulkTagDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** BulkTagSchema */
@@ -4009,10 +3193,7 @@ export interface components {
              * @default add
              */
             action: string;
-            /**
-             * Ids
-             * @description Media item IDs to act on
-             */
+            /** Ids */
             ids: number[];
             /**
              * Tag
@@ -4022,69 +3203,39 @@ export interface components {
         };
         /** BumperBasicSchema */
         BumperBasicSchema: {
-            /**
-             * Duration
-             * @description Bumper duration in seconds
-             */
+            /** Duration */
             duration: number;
-            /**
-             * Id
-             * @description Bumper ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Tags
-             * @description List of tag names
-             */
+            /** Tags */
             tags: string[];
-            /**
-             * Title
-             * @description Bumper title
-             */
+            /** Title */
             title: string;
         };
         /** BumperSchema */
         BumperSchema: {
-            /**
-             * Duration
-             * @description Bumper duration in seconds
-             */
+            /** Duration */
             duration: number;
             /**
              * Hold Point
              * @description As the ident: where standby freezes (null = last frame)
              */
             hold_point?: number | null;
-            /**
-             * Id
-             * @description Bumper unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Title
-             * @description Bumper title
-             */
+            /** Title */
             title: string;
         };
         /** CertStatsSchema */
         CertStatsSchema: {
-            /**
-             * Certification
-             * @description Certification type
-             */
+            /** Certification */
             certification: string;
-            /**
-             * Count
-             * @description Number of movies with this certification
-             */
+            /** Count */
             count: number;
         };
         /** CertificationUpdateDataSchema */
         CertificationUpdateDataSchema: {
-            /**
-             * Certificates
-             * @description Full per-system certificate store after the update
-             */
+            /** Certificates */
             certificates: {
                 [key: string]: string;
             };
@@ -4093,23 +3244,16 @@ export interface components {
              * @description Certificate in the active system after the update ('' when cleared)
              */
             certification: string;
-            /**
-             * Id
-             * @description Movie ID
-             */
+            /** Id */
             id: number;
         };
         /** CertificationUpdateResponseSchema */
         CertificationUpdateResponseSchema: {
             data: components["schemas"]["CertificationUpdateDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -4129,10 +3273,7 @@ export interface components {
              * @description Human-readable result
              */
             message: string;
-            /**
-             * Ok
-             * @description Whether the test passed
-             */
+            /** Ok */
             ok: boolean;
             /**
              * Success
@@ -4142,23 +3283,14 @@ export interface components {
         };
         /** CinemaIdentSchema */
         CinemaIdentSchema: {
-            /**
-             * Id
-             * @description Cinema ident unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Title
-             * @description Cinema ident title
-             */
+            /** Title */
             title: string;
         };
         /** ClearLibraryDataSchema */
         ClearLibraryDataSchema: {
-            /**
-             * Deleted
-             * @description Movies removed from the library
-             */
+            /** Deleted */
             deleted: number;
             /**
              * In Use
@@ -4169,14 +3301,10 @@ export interface components {
         /** ClearLibraryPreviewResponseSchema */
         ClearLibraryPreviewResponseSchema: {
             data: components["schemas"]["ClearLibrarySchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -4184,14 +3312,10 @@ export interface components {
         /** ClearLibraryResponseSchema */
         ClearLibraryResponseSchema: {
             data: components["schemas"]["ClearLibraryDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -4200,13 +3324,10 @@ export interface components {
         ClearLibrarySchema: {
             /**
              * In Use
-             * @description How many of those are referenced by a programme or trailer rule
+             * @description How many are referenced by a programme or trailer rule
              */
             in_use: number;
-            /**
-             * Total
-             * @description Movies currently in the library
-             */
+            /** Total */
             total: number;
         };
         /** ColumnsElement */
@@ -4226,97 +3347,52 @@ export interface components {
         };
         /** CommandBasicSchema */
         CommandBasicSchema: {
-            /**
-             * Id
-             * @description Command ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Command name
-             */
+            /** Name */
             name: string;
-            /**
-             * Provider
-             * @description Execution provider
-             */
+            /** Provider */
             provider: string;
         };
         /** CommandCreateResponseSchema */
         CommandCreateResponseSchema: {
             data: components["schemas"]["CommandSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
-        /** CommandDetailResponseSchema */
-        CommandDetailResponseSchema: {
-            data: components["schemas"]["CommandSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** CommandListDataSchema */
         CommandListDataSchema: {
-            /**
-             * Commands
-             * @description List of commands
-             */
+            /** Commands */
             commands: components["schemas"]["CommandSchema"][];
-            /**
-             * Total
-             * @description Total number of commands
-             */
+            /** Total */
             total: number;
         };
         /** CommandListFilters */
         CommandListFilters: {
-            /**
-             * Search
-             * @description Search in command names
-             */
+            /** Search */
             search?: string | null;
-            /**
-             * Type
-             * @description Filter by provider
-             */
+            /** Type */
             type?: string | null;
         };
         /** CommandListResponseSchema */
         CommandListResponseSchema: {
             data: components["schemas"]["CommandListDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /**
          * CommandResultSchema
-         * @description The outcome of one execution. Not stored — this is the only place it
-         *     is reported, so the caller that asked for the run gets its output here.
+         * @description The outcome of one execution (not stored: this is the only place it is reported).
          */
         CommandResultSchema: {
             /**
@@ -4324,10 +3400,7 @@ export interface components {
              * @description Outcome summary, e.g. 'HTTP 200' or 'timeout'
              */
             detail: string;
-            /**
-             * Ok
-             * @description Whether the command succeeded
-             */
+            /** Ok */
             ok: boolean;
             /**
              * Output
@@ -4335,10 +3408,7 @@ export interface components {
              */
             output: string;
         };
-        /**
-         * CommandSchema
-         * @description Command information schema.
-         */
+        /** CommandSchema */
         CommandSchema: {
             /**
              * Config
@@ -4352,25 +3422,16 @@ export interface components {
              * @description Duration in seconds that this command takes to execute
              */
             duration: number;
-            /**
-             * Id
-             * @description Command unique identifier
-             */
+            /** Id */
             id: number;
             /**
              * Locked
              * @description A built-in command: only its duration can change; it can't be deleted
              */
             locked: boolean;
-            /**
-             * Name
-             * @description Command name
-             */
+            /** Name */
             name: string;
-            /**
-             * Provider
-             * @description Execution provider id
-             */
+            /** Provider */
             provider: string;
             /**
              * Provider Icon
@@ -4405,15 +3466,9 @@ export interface components {
              * @description Whether an upcoming screening's lead-in runs it
              */
             preshow: boolean;
-            /**
-             * Programmes
-             * @description Programmes with a block running this command
-             */
+            /** Programmes */
             programmes: number;
-            /**
-             * Templates
-             * @description Templates with an item running this command
-             */
+            /** Templates */
             templates: number;
         };
         /** CompleteInput */
@@ -4430,7 +3485,6 @@ export interface components {
             admin_username?: string | null;
             /** Cinema Name */
             cinema_name: string;
-            /** @description Optional media server to sync from */
             media_source?: components["schemas"]["MediaSourceInput"] | null;
             /**
              * Ratings System
@@ -4440,7 +3494,6 @@ export interface components {
             ratings_system: string;
             /**
              * Start Sync
-             * @description Kick off an initial sync of the new source
              * @default false
              */
             start_sync: boolean;
@@ -4471,31 +3524,21 @@ export interface components {
         };
         /** CreateAPIKeyInput */
         CreateAPIKeyInput: {
-            /**
-             * Name
-             * @description Human label for the key
-             */
+            /** Name */
             name: string;
         };
         /** CreateAPIKeyResponse */
         CreateAPIKeyResponse: {
             data: components["schemas"]["CreatedAPIKeySchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
-        /**
-         * CreateCommandSchema
-         * @description Schema for creating new commands.
-         */
+        /** CreateCommandSchema */
         CreateCommandSchema: {
             /**
              * Config
@@ -4510,14 +3553,10 @@ export interface components {
              * @default 0
              */
             duration: number | null;
-            /**
-             * Name
-             * @description Command name
-             */
+            /** Name */
             name: string;
             /**
              * Provider
-             * @description Execution provider
              * @default rest
              */
             provider: string;
@@ -4526,7 +3565,6 @@ export interface components {
         CreateFromTemplateSchema: {
             /**
              * Description
-             * @description Programme description
              * @default
              */
             description: string | null;
@@ -4537,65 +3575,46 @@ export interface components {
             movies: {
                 [key: string]: unknown;
             };
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
             /**
              * Preview
-             * @description Whether to preview without creating
              * @default false
              */
             preview: boolean | null;
-            /**
-             * Template Id
-             * @description Template ID to use
-             */
+            /** Template Id */
             template_id: number;
         };
         /** CreateMediaSchema */
         CreateMediaSchema: {
             /**
              * File Path
-             * @description Path to existing media file
+             * @description Path to an existing media file
              */
             file_path: string;
             /**
              * Tag Names
-             * @description List of tag names to associate
              * @default []
              */
             tag_names: string[] | null;
-            /**
-             * Title
-             * @description Media title
-             */
+            /** Title */
             title: string;
         };
         /** CreateProgrammeSchema */
         CreateProgrammeSchema: {
             /**
              * Description
-             * @description Programme description
              * @default
              */
             description: string | null;
-            /**
-             * Items
-             * @description List of programme items
-             */
+            /** Items */
             items: {
                 [key: string]: unknown;
             }[];
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
             /**
              * Preview
-             * @description Whether to preview without creating
              * @default false
              */
             preview: boolean | null;
@@ -4613,10 +3632,7 @@ export interface components {
              * @description The lead-in's ordered steps; none = just the cue
              */
             preshow?: components["schemas"]["LeadInStepSchema"][];
-            /**
-             * Programme Id
-             * @description ID of programme to schedule
-             */
+            /** Programme Id */
             programme_id: number;
             /**
              * Start Time
@@ -4632,41 +3648,25 @@ export interface components {
         };
         /** CreateTemplateItemSchema */
         CreateTemplateItemSchema: {
-            /**
-             * Bound To Feature
-             * @description Feature this item is bound to
-             */
+            /** Bound To Feature */
             bound_to_feature?: number | null;
-            /**
-             * Bumper Id
-             * @description ID of bumper to associate
-             */
+            /** Bumper Id */
             bumper_id?: number | null;
-            /**
-             * Certification Feature
-             * @description Feature number for certification reference
-             */
+            /** Certification Feature */
             certification_feature?: number | null;
-            /**
-             * Command Id
-             * @description ID of command to associate
-             */
+            /** Command Id */
             command_id?: number | null;
             /**
              * Count
-             * @description Number of items to include
              * @default 1
              */
             count: number;
             /**
              * Credits Command Id
-             * @description ID of command to execute when credits begin (for feature items)
+             * @description Command to execute when credits begin (feature items)
              */
             credits_command_id?: number | null;
-            /**
-             * Feature Number
-             * @description Feature number this item is associated with
-             */
+            /** Feature Number */
             feature_number?: number | null;
             /**
              * Hold Black
@@ -4676,58 +3676,45 @@ export interface components {
             hold_black: boolean;
             /**
              * Item Type
-             * @description Type of template item
              * @enum {string}
              */
             item_type: "feature" | "trailer_rule" | "command" | "bumper" | "trailer" | "certification" | "audio_bumper";
             /**
              * Match Certification
-             * @description Whether to match certification when selecting trailers
              * @default true
              */
             match_certification: boolean;
             /**
              * Match Genre
-             * @description Whether to match genre when selecting trailers
              * @default true
              */
             match_genre: boolean;
             /**
              * Match Year
-             * @description Whether to match year when selecting trailers
              * @default false
              */
             match_year: boolean;
             /**
              * Order
-             * @description Display order within template
              * @default 0
              */
             order: number;
-            /**
-             * Tag Id
-             * @description ID of tag to associate
-             */
+            /** Tag Id */
             tag_id?: number | null;
             /**
              * Trailer Count
-             * @description Number of trailers to include
              * @default 3
              */
             trailer_count: number | null;
-            /**
-             * Trailer Id
-             * @description ID of a specific trailer to associate
-             */
+            /** Trailer Id */
             trailer_id?: number | null;
             /**
              * Trailer Tag Id
-             * @description ID of the trailer tag filtering a trailer rule's candidates
+             * @description The trailer tag filtering a trailer rule's candidates
              */
             trailer_tag_id?: number | null;
             /**
              * Year Delta
-             * @description Acceptable year difference for trailer matching
              * @default 5
              */
             year_delta: number | null;
@@ -4736,23 +3723,15 @@ export interface components {
         CreateTemplateSchema: {
             /**
              * Description
-             * @description Template description
              * @default
              */
             description: string | null;
-            /**
-             * Items
-             * @description List of template items to create
-             */
+            /** Items */
             items: components["schemas"]["CreateTemplateItemSchema"][];
-            /**
-             * Name
-             * @description Template name
-             */
+            /** Name */
             name: string;
             /**
              * Number Of Features
-             * @description Number of features this template supports
              * @default 1
              */
             number_of_features: number;
@@ -4777,19 +3756,6 @@ export interface components {
              * @description Display prefix, e.g. cplx_a1b2c3d4 (never the full key)
              */
             prefix: string;
-        };
-        /** CustomTicketRequestSchema */
-        CustomTicketRequestSchema: {
-            /**
-             * Copies
-             * @description Number of tickets to print, each with its own seat
-             * @default 1
-             */
-            copies: number;
-            /** Seat */
-            seat?: string | null;
-            /** Text */
-            text: string;
         };
         /** DesignCreateSchema */
         DesignCreateSchema: {
@@ -4884,14 +3850,10 @@ export interface components {
         /** DiscoverResponseSchema */
         DiscoverResponseSchema: {
             data: components["schemas"]["DiscoverDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -4900,14 +3862,10 @@ export interface components {
         DiscoveredPlayerListResponse: {
             /** Data */
             data: components["schemas"]["DiscoveredPlayerSchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -4950,106 +3908,78 @@ export interface components {
         };
         /** ErrorResponseSchema */
         ErrorResponseSchema: {
-            /**
-             * Details
-             * @description Additional error details, such as field-specific validation errors
-             */
+            /** Details */
             details?: {
                 [key: string]: unknown;
             } | null;
-            /**
-             * Error
-             * @description Error message describing what went wrong
-             */
+            /** Error */
             error: string;
             /**
              * Error Code
-             * @description Machine-readable error code for client-side handling
+             * @description Machine-readable error code
              */
             error_code?: string | null;
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always False for errors
              * @default false
              */
             success: boolean;
         };
         /** FetchRequestSchema */
         FetchRequestSchema: {
-            /**
-             * Certification
-             * @description Content certification filter
-             */
+            /** Certification */
             certification?: string | null;
             /**
              * Genres
-             * @description Filter by genre IDs
+             * @description TMDB genre IDs
              */
             genres?: number[] | null;
             /**
              * Limit
-             * @description Maximum number of trailers to fetch
              * @default 50
              */
             limit: number;
-            /**
-             * Min Rating
-             * @description Minimum TMDB rating
-             */
+            /** Min Rating */
             min_rating?: number | null;
             /**
              * Months Ahead
-             * @description Number of months ahead for upcoming trailers
              * @default 6
              */
             months_ahead: number;
             /**
              * Replace
-             * @description Re-download over an existing trailer instead of skipping it (single fetch only)
+             * @description Re-download over an existing trailer (single only)
              * @default false
              */
             replace: boolean;
             /**
              * Sort By
-             * @description Sort order
              * @default popularity.desc
              */
             sort_by: string | null;
             /**
              * Tmdbid
-             * @description TMDB id of the movie to fetch (required for type "single")
+             * @description Required for type "single"
              */
             tmdbid?: number | null;
             /**
              * Type
-             * @description Fetch operation type: "discover" (TMDB search by date/genre/rating), "library" (movies missing trailers) or "single" (one title by TMDB id)
+             * @description "discover" (TMDB search by date/genre/rating), "library" (movies missing trailers) or "single" (one title by TMDB id)
              * @default discover
              */
             type: string;
             /**
              * Video Key
-             * @description YouTube video key to download (single fetch only) — omit for the automatic pick
+             * @description YouTube video key (single only) — omit for the automatic pick
              */
             video_key?: string | null;
-            /**
-             * Year
-             * @description Specific year to fetch
-             */
+            /** Year */
             year?: number | null;
-            /**
-             * Year From
-             * @description Start of year range
-             */
+            /** Year From */
             year_from?: number | null;
-            /**
-             * Year To
-             * @description End of year range
-             */
+            /** Year To */
             year_to?: number | null;
         };
         /** FileInfoSchema */
@@ -5059,33 +3989,21 @@ export interface components {
              * @description Whether the file exists on disk
              */
             exists: boolean;
-            /**
-             * Mime Type
-             * @description MIME type of the file
-             */
+            /** Mime Type */
             mime_type?: string | null;
             /**
              * Size
-             * @description File size in bytes
+             * @description Bytes
              */
             size?: number | null;
         };
         /** FiltersSchema */
         FiltersSchema: {
-            /**
-             * Certifications
-             * @description Available certification types
-             */
+            /** Certifications */
             certifications: string[];
-            /**
-             * Genres
-             * @description Available genre names
-             */
+            /** Genres */
             genres: string[];
-            /**
-             * Resolutions
-             * @description Available resolution types
-             */
+            /** Resolutions */
             resolutions: string[];
         };
         /** FontSchema */
@@ -5124,65 +4042,41 @@ export interface components {
         GenreListResponseSchema: {
             /** Data */
             data: components["schemas"]["GenreSchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** GenreSchema */
         GenreSchema: {
-            /**
-             * Id
-             * @description Genre ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Genre name
-             */
+            /** Name */
             name: string;
         };
         /** GenreStatsSchema */
         GenreStatsSchema: {
-            /**
-             * Movie Count
-             * @description Number of movies in this genre
-             */
+            /** Movie Count */
             movie_count: number;
-            /**
-             * Name
-             * @description Genre name
-             */
+            /** Name */
             name: string;
         };
         /** GetSettingsDataSchema */
         GetSettingsDataSchema: {
-            /**
-             * Bumpers
-             * @description Available bumpers for cinema idents
-             */
+            /** Bumpers */
             bumpers: components["schemas"]["BumperSchema"][];
-            /** @description Cinema settings */
             settings: components["schemas"]["SettingsDataSchema"];
         };
         /** GetSettingsResponseSchema */
         GetSettingsResponseSchema: {
             data: components["schemas"]["GetSettingsDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5202,16 +4096,11 @@ export interface components {
         };
         /** HealthCheckResponseSchema */
         HealthCheckResponseSchema: {
-            /** @description The re-run check */
             data: components["schemas"]["HealthCheckSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5220,25 +4109,16 @@ export interface components {
         HealthCheckSchema: {
             /** @description Link to where the fix lives, when one exists */
             action?: components["schemas"]["HealthActionSchema"] | null;
-            /**
-             * Detail
-             * @description Human-readable result
-             */
+            /** Detail */
             detail: string;
             /**
              * Hint
              * @description Actionable next step when not OK
              */
             hint?: string | null;
-            /**
-             * Key
-             * @description Stable machine key for the check
-             */
+            /** Key */
             key: string;
-            /**
-             * Label
-             * @description Human-readable check name
-             */
+            /** Label */
             label: string;
             /**
              * Status
@@ -5248,39 +4128,25 @@ export interface components {
         };
         /** HealthReportSchema */
         HealthReportSchema: {
-            /**
-             * Checked At
-             * @description When the report was generated (ISO)
-             */
+            /** Checked At */
             checked_at: string;
-            /**
-             * Checks
-             * @description Per-check results
-             */
+            /** Checks */
             checks: components["schemas"]["HealthCheckSchema"][];
             /**
              * Overall
              * @description Worst status among checks: "ok", "warn" or "error"
              */
             overall: string;
-            /**
-             * Version
-             * @description Running application version
-             */
+            /** Version */
             version: string;
         };
         /** HealthResponseSchema */
         HealthResponseSchema: {
-            /** @description The system health report */
             data: components["schemas"]["HealthReportSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5321,35 +4187,13 @@ export interface components {
              */
             spdif_passthrough?: string[];
         };
-        /** HostConfigResponse */
-        HostConfigResponse: {
-            /** Data */
-            data: {
-                [key: string]: unknown;
-            };
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
         /** HostConfigSavedResponse */
         HostConfigSavedResponse: {
             data: components["schemas"]["HostConfigSavedSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5358,7 +4202,6 @@ export interface components {
         HostConfigSavedSchema: {
             /**
              * Restart Required
-             * @description the change applies on the next player restart
              * @default false
              */
             restart_required: boolean;
@@ -5432,7 +4275,6 @@ export interface components {
             screen: number;
             /**
              * Vo
-             * @description mpv video output driver
              * @default gpu-next
              */
             vo: string;
@@ -5440,14 +4282,10 @@ export interface components {
         /** HostHardwareResponse */
         HostHardwareResponse: {
             data: components["schemas"]["HostHardwareSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5471,14 +4309,10 @@ export interface components {
         /** HostLaunchConfigResponse */
         HostLaunchConfigResponse: {
             data: components["schemas"]["HostLaunchConfigSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5560,14 +4394,10 @@ export interface components {
         ImageListResponseSchema: {
             /** Data */
             data: components["schemas"]["ImageSchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5575,14 +4405,10 @@ export interface components {
         /** ImageResponseSchema */
         ImageResponseSchema: {
             data: components["schemas"]["ImageSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5623,10 +4449,7 @@ export interface components {
              * @description Programme position; -1 for the title card
              */
             position: number;
-            /**
-             * Title
-             * @description Display title
-             */
+            /** Title */
             title?: string | null;
             /**
              * Type
@@ -5648,7 +4471,6 @@ export interface components {
             logo_url?: string | null;
             /**
              * Name
-             * @description Cinema name
              * @default Cinefin
              */
             name: string;
@@ -5661,7 +4483,6 @@ export interface components {
         };
         /** KioskDisplayDataSchema */
         KioskDisplayDataSchema: {
-            /** @description Cinema branding / clock format */
             cinema: components["schemas"]["KioskCinemaSchema"];
             /**
              * Films
@@ -5678,21 +4499,15 @@ export interface components {
              * @description Upcoming screenings
              */
             screenings?: components["schemas"]["KioskScreeningSchema"][];
-            /** @description Kiosk settings (server-side defaults) */
             settings: components["schemas"]["KioskDisplaySettingsSchema"];
         };
         /** KioskDisplayResponseSchema */
         KioskDisplayResponseSchema: {
-            /** @description Kiosk display data */
             data: components["schemas"]["KioskDisplayDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5701,7 +4516,6 @@ export interface components {
         KioskDisplaySettingsSchema: {
             /**
              * Clock
-             * @description Show the clock
              * @default true
              */
             clock: boolean;
@@ -5776,7 +4590,6 @@ export interface components {
             cert: string;
             /**
              * Director
-             * @description Director
              * @default
              */
             director: string;
@@ -5785,10 +4598,7 @@ export interface components {
              * @description Up to three genres
              */
             genres?: string[];
-            /**
-             * Id
-             * @description Movie ID
-             */
+            /** Id */
             id: number;
             /**
              * Poster
@@ -5797,25 +4607,18 @@ export interface components {
             poster?: string | null;
             /**
              * Runtime
-             * @description Runtime in minutes
+             * @description Minutes
              * @default 0
              */
             runtime: number;
             /**
              * Synopsis
-             * @description Synopsis
              * @default
              */
             synopsis: string;
-            /**
-             * Title
-             * @description Movie title
-             */
+            /** Title */
             title: string;
-            /**
-             * Year
-             * @description Release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** KioskScreeningSchema */
@@ -5844,7 +4647,7 @@ export interface components {
             programme: string;
             /**
              * Runtime
-             * @description Runtime in minutes
+             * @description Minutes
              */
             runtime: number;
             /**
@@ -5874,16 +4677,10 @@ export interface components {
         };
         /** LoadProgrammeDataSchema */
         LoadProgrammeDataSchema: {
-            /** @description MPV player status */
             mpv_status: components["schemas"]["MPVStatusSchema"];
-            /** @description Playlist information */
             playlist: components["schemas"]["PlaylistInfoSchema"];
-            /** @description Programme information */
             programme: components["schemas"]["ProgrammeInfoSchema"];
-            /**
-             * Status
-             * @description Load status
-             */
+            /** Status */
             status: string;
             /**
              * Warnings
@@ -5893,16 +4690,11 @@ export interface components {
         };
         /** LoadProgrammeResponseSchema */
         LoadProgrammeResponseSchema: {
-            /** @description Programme load data */
             data: components["schemas"]["LoadProgrammeDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -5911,145 +4703,42 @@ export interface components {
         LoadProgrammeSchema: {
             /**
              * Generate Playlist
-             * @description Whether to generate playlist if missing
+             * @description Generate the playlist if missing or stale
              * @default true
              */
             generate_playlist: boolean | null;
-            /**
-             * Programme Id
-             * @description ID of programme to load
-             */
+            /** Programme Id */
             programme_id: number;
-        };
-        /** LogRecordSchema */
-        LogRecordSchema: {
-            /**
-             * Level
-             * @description Log level name (DEBUG/INFO/WARNING/ERROR/CRITICAL)
-             */
-            level: string;
-            /**
-             * Logger
-             * @description Logger name that emitted the record
-             */
-            logger: string;
-            /**
-             * Message
-             * @description Rendered log message (includes traceback if any)
-             */
-            message: string;
-            /**
-             * Seq
-             * @description Monotonic record sequence number (per process)
-             */
-            seq: number;
-            /**
-             * Ts
-             * @description Record timestamp (local ISO format)
-             */
-            ts: string;
-        };
-        /** LogsDataSchema */
-        LogsDataSchema: {
-            /**
-             * Count
-             * @description Number of records returned
-             */
-            count: number;
-            /**
-             * Records
-             * @description Matching records, oldest first
-             */
-            records: components["schemas"]["LogRecordSchema"][];
-        };
-        /** LogsFilters */
-        LogsFilters: {
-            /**
-             * Level
-             * @description Minimum level to include (DEBUG/INFO/WARNING/ERROR)
-             * @default INFO
-             */
-            level: string;
-            /**
-             * Limit
-             * @description Maximum number of records to return
-             * @default 200
-             */
-            limit: number;
-        };
-        /** LogsResponseSchema */
-        LogsResponseSchema: {
-            /** @description Log records data */
-            data: components["schemas"]["LogsDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
         };
         /** MPVCommandSchema */
         MPVCommandSchema: {
             /**
              * Args
-             * @description Command arguments
              * @default []
              */
             args: unknown[] | null;
-            /**
-             * Command
-             * @description MPV command to execute
-             */
+            /** Command */
             command: string;
         };
         /** MPVPlaylistItemSchema */
         MPVPlaylistItemSchema: {
-            /**
-             * Current
-             * @description Whether this is the current item
-             */
+            /** Current */
             current: boolean;
-            /**
-             * Details
-             * @description Additional item details and metadata
-             */
+            /** Details */
             details?: {
                 [key: string]: unknown;
             };
-            /**
-             * Duration
-             * @description Item duration in seconds
-             */
+            /** Duration */
             duration?: number | null;
-            /**
-             * File
-             * @description File path
-             */
+            /** File */
             file: string;
-            /**
-             * Index
-             * @description Index in MPV playlist
-             */
+            /** Index */
             index: number;
-            /**
-             * Programme Position
-             * @description Position in programme (excluding pre-show)
-             */
+            /** Programme Position */
             programme_position?: number | null;
-            /**
-             * Title
-             * @description Item title
-             */
+            /** Title */
             title: string;
-            /**
-             * Type
-             * @description Item type
-             */
+            /** Type */
             type: string;
         };
         /**
@@ -6058,61 +4747,40 @@ export interface components {
          *     paused, is GET /playout/status).
          */
         MPVStatusDataSchema: {
-            /** @description Audio technical information */
             audio?: components["schemas"]["AudioTechInfoSchema"] | null;
-            /**
-             * Connected
-             * @description Whether MPV is connected
-             */
+            /** Connected */
             connected: boolean;
-            /** @description Volume, mute, speed and fullscreen */
             status?: components["schemas"]["MPVStatusSchema"] | null;
-            /** @description Available media tracks */
             tracks: components["schemas"]["TracksInfoSchema"];
-            /** @description Video technical information */
             video?: components["schemas"]["VideoTechInfoSchema"] | null;
         };
         /** MPVStatusResponseSchema */
         MPVStatusResponseSchema: {
-            /** @description MPV status data */
             data: components["schemas"]["MPVStatusDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** MPVStatusSchema */
         MPVStatusSchema: {
-            /**
-             * Fullscreen
-             * @description Whether MPV is in fullscreen mode
-             */
+            /** Fullscreen */
             fullscreen?: boolean | null;
-            /**
-             * Muted
-             * @description Whether audio is muted
-             */
+            /** Muted */
             muted?: boolean | null;
             /**
              * Panscan
              * @description mpv panscan: 0 fits the whole picture, 1 zooms to fill the screen (crops wide films)
              */
             panscan?: number | null;
-            /**
-             * Speed
-             * @description Playback speed multiplier
-             */
+            /** Speed */
             speed?: number | null;
             /**
              * Volume
-             * @description Current volume level (0-100)
+             * @description 0-100
              */
             volume?: number | null;
         };
@@ -6162,10 +4830,7 @@ export interface components {
         ManualQueueSchema: {
             /** Items */
             items: components["schemas"]["ManualItemSchema"][];
-            /**
-             * Position
-             * @description Index of the item on screen
-             */
+            /** Position */
             position?: number | null;
         };
         /** MatchTestDataSchema */
@@ -6193,14 +4858,10 @@ export interface components {
         /** MatchTestResponseSchema */
         MatchTestResponseSchema: {
             data: components["schemas"]["MatchTestDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -6228,63 +4889,32 @@ export interface components {
         MediaCreateDataSchema: {
             /**
              * Duration
-             * @description Media duration in seconds
+             * @description Seconds
              */
             duration?: number | null;
-            /**
-             * File Path
-             * @description Path to media file
-             */
+            /** File Path */
             file_path: string;
-            /**
-             * File Url
-             * @description URL to access the file
-             */
+            /** File Url */
             file_url?: string | null;
-            /**
-             * Id
-             * @description Created media ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Screenshot Generated
-             * @description Whether screenshot was generated
-             */
+            /** Screenshot Generated */
             screenshot_generated: boolean;
-            /**
-             * Screenshot Url
-             * @description URL to screenshot/thumbnail
-             */
+            /** Screenshot Url */
             screenshot_url?: string | null;
-            /**
-             * Tags
-             * @description Associated tags
-             */
+            /** Tags */
             tags: components["schemas"]["TagSchema"][];
-            /**
-             * Title
-             * @description Media title
-             */
+            /** Title */
             title: string;
-            /**
-             * Upload Date
-             * @description Upload timestamp
-             */
+            /** Upload Date */
             upload_date?: string | null;
         };
         /** MediaCreateResponseSchema */
         MediaCreateResponseSchema: {
-            /** @description Created media data */
             data: components["schemas"]["MediaCreateDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** MediaDetailDataSchema */
@@ -6296,65 +4926,39 @@ export interface components {
             audio_format?: string | null;
             /**
              * Duration
-             * @description Duration in seconds
+             * @description Seconds
              */
             duration?: number | null;
-            /** @description File system information */
             file_info: components["schemas"]["FileInfoSchema"];
-            /**
-             * File Path
-             * @description Path to media file
-             */
+            /** File Path */
             file_path: string;
-            /**
-             * File Url
-             * @description URL to access the file
-             */
+            /** File Url */
             file_url?: string | null;
             /**
              * Hold Point
              * @description As the ident: where standby freezes, in seconds (null = last frame)
              */
             hold_point?: number | null;
-            /**
-             * Id
-             * @description Media ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Screenshot Url
-             * @description URL to screenshot/thumbnail
-             */
+            /** Screenshot Url */
             screenshot_url?: string | null;
-            /**
-             * Tags
-             * @description Associated tags
-             */
+            /** Tags */
             tags: components["schemas"]["TagSchema"][];
-            /**
-             * Title
-             * @description Media title
-             */
+            /** Title */
             title: string;
             /**
              * Upload Date
-             * @description Upload timestamp in ISO format
+             * @description ISO timestamp
              */
             upload_date?: string | null;
         };
         /** MediaDetailSchema */
         MediaDetailSchema: {
-            /** @description Media details */
             data: components["schemas"]["MediaDetailDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** MediaFiltersSchema */
@@ -6379,81 +4983,55 @@ export interface components {
             audio_format?: string | null;
             /**
              * Duration
-             * @description Duration in seconds
+             * @description Seconds
              */
             duration?: number | null;
-            /** @description File system information */
             file_info: components["schemas"]["FileInfoSchema"];
-            /**
-             * File Path
-             * @description Path to media file
-             */
+            /** File Path */
             file_path: string;
-            /**
-             * File Url
-             * @description URL to access the file
-             */
+            /** File Url */
             file_url?: string | null;
             /**
              * Hold Point
              * @description As the ident: where standby freezes, in seconds (null = last frame)
              */
             hold_point?: number | null;
-            /**
-             * Id
-             * @description Media unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Screenshot Url
-             * @description URL to screenshot/thumbnail
-             */
+            /** Screenshot Url */
             screenshot_url?: string | null;
-            /**
-             * Tags
-             * @description Associated tags
-             */
+            /** Tags */
             tags: components["schemas"]["TagSchema"][];
-            /**
-             * Title
-             * @description Media title
-             */
+            /** Title */
             title: string;
             /**
              * Upload Date
-             * @description Upload timestamp in ISO format
+             * @description ISO timestamp
              */
             upload_date?: string | null;
         };
         /** MediaListDataSchema */
         MediaListDataSchema: {
-            /** @description Available filters */
             filters: components["schemas"]["MediaFiltersSchema"];
-            /**
-             * Media
-             * @description List of media items
-             */
+            /** Media */
             media: components["schemas"]["MediaItemSchema"][];
-            /** @description Pagination information */
             pagination: components["schemas"]["MediaPaginationSchema"];
         };
         /** MediaListFilters */
         MediaListFilters: {
             /**
              * Order
-             * @description Sort direction: asc | desc
+             * @description asc | desc
              * @default desc
              */
             order: string | null;
             /**
              * Page
-             * @description Page number
              * @default 1
              */
             page: number;
             /**
              * Per Page
-             * @description Items per page
              * @default 20
              */
             per_page: number;
@@ -6464,61 +5042,36 @@ export interface components {
             search?: string | null;
             /**
              * Sort
-             * @description Sort field: title | duration | file_size | upload_date
+             * @description title | duration | file_size | upload_date
              */
             sort?: string | null;
             /**
              * Tags
-             * @description Comma-separated tag names; an item must carry ALL of them (AND) to match
+             * @description Comma-separated tag names; an item carrying any of them matches
              */
             tags?: string | null;
         };
         /** MediaListResponseSchema */
         MediaListResponseSchema: {
-            /** @description Media list data */
             data: components["schemas"]["MediaListDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** MediaPaginationSchema */
         MediaPaginationSchema: {
-            /**
-             * Has Next
-             * @description Whether there is a next page
-             */
+            /** Has Next */
             has_next: boolean;
-            /**
-             * Has Previous
-             * @description Whether there is a previous page
-             */
+            /** Has Previous */
             has_previous: boolean;
-            /**
-             * Page
-             * @description Current page number
-             */
+            /** Page */
             page: number;
-            /**
-             * Per Page
-             * @description Items per page
-             */
+            /** Per Page */
             per_page: number;
-            /**
-             * Total
-             * @description Total number of items
-             */
+            /** Total */
             total: number;
-            /**
-             * Total Pages
-             * @description Total number of pages
-             */
+            /** Total Pages */
             total_pages: number;
         };
         /** MediaSourceInput */
@@ -6548,14 +5101,10 @@ export interface components {
         };
         /** MessageResponseSchema */
         MessageResponseSchema: {
-            /**
-             * Message
-             * @description Success message
-             */
+            /** Message */
             message: string;
             /**
              * Success
-             * @description Operation success status
              * @default true
              */
             success: boolean;
@@ -6563,24 +5112,17 @@ export interface components {
         /** MovieDetailResponseSchema */
         MovieDetailResponseSchema: {
             data: components["schemas"]["MovieDetailSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** MovieDetailSchema */
         MovieDetailSchema: {
-            /**
-             * Audio Tracks
-             * @description Audio tracks
-             */
+            /** Audio Tracks */
             audio_tracks: components["schemas"]["AudioTrackSchema"][];
             /**
              * Certificates
@@ -6595,182 +5137,111 @@ export interface components {
              * @description Certificate in the active ratings system
              */
             certification?: string | null;
-            /**
-             * Date Added
-             * @description Date added to library
-             */
+            /** Date Added */
             date_added?: string | null;
-            /**
-             * Description
-             * @description Movie description/plot
-             */
+            /** Description */
             description?: string | null;
-            /**
-             * Director
-             * @description Movie director
-             */
+            /** Director */
             director?: string | null;
-            /**
-             * File Path
-             * @description Path to movie file
-             */
+            /** File Path */
             file_path?: string | null;
             /**
              * File Size
-             * @description File size in bytes
+             * @description Bytes
              */
             file_size?: number | null;
             /**
              * Genres
-             * @description List of genre IDs
+             * @description Genre IDs
              */
             genres: number[];
             /**
              * Has Trailer
-             * @description Whether a downloaded trailer exists for this movie
              * @default false
              */
             has_trailer: boolean;
-            /**
-             * Id
-             * @description Movie unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Kiosk Display
-             * @description Whether to display in kiosk mode
-             */
+            /** Kiosk Display */
             kiosk_display: boolean;
-            /**
-             * Resolution
-             * @description Video resolution
-             */
+            /** Resolution */
             resolution?: string | null;
             /**
              * Runtime
-             * @description Runtime in minutes
+             * @description Minutes
              */
             runtime?: number | null;
-            /**
-             * Stream Url
-             * @description Movie streaming URL
-             */
+            /** Stream Url */
             stream_url: string;
-            /**
-             * Subtitle Tracks
-             * @description Subtitle tracks
-             */
+            /** Subtitle Tracks */
             subtitle_tracks: components["schemas"]["SubtitleTrackSchema"][];
-            /**
-             * Thumbnail Url
-             * @description Thumbnail URL
-             */
+            /** Thumbnail Url */
             thumbnail_url?: string | null;
-            /**
-             * Title
-             * @description Movie title
-             */
+            /** Title */
             title: string;
-            /**
-             * Tmdbid
-             * @description TMDB ID
-             */
+            /** Tmdbid */
             tmdbid?: number | null;
             /**
              * Trailer Id
              * @description Id of a playable covering trailer (file present on disk), or null — stream at /stream/trailer/{id}/
              */
             trailer_id?: number | null;
-            /** @description Video technical information */
             video_info?: components["schemas"]["VideoInfoSchema"] | null;
-            /**
-             * Year
-             * @description Release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** MovieInfoSchema */
         MovieInfoSchema: {
-            /**
-             * Certification
-             * @description Movie certification
-             */
+            /** Certification */
             certification?: string | null;
-            /**
-             * Id
-             * @description Movie ID
-             */
+            /** Id */
             id: number;
             /**
              * Runtime
-             * @description Movie runtime in minutes
+             * @description Minutes
              */
             runtime?: number | null;
-            /**
-             * Thumbnail Url
-             * @description Movie poster/thumbnail URL
-             */
+            /** Thumbnail Url */
             thumbnail_url?: string | null;
-            /**
-             * Title
-             * @description Movie title
-             */
+            /** Title */
             title: string;
-            /**
-             * Year
-             * @description Movie release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** MovieListDataSchema */
         MovieListDataSchema: {
             /** @description Available filter options */
             filters: components["schemas"]["FiltersSchema"];
-            /**
-             * Items
-             * @description List of movies
-             */
+            /** Items */
             items: components["schemas"]["MovieListItemSchema"][];
-            /** @description Pagination information */
             pagination: components["schemas"]["PaginationSchema"];
         };
         /** MovieListFilters */
         MovieListFilters: {
-            /**
-             * Certification
-             * @description Filter by certification
-             */
+            /** Certification */
             certification?: string | null;
             /**
              * Genre
-             * @description Filter by genre (comma-separated for multiple)
+             * @description Comma-separated; a movie must have every genre
              */
             genre?: string | null;
-            /**
-             * Has Trailer
-             * @description Filter by downloaded trailer (true = has one, false = missing)
-             */
+            /** Has Trailer */
             has_trailer?: boolean | null;
-            /**
-             * Kiosk
-             * @description Filter by kiosk display flag (true = shown on the kiosk, false = hidden from it)
-             */
+            /** Kiosk */
             kiosk?: boolean | null;
             /**
              * Order
-             * @description Sort order (asc/desc)
+             * @description asc/desc
              * @default asc
              */
             order: string;
             /**
              * Page
-             * @description Page number
              * @default 1
              */
             page: number;
             /**
              * Per Page
-             * @description Items per page (the library page fetches the whole filtered set in one request)
              * @default 20
              */
             per_page: number;
@@ -6779,19 +5250,16 @@ export interface components {
              * @description Seed for sort=random so pagination stays consistent (omit to reshuffle)
              */
             random_seed?: number | null;
-            /**
-             * Resolution
-             * @description Filter by resolution
-             */
+            /** Resolution */
             resolution?: string | null;
             /**
              * Runtime From
-             * @description Filter movies with runtime >= this value (minutes)
+             * @description Minutes
              */
             runtime_from?: number | null;
             /**
              * Runtime To
-             * @description Filter movies with runtime <= this value (minutes)
+             * @description Minutes
              */
             runtime_to?: number | null;
             /**
@@ -6801,136 +5269,79 @@ export interface components {
             search?: string | null;
             /**
              * Sort
-             * @description Sort field
              * @default title
              */
             sort: string;
             /**
              * Tmdb
-             * @description Filter by TMDB id presence: 'missing' (tmdbid=0), 'present' (tmdbid>0), or unset for any
+             * @description 'missing' (tmdbid=0), 'present' (tmdbid>0), or unset for any
              */
             tmdb?: string | null;
-            /**
-             * Year From
-             * @description Filter movies from this year
-             */
+            /** Year From */
             year_from?: number | null;
-            /**
-             * Year To
-             * @description Filter movies up to this year
-             */
+            /** Year To */
             year_to?: number | null;
         };
         /** MovieListItemSchema */
         MovieListItemSchema: {
-            /**
-             * Audio Track Count
-             * @description Number of audio tracks
-             */
+            /** Audio Track Count */
             audio_track_count: number;
-            /**
-             * Certification
-             * @description Movie certification/rating
-             */
+            /** Certification */
             certification?: string | null;
-            /**
-             * Date Added
-             * @description Date added to library
-             */
+            /** Date Added */
             date_added?: string | null;
-            /**
-             * Description
-             * @description Movie description/plot
-             */
+            /** Description */
             description?: string | null;
-            /**
-             * Director
-             * @description Movie director
-             */
+            /** Director */
             director?: string | null;
-            /**
-             * File Path
-             * @description Path to movie file
-             */
+            /** File Path */
             file_path?: string | null;
             /**
              * File Size
-             * @description File size in bytes
+             * @description Bytes
              */
             file_size?: number | null;
             /**
              * Genres
-             * @description List of genre names
+             * @description Genre names
              */
             genres: string[];
             /**
              * Has Trailer
-             * @description Whether a downloaded trailer exists for this movie
              * @default false
              */
             has_trailer: boolean;
-            /**
-             * Id
-             * @description Movie unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Kiosk Display
-             * @description Whether to display in kiosk mode
-             */
+            /** Kiosk Display */
             kiosk_display: boolean;
-            /**
-             * Resolution
-             * @description Video resolution
-             */
+            /** Resolution */
             resolution?: string | null;
             /**
              * Runtime
-             * @description Runtime in minutes
+             * @description Minutes
              */
             runtime?: number | null;
-            /**
-             * Stream Url
-             * @description Movie streaming URL
-             */
+            /** Stream Url */
             stream_url: string;
-            /**
-             * Subtitle Track Count
-             * @description Number of subtitle tracks
-             */
+            /** Subtitle Track Count */
             subtitle_track_count: number;
-            /**
-             * Thumbnail Url
-             * @description Thumbnail URL
-             */
+            /** Thumbnail Url */
             thumbnail_url?: string | null;
-            /**
-             * Title
-             * @description Movie title
-             */
+            /** Title */
             title: string;
-            /**
-             * Tmdbid
-             * @description TMDB ID
-             */
+            /** Tmdbid */
             tmdbid?: number | null;
-            /**
-             * Year
-             * @description Release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** MovieListResponseSchema */
         MovieListResponseSchema: {
             data: components["schemas"]["MovieListDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -6938,106 +5349,59 @@ export interface components {
         /** MovieStatsResponseSchema */
         MovieStatsResponseSchema: {
             data: components["schemas"]["MovieStatsSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** MovieStatsSchema */
         MovieStatsSchema: {
-            /**
-             * Average Runtime Minutes
-             * @description Average movie runtime in minutes
-             */
+            /** Average Runtime Minutes */
             average_runtime_minutes: number;
-            /**
-             * Certifications
-             * @description Statistics by certification
-             */
+            /** Certifications */
             certifications: components["schemas"]["CertStatsSchema"][];
-            /**
-             * Genres
-             * @description Statistics by genre
-             */
+            /** Genres */
             genres: components["schemas"]["GenreStatsSchema"][];
-            /**
-             * Total Movies
-             * @description Total number of movies
-             */
+            /** Total Movies */
             total_movies: number;
-            /**
-             * Total Runtime Minutes
-             * @description Total runtime in minutes
-             */
+            /** Total Runtime Minutes */
             total_runtime_minutes: number;
-            /**
-             * Total Runtime Readable
-             * @description Total runtime in human readable format
-             */
+            /** Total Runtime Readable */
             total_runtime_readable: string;
-            /**
-             * Total Size Bytes
-             * @description Total library size in bytes
-             */
+            /** Total Size Bytes */
             total_size_bytes: number;
-            /**
-             * Total Size Readable
-             * @description Total library size in human readable format
-             */
+            /** Total Size Readable */
             total_size_readable: string;
-            /**
-             * Years
-             * @description Statistics by year
-             */
+            /** Years */
             years: components["schemas"]["YearStatsSchema"][];
         };
         /** MovieStreamResponseSchema */
         MovieStreamResponseSchema: {
             data: components["schemas"]["MovieStreamSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** MovieStreamSchema */
         MovieStreamSchema: {
-            /**
-             * Direct
-             * @description Whether this is a direct stream
-             */
+            /** Direct */
             direct: boolean;
-            /**
-             * Movie
-             * @description Basic movie information
-             */
+            /** Movie */
             movie: {
                 [key: string]: unknown;
             };
-            /**
-             * Plex Metadata
-             * @description Plex metadata if available
-             */
+            /** Plex Metadata */
             plex_metadata?: {
                 [key: string]: unknown;
             } | null;
-            /**
-             * Stream Url
-             * @description Direct streaming URL
-             */
+            /** Stream Url */
             stream_url: string;
         };
         /** NextScreeningSchema */
@@ -7048,10 +5412,7 @@ export interface components {
              * @description When its lead-in cues it
              */
             cue_time: string;
-            /**
-             * Id
-             * @description Schedule ID
-             */
+            /** Id */
             id: number;
             /** Programme Id */
             programme_id: number;
@@ -7060,41 +5421,22 @@ export interface components {
             /**
              * Start Time
              * Format: date-time
-             * @description When the programme plays
              */
             start_time: string;
         };
         /** PaginationSchema */
         PaginationSchema: {
-            /**
-             * Has Next
-             * @description Whether there is a next page
-             */
+            /** Has Next */
             has_next: boolean;
-            /**
-             * Has Previous
-             * @description Whether there is a previous page
-             */
+            /** Has Previous */
             has_previous: boolean;
-            /**
-             * Page
-             * @description Current page number
-             */
+            /** Page */
             page: number;
-            /**
-             * Per Page
-             * @description Items per page
-             */
+            /** Per Page */
             per_page: number;
-            /**
-             * Total
-             * @description Total number of items
-             */
+            /** Total */
             total: number;
-            /**
-             * Total Pages
-             * @description Total number of pages
-             */
+            /** Total Pages */
             total_pages: number;
         };
         /** PairHostInput */
@@ -7115,21 +5457,9 @@ export interface components {
              */
             name?: string | null;
         };
-        /** PlaybackControlSchema */
-        PlaybackControlSchema: {
-            /**
-             * Action
-             * @description Playback control action
-             * @enum {string}
-             */
-            action: "play" | "pause" | "stop" | "toggle";
-        };
         /** PlaybackStatusSchema */
         PlaybackStatusSchema: {
-            /**
-             * Duration
-             * @description Length of the item on screen in seconds
-             */
+            /** Duration */
             duration: number;
             /**
              * Percentage
@@ -7141,10 +5471,7 @@ export interface components {
              * @description Seconds into the item on screen (a hold's own clock during a hold)
              */
             position: number;
-            /**
-             * Remaining
-             * @description Seconds left in the item
-             */
+            /** Remaining */
             remaining: number;
         };
         /**
@@ -7168,132 +5495,64 @@ export interface components {
              */
             show_status: boolean;
         };
-        /** PlaylistControlSchema */
-        PlaylistControlSchema: {
-            /**
-             * Action
-             * @description Playlist navigation action
-             * @enum {string}
-             */
-            action: "next" | "prev" | "jump";
-            /**
-             * Index
-             * @description Playlist index for 'jump' action
-             */
-            index?: number | null;
-        };
         /** PlaylistDataSchema */
         PlaylistDataSchema: {
-            /**
-             * Current Index
-             * @description Current item index
-             */
+            /** Current Index */
             current_index: number;
-            /**
-             * Elapsed Time
-             * @description Elapsed time in seconds
-             */
+            /** Elapsed Time */
             elapsed_time: number;
-            /**
-             * Playlist
-             * @description Playlist items
-             */
+            /** Playlist */
             playlist: components["schemas"]["MPVPlaylistItemSchema"][];
             /**
              * Programme Offset
-             * @description Offset for programme items in MPV playlist
+             * @description Player index of the programme's first item
              */
             programme_offset: number;
-            /**
-             * Remaining Time
-             * @description Remaining time in seconds
-             */
+            /** Remaining Time */
             remaining_time: number;
-            /**
-             * Total Duration
-             * @description Total playlist duration in seconds
-             */
+            /** Total Duration */
             total_duration: number;
-            /**
-             * Total Items
-             * @description Total number of items
-             */
+            /** Total Items */
             total_items: number;
         };
         /** PlaylistDetailSchema */
         PlaylistDetailSchema: {
-            /**
-             * Items
-             * @description List of playlist items in playback order
-             */
+            /** Items */
             items: components["schemas"]["PlaylistItemSchema"][];
-            /**
-             * Programme Id
-             * @description Programme ID
-             */
+            /** Programme Id */
             programme_id: number;
-            /**
-             * Programme Name
-             * @description Programme name
-             */
+            /** Programme Name */
             programme_name: string;
-            /**
-             * Total Duration
-             * @description Total playlist duration in seconds
-             */
+            /** Total Duration */
             total_duration: number;
-            /**
-             * Total Items
-             * @description Total number of playlist items
-             */
+            /** Total Items */
             total_items: number;
         };
         /** PlaylistInfoSchema */
         PlaylistInfoSchema: {
             /**
              * Created
-             * @description Whether playlist was newly created
+             * @description Whether this load (re)generated the playlist
              */
             created: boolean;
-            /**
-             * Id
-             * @description Playlist ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Item Count
-             * @description Number of items in playlist
-             */
+            /** Item Count */
             item_count: number;
         };
         /** PlaylistItemSchema */
         PlaylistItemSchema: {
-            /**
-             * Details
-             * @description Additional item details
-             */
+            /** Details */
             details: {
                 [key: string]: unknown;
             };
-            /**
-             * Duration
-             * @description Item duration in seconds
-             */
+            /** Duration */
             duration?: number | null;
-            /**
-             * File Path
-             * @description Path to media file
-             */
+            /** File Path */
             file_path: string;
-            /**
-             * Order
-             * @description Item order in playlist
-             */
+            /** Order */
             order: number;
-            /**
-             * Title
-             * @description Item title
-             */
+            /** Title */
             title: string;
             /**
              * Type
@@ -7301,29 +5560,17 @@ export interface components {
              */
             type: string;
         };
-        /**
-         * PlaylistResponseDataSchema
-         * @description Data schema for playlist response
-         */
+        /** PlaylistResponseDataSchema */
         PlaylistResponseDataSchema: {
-            /** @description Playlist details */
             playlist: components["schemas"]["PlaylistDetailSchema"];
         };
-        /**
-         * PlaylistResponseSchema
-         * @description Response schema for playlist endpoints
-         */
+        /** PlaylistResponseSchema */
         PlaylistResponseSchema: {
-            /** @description Playlist data */
             data: components["schemas"]["PlaylistResponseDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -7345,20 +5592,11 @@ export interface components {
              * @description Player index of programme item 0 (1, or 2 with a title card)
              */
             offset: number;
-            /**
-             * Programme Elapsed Time
-             * @description Seconds of the programme played
-             */
+            /** Programme Elapsed Time */
             programme_elapsed_time: number;
-            /**
-             * Programme Remaining Time
-             * @description Seconds of the programme left
-             */
+            /** Programme Remaining Time */
             programme_remaining_time: number;
-            /**
-             * Programme Total Duration
-             * @description Length of the whole programme in seconds
-             */
+            /** Programme Total Duration */
             programme_total_duration: number;
             /**
              * Total Items
@@ -7381,10 +5619,7 @@ export interface components {
             kind?: string | null;
             /** Name */
             name?: string | null;
-            /**
-             * Show Status
-             * @description Whether the player shows its status over standby
-             */
+            /** Show Status */
             show_status?: boolean | null;
             /** Socket Path */
             socket_path?: string | null;
@@ -7393,14 +5628,10 @@ export interface components {
         PlayoutHostListResponse: {
             /** Data */
             data: components["schemas"]["PlayoutHostSchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -7408,14 +5639,10 @@ export interface components {
         /** PlayoutHostResponse */
         PlayoutHostResponse: {
             data: components["schemas"]["PlayoutHostSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -7480,7 +5707,6 @@ export interface components {
             os: string;
             /**
              * Show Status
-             * @description Whether the player shows its status over standby
              * @default true
              */
             show_status: boolean;
@@ -7492,26 +5718,18 @@ export interface components {
         };
         /** PlayoutPlaylistResponseSchema */
         PlayoutPlaylistResponseSchema: {
-            /** @description Playlist information */
             data: components["schemas"]["PlaylistDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** PlayoutStatusDataSchema */
         PlayoutStatusDataSchema: {
-            /**
-             * Actions
-             * @description The actions allowed now
-             */
+            /** Actions */
             actions?: ("cue" | "start" | "pause" | "resume" | "previous" | "next" | "seek" | "jump" | "end_hold" | "end")[];
             /** @description The item on screen (the title card in the pre-show) */
             current_item?: components["schemas"]["ItemSchema"] | null;
@@ -7521,11 +5739,8 @@ export interface components {
              * @default
              */
             label: string;
-            /** @description The manual queue, while one plays */
             manual?: components["schemas"]["ManualQueueSchema"] | null;
-            /** @description The item after it */
             next_item?: components["schemas"]["ItemSchema"] | null;
-            /** @description The next scheduled screening */
             next_screening?: components["schemas"]["NextScreeningSchema"] | null;
             /**
              * Phase
@@ -7533,13 +5748,10 @@ export interface components {
              * @enum {string}
              */
             phase: "offline" | "standby" | "cued" | "preshow" | "playing" | "paused" | "hold" | "manual";
-            /** @description The clock of the item on screen */
             playback?: components["schemas"]["PlaybackStatusSchema"] | null;
             /** @description The active player, if one is set up */
             player?: components["schemas"]["PlayerSchema"] | null;
-            /** @description Where the programme is */
             playlist?: components["schemas"]["PlaylistStatusSchema"] | null;
-            /** @description The loaded programme */
             programme?: components["schemas"]["ProgrammeInfoSchema"] | null;
             /**
              * Screen
@@ -7550,16 +5762,11 @@ export interface components {
         };
         /** PlayoutStatusResponseSchema */
         PlayoutStatusResponseSchema: {
-            /** @description The playout status */
             data: components["schemas"]["PlayoutStatusDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -7568,10 +5775,7 @@ export interface components {
         PluginFailureSchema: {
             /** Error */
             error: string;
-            /**
-             * Source
-             * @description The contrib plugin file that failed to load
-             */
+            /** Source */
             source: string;
         };
         /** PreviewCellSchema */
@@ -7620,147 +5824,84 @@ export interface components {
         PreviewTrailerItemSchema: {
             /**
              * Already Downloaded
-             * @description Whether trailer already exists in library
              * @default false
              */
             already_downloaded: boolean;
-            /**
-             * Certification
-             * @description Content certification
-             */
+            /** Certification */
             certification?: string | null;
             /**
              * Genres
-             * @description Genre names
              * @default []
              */
             genres: string[];
-            /**
-             * Month
-             * @description Release month
-             */
+            /** Month */
             month?: number | null;
-            /**
-             * Popularity
-             * @description TMDB popularity score
-             */
+            /** Popularity */
             popularity?: number | null;
-            /**
-             * Rating
-             * @description TMDB rating
-             */
+            /** Rating */
             rating?: number | null;
-            /**
-             * Title
-             * @description Movie title
-             */
+            /** Title */
             title: string;
-            /**
-             * Tmdb Id
-             * @description TMDB ID
-             */
+            /** Tmdb Id */
             tmdb_id: number;
-            /**
-             * Year
-             * @description Release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** PreviewTrailersDataSchema */
         PreviewTrailersDataSchema: {
-            /**
-             * Already Have
-             * @description Trailers already in library
-             */
+            /** Already Have */
             already_have: number;
-            /**
-             * Total Found
-             * @description Total matching criteria
-             */
+            /** Total Found */
             total_found: number;
-            /**
-             * Trailers
-             * @description Trailers that would be fetched
-             */
+            /** Trailers */
             trailers: components["schemas"]["PreviewTrailerItemSchema"][];
-            /**
-             * Will Fetch
-             * @description Trailers that will be fetched (after limit)
-             */
+            /** Will Fetch */
             will_fetch: number;
         };
         /** PreviewTrailersResponseSchema */
         PreviewTrailersResponseSchema: {
-            /** @description Preview data */
             data: components["schemas"]["PreviewTrailersDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** PreviewTrailersSchema */
         PreviewTrailersSchema: {
-            /**
-             * Certification
-             * @description Content certification filter
-             */
+            /** Certification */
             certification?: string | null;
             /**
              * Genres
-             * @description Filter by genre IDs
+             * @description TMDB genre IDs
              */
             genres?: number[] | null;
             /**
              * Limit
-             * @description Maximum number of trailers to preview
              * @default 50
              */
             limit: number;
-            /**
-             * Min Rating
-             * @description Minimum TMDB rating
-             */
+            /** Min Rating */
             min_rating?: number | null;
             /**
              * Sort By
-             * @description Sort order
              * @default popularity.desc
              */
             sort_by: string;
-            /**
-             * Year From
-             * @description Start of year range
-             */
+            /** Year From */
             year_from?: number | null;
-            /**
-             * Year To
-             * @description End of year range
-             */
+            /** Year To */
             year_to?: number | null;
         };
         /** PrinterTestInput */
         PrinterTestInput: {
-            /**
-             * Device
-             * @description Device file path, for file mode
-             */
+            /** Device */
             device?: string | null;
-            /**
-             * Host
-             * @description Printer host, for network mode
-             */
+            /** Host */
             host?: string | null;
-            /**
-             * Port
-             * @description Printer port, for network mode
-             */
+            /** Port */
             port?: number | null;
             /**
              * Printer Type
@@ -7781,104 +5922,56 @@ export interface components {
         };
         /** ProgrammeBasicSchema */
         ProgrammeBasicSchema: {
-            /**
-             * Description
-             * @description Programme description
-             */
+            /** Description */
             description?: string | null;
             /**
              * Formatted Runtime
              * @description Human-readable formatted runtime
              */
             formatted_runtime?: string | null;
-            /**
-             * Id
-             * @description Programme ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
-            /**
-             * Runtime
-             * @description Programme runtime in minutes
-             */
+            /** Runtime */
             runtime: number;
         };
         /** ProgrammeBlockDetailSchema */
         ProgrammeBlockDetailSchema: {
-            /**
-             * Details
-             * @description Block-specific details
-             */
+            /** Details */
             details: {
                 [key: string]: unknown;
             };
-            /**
-             * Order
-             * @description Block order in programme
-             */
+            /** Order */
             order: number;
-            /**
-             * Runtime
-             * @description Runtime in minutes
-             */
+            /** Runtime */
             runtime: number;
-            /**
-             * Title
-             * @description Block title
-             */
+            /** Title */
             title: string;
-            /**
-             * Type
-             * @description Block type
-             */
+            /** Type */
             type: string;
         };
         /** ProgrammeCreateResponseDataSchema */
         ProgrammeCreateResponseDataSchema: {
-            /**
-             * Certifications Generated
-             * @description Number of certifications generated
-             */
+            /** Certifications Generated */
             certifications_generated?: number | null;
-            /**
-             * Id
-             * @description Created programme ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
-            /**
-             * Playlist Generated
-             * @description Whether playlist was generated
-             */
+            /** Playlist Generated */
             playlist_generated?: boolean | null;
-            /**
-             * Playlist Items
-             * @description Number of playlist items
-             */
+            /** Playlist Items */
             playlist_items?: number | null;
-            /** @description Programme details */
             programme: components["schemas"]["ProgrammePreviewSchema"];
         };
         /** ProgrammeCreateResponseSchema */
         ProgrammeCreateResponseSchema: {
-            /** @description Created programme data */
             data: components["schemas"]["ProgrammeCreateResponseDataSchema"];
-            /**
-             * Message
-             * @description Success message
-             */
+            /** Message */
             message: string;
             /**
              * Success
-             * @description Operation success status
              * @default true
              */
             success: boolean;
@@ -7893,51 +5986,30 @@ export interface components {
         };
         /** ProgrammeDetailDataSchema */
         ProgrammeDetailDataSchema: {
-            /** @description Programme details */
             programme: components["schemas"]["ProgrammeDetailSchema"];
         };
         /** ProgrammeDetailResponseSchema */
         ProgrammeDetailResponseSchema: {
-            /** @description Programme detail data */
             data: components["schemas"]["ProgrammeDetailDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** ProgrammeDetailSchema */
         ProgrammeDetailSchema: {
-            /**
-             * Created At
-             * @description Creation timestamp in ISO format
-             */
+            /** Created At */
             created_at: string;
-            /**
-             * Description
-             * @description Programme description
-             */
+            /** Description */
             description: string;
-            /**
-             * Id
-             * @description Programme ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Items
-             * @description List of programme items
-             */
+            /** Items */
             items: components["schemas"]["ProgrammeItemDetailSchema"][];
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
             /**
              * Playlist Stale
@@ -7969,20 +6041,11 @@ export interface components {
              * @description Title card background type: color, image, or video
              */
             title_background_type: string;
-            /**
-             * Title Fade In
-             * @description Title card fade in duration in seconds
-             */
+            /** Title Fade In */
             title_fade_in: number;
-            /**
-             * Title Fade Out
-             * @description Title card fade out duration in seconds
-             */
+            /** Title Fade Out */
             title_fade_out: number;
-            /**
-             * Title File Generated
-             * @description Whether a title card file has been generated
-             */
+            /** Title File Generated */
             title_file_generated: boolean;
             /**
              * Title Hold
@@ -8000,47 +6063,27 @@ export interface components {
              * @description Title template ID for the programme title card
              */
             title_template_id?: number | null;
-            /**
-             * Total Blocks
-             * @description Total number of blocks
-             */
+            /** Total Blocks */
             total_blocks: number;
-            /**
-             * Total Runtime
-             * @description Total runtime in minutes
-             */
+            /** Total Runtime */
             total_runtime: number;
-            /**
-             * Updated At
-             * @description Last update timestamp in ISO format
-             */
+            /** Updated At */
             updated_at: string;
         };
         /** ProgrammeDuplicateDataSchema */
         ProgrammeDuplicateDataSchema: {
-            /**
-             * Id
-             * @description ID of the new programme
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Name of the new programme
-             */
+            /** Name */
             name: string;
         };
         /** ProgrammeDuplicateResponseSchema */
         ProgrammeDuplicateResponseSchema: {
-            /** @description New programme data */
             data: components["schemas"]["ProgrammeDuplicateDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8052,73 +6095,37 @@ export interface components {
              * @description Certificate for the active ratings system
              */
             certification?: string | null;
-            /**
-             * Id
-             * @description Movie ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Runtime Minutes
-             * @description Runtime in minutes
-             */
+            /** Runtime Minutes */
             runtime_minutes?: number | null;
-            /**
-             * Thumbnail Url
-             * @description Poster URL
-             */
+            /** Thumbnail Url */
             thumbnail_url?: string | null;
-            /**
-             * Title
-             * @description Movie title
-             */
+            /** Title */
             title: string;
-            /**
-             * Year
-             * @description Release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** ProgrammeInfoSchema */
         ProgrammeInfoSchema: {
-            /**
-             * Block Count
-             * @description Number of blocks in programme
-             */
+            /** Block Count */
             block_count: number;
-            /**
-             * Created At
-             * @description ISO timestamp of programme creation
-             */
+            /** Created At */
             created_at?: string | null;
-            /**
-             * Description
-             * @description Programme description
-             */
+            /** Description */
             description: string;
             /**
              * Features
              * @description The programme's feature films, in running order
              */
             features?: components["schemas"]["ProgrammeFeatureSchema"][];
-            /**
-             * Id
-             * @description Programme ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
-            /**
-             * Runtime Formatted
-             * @description Formatted runtime string
-             */
+            /** Runtime Formatted */
             runtime_formatted: string;
-            /**
-             * Runtime Minutes
-             * @description Total runtime in minutes
-             */
+            /** Runtime Minutes */
             runtime_minutes: number;
         };
         /** ProgrammeItemDetailSchema */
@@ -8130,38 +6137,20 @@ export interface components {
             details: {
                 [key: string]: unknown;
             };
-            /**
-             * Duration Seconds
-             * @description Playback duration in seconds
-             */
+            /** Duration Seconds */
             duration_seconds: number;
-            /**
-             * Id
-             * @description Programme block ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Order
-             * @description Item order in programme
-             */
+            /** Order */
             order: number;
-            /**
-             * Title
-             * @description Item title
-             */
+            /** Title */
             title: string;
-            /**
-             * Type
-             * @description Item type
-             */
+            /** Type */
             type: string;
         };
         /** ProgrammeListFilters */
         ProgrammeListFilters: {
-            /**
-             * Search
-             * @description Search term for programme name or description
-             */
+            /** Search */
             search?: string | null;
         };
         /** ProgrammeListItemSchema */
@@ -8173,35 +6162,20 @@ export interface components {
             composition: {
                 [key: string]: number;
             };
-            /**
-             * Created At
-             * @description Creation timestamp in ISO format
-             */
+            /** Created At */
             created_at: string;
-            /**
-             * Description
-             * @description Programme description
-             */
+            /** Description */
             description: string;
-            /**
-             * Id
-             * @description Programme ID
-             */
+            /** Id */
             id: number;
             /**
              * Last Played At
              * @description When playback last started, ISO format (null = never)
              */
             last_played_at?: string | null;
-            /**
-             * Movies
-             * @description Featured movies in this programme
-             */
+            /** Movies */
             movies: components["schemas"]["MovieInfoSchema"][];
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
             /**
              * Playlist Stale
@@ -8213,108 +6187,61 @@ export interface components {
              * @description Template name if created from template
              */
             template_name?: string | null;
-            /**
-             * Total Blocks
-             * @description Total number of blocks
-             */
+            /** Total Blocks */
             total_blocks: number;
-            /**
-             * Total Runtime
-             * @description Total runtime in minutes
-             */
+            /** Total Runtime */
             total_runtime: number;
         };
         /** ProgrammeListResponseDataSchema */
         ProgrammeListResponseDataSchema: {
-            /**
-             * Programmes
-             * @description List of programmes
-             */
+            /** Programmes */
             programmes: components["schemas"]["ProgrammeListItemSchema"][];
-            /**
-             * Total
-             * @description Total number of programmes
-             */
+            /** Total */
             total: number;
         };
         /** ProgrammeListResponseSchema */
         ProgrammeListResponseSchema: {
-            /** @description Programme list data */
             data: components["schemas"]["ProgrammeListResponseDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** ProgrammePreviewResponseDataSchema */
         ProgrammePreviewResponseDataSchema: {
-            /** @description Programme preview details */
             programme: components["schemas"]["ProgrammePreviewSchema"];
         };
         /** ProgrammePreviewResponseSchema */
         ProgrammePreviewResponseSchema: {
-            /** @description Programme preview data */
             data: components["schemas"]["ProgrammePreviewResponseDataSchema"];
-            /**
-             * Message
-             * @description Success message
-             */
+            /** Message */
             message: string;
             /**
              * Success
-             * @description Operation success status
              * @default true
              */
             success: boolean;
         };
         /** ProgrammePreviewSchema */
         ProgrammePreviewSchema: {
-            /**
-             * Blocks
-             * @description List of programme blocks
-             */
+            /** Blocks */
             blocks: components["schemas"]["ProgrammeBlockDetailSchema"][];
-            /**
-             * Description
-             * @description Programme description
-             */
+            /** Description */
             description: string;
-            /**
-             * Name
-             * @description Programme name
-             */
+            /** Name */
             name: string;
-            /**
-             * Preview
-             * @description Whether this is a preview
-             */
+            /** Preview */
             preview: boolean;
-            /**
-             * Template Id
-             * @description Template ID if created from template
-             */
+            /** Template Id */
             template_id?: number | null;
-            /**
-             * Template Name
-             * @description Template name if created from template
-             */
+            /** Template Name */
             template_name?: string | null;
-            /**
-             * Total Blocks
-             * @description Total number of blocks
-             */
+            /** Total Blocks */
             total_blocks: number;
-            /**
-             * Total Runtime
-             * @description Total runtime in minutes
-             */
+            /** Total Runtime */
             total_runtime: number;
         };
         /** ProgrammeTicketRequestSchema */
@@ -8340,18 +6267,12 @@ export interface components {
         };
         /** PropertySchema */
         PropertySchema: {
-            /**
-             * Value
-             * @description Property value to set
-             */
+            /** Value */
             value: unknown;
         };
         /** ProviderEnabledSchema */
         ProviderEnabledSchema: {
-            /**
-             * Enabled
-             * @description True to enable the plugin, False to disable it
-             */
+            /** Enabled */
             enabled: boolean;
         };
         /** ProviderFieldSchema */
@@ -8383,10 +6304,7 @@ export interface components {
         };
         /** ProviderListDataSchema */
         ProviderListDataSchema: {
-            /**
-             * Failures
-             * @description Contrib plugins that failed to load
-             */
+            /** Failures */
             failures: components["schemas"]["PluginFailureSchema"][];
             /** Providers */
             providers: components["schemas"]["ProviderSchema"][];
@@ -8394,14 +6312,10 @@ export interface components {
         /** ProviderListResponseSchema */
         ProviderListResponseSchema: {
             data: components["schemas"]["ProviderListDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8430,10 +6344,7 @@ export interface components {
              * @description Whether the provider can discover its settings on the network
              */
             has_discover: boolean;
-            /**
-             * Has Settings Test
-             * @description Whether the provider can test its settings
-             */
+            /** Has Settings Test */
             has_settings_test: boolean;
             /**
              * Has Suggestions
@@ -8451,10 +6362,7 @@ export interface components {
              * @description Provider-wide settings fields
              */
             settings: components["schemas"]["ProviderFieldSchema"][];
-            /**
-             * Source
-             * @description The contrib plugin file it came from
-             */
+            /** Source */
             source: string;
         };
         /** ProviderSettingsDataSchema */
@@ -8467,14 +6375,10 @@ export interface components {
         /** ProviderSettingsResponseSchema */
         ProviderSettingsResponseSchema: {
             data: components["schemas"]["ProviderSettingsDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8527,14 +6431,10 @@ export interface components {
         /** RatingCardListResponseSchema */
         RatingCardListResponseSchema: {
             data: components["schemas"]["RatingCardListSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8548,20 +6448,11 @@ export interface components {
         };
         /** RatingCardSchema */
         RatingCardSchema: {
-            /**
-             * Bundled Background
-             * @description A bundled background exists
-             */
+            /** Bundled Background */
             bundled_background: boolean;
-            /**
-             * Certification
-             * @description Certificate value (e.g. 'PG')
-             */
+            /** Certification */
             certification: string;
-            /**
-             * Custom Background
-             * @description A user background override exists
-             */
+            /** Custom Background */
             custom_background: boolean;
             /**
              * Generated Count
@@ -8570,13 +6461,10 @@ export interface components {
             generated_count: number;
             /**
              * Source
-             * @description Effective card source: static_video | custom_background | bundled_background | none
+             * @description static_video | custom_background | bundled_background | none
              */
             source: string;
-            /**
-             * Static Video
-             * @description A user static card video exists
-             */
+            /** Static Video */
             static_video: boolean;
         };
         /** RatingElement */
@@ -8602,14 +6490,10 @@ export interface components {
         /** RatingsOptionsResponseSchema */
         RatingsOptionsResponseSchema: {
             data: components["schemas"]["RatingsOptionsSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8626,14 +6510,6 @@ export interface components {
              * @description Active ratings system, e.g. 'BBFC'
              */
             system: string;
-        };
-        /** RatingsTestInput */
-        RatingsTestInput: {
-            /**
-             * System
-             * @description Ratings system to probe (blank = the configured one)
-             */
-            system?: string | null;
         };
         /** RatingsUpdateSchema */
         RatingsUpdateSchema: {
@@ -8670,14 +6546,10 @@ export interface components {
         /** RestoreResponseSchema */
         RestoreResponseSchema: {
             data: components["schemas"]["RestoreDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8692,20 +6564,15 @@ export interface components {
         };
         /** RunResultDataSchema */
         RunResultDataSchema: {
-            /** @description The outcome of this execution */
             result: components["schemas"]["CommandResultSchema"];
         };
         /** RunResultResponseSchema */
         RunResultResponseSchema: {
             data: components["schemas"]["RunResultDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8726,80 +6593,51 @@ export interface components {
         };
         /** RunnerStatusResponseSchema */
         RunnerStatusResponseSchema: {
-            /** @description Runner status */
             data: components["schemas"]["RunnerStatusSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** RunnerStatusSchema */
         RunnerStatusSchema: {
-            /**
-             * Age Seconds
-             * @description Seconds since last heartbeat
-             */
+            /** Age Seconds */
             age_seconds?: number | null;
             /**
              * Last Beat
              * @description Last heartbeat (ISO)
              */
             last_beat?: string | null;
-            /**
-             * Pid
-             * @description Process id hosting the runner thread
-             */
+            /** Pid */
             pid?: number | null;
-            /**
-             * Running
-             * @description Whether the schedule runner appears to be alive
-             */
+            /** Running */
             running: boolean;
-            /**
-             * Tick Seconds
-             * @description Runner poll interval
-             */
+            /** Tick Seconds */
             tick_seconds?: number | null;
         };
         /** ScheduleCreateResponseSchema */
         ScheduleCreateResponseSchema: {
-            /** @description Created schedule data */
             data: components["schemas"]["ScheduleDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** ScheduleDataSchema */
         ScheduleDataSchema: {
-            /** @description Schedule details */
             schedule: components["schemas"]["ScheduleSchema"];
         };
         /** ScheduleListDataSchema */
         ScheduleListDataSchema: {
-            /**
-             * Count
-             * @description Total number of schedules returned
-             */
+            /** Count */
             count: number;
-            /**
-             * Schedules
-             * @description List of scheduled programmes
-             */
+            /** Schedules */
             schedules: components["schemas"]["ScheduleSchema"][];
         };
         /** ScheduleListFilters */
@@ -8814,55 +6652,37 @@ export interface components {
              * @description Filter schedules to this date (ISO format)
              */
             date_to?: string | null;
-            /**
-             * Programme Id
-             * @description Filter by programme ID
-             */
+            /** Programme Id */
             programme_id?: number | null;
             /**
              * Show Past
-             * @description Include past schedules in results
              * @default false
              */
             show_past: boolean;
-            /**
-             * Status
-             * @description Filter by schedule status
-             */
+            /** Status */
             status?: string | null;
         };
         /** ScheduleListResponseSchema */
         ScheduleListResponseSchema: {
-            /** @description Schedule list data */
             data: components["schemas"]["ScheduleListDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** ScheduleSchema */
         ScheduleSchema: {
-            /**
-             * Created At
-             * @description Schedule creation timestamp in ISO format
-             */
+            /** Created At */
             created_at: string;
             /**
              * End Time
              * @description When the screening ends: play_time + runtime (ISO)
              */
             end_time?: string | null;
-            /**
-             * Id
-             * @description Schedule ID
-             */
+            /** Id */
             id: number;
             /**
              * Last Error
@@ -8885,12 +6705,8 @@ export interface components {
              * @description The lead-in's ordered steps: commands plus the one cue step
              */
             preshow?: components["schemas"]["LeadInStepSchema"][];
-            /** @description Associated programme details */
             programme: components["schemas"]["ProgrammeBasicSchema"];
-            /**
-             * Runtime
-             * @description Programme runtime in minutes
-             */
+            /** Runtime */
             runtime: number;
             /**
              * Start Time
@@ -8915,24 +6731,16 @@ export interface components {
              * @description Number of seat rows (A…)
              */
             rows: number;
-            /**
-             * Seats Per Row
-             * @description Seats per row
-             */
+            /** Seats Per Row */
             seats_per_row: number;
         };
         /** SeatMapResponseSchema */
         SeatMapResponseSchema: {
-            /** @description Seat map with occupancy */
             data: components["schemas"]["SeatMapDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8940,14 +6748,10 @@ export interface components {
         /** SecurityStateResponse */
         SecurityStateResponse: {
             data: components["schemas"]["SecurityStateSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -8959,15 +6763,9 @@ export interface components {
              * @description Whether it is actually enforced right now (fail-open aware)
              */
             auth_active: boolean;
-            /**
-             * Auth Enabled
-             * @description Whether the auth gate is switched on in settings
-             */
+            /** Auth Enabled */
             auth_enabled: boolean;
-            /**
-             * Has Account
-             * @description Whether a usable account exists
-             */
+            /** Has Account */
             has_account: boolean;
             /**
              * Kiosk Public
@@ -8987,26 +6785,8 @@ export interface components {
              * @description Turn the auth gate on/off
              */
             auth_enabled?: boolean | null;
-            /**
-             * Kiosk Public
-             * @description Allow the kiosk page without a login
-             */
+            /** Kiosk Public */
             kiosk_public?: boolean | null;
-        };
-        /** SeekControlSchema */
-        SeekControlSchema: {
-            /**
-             * Position
-             * @description Seek position (seconds for absolute/relative, 0-100 for percentage)
-             */
-            position: number;
-            /**
-             * Type
-             * @description Type of seek operation
-             * @default absolute
-             * @enum {string}
-             */
-            type: "absolute" | "relative" | "percentage";
         };
         /** SetPasswordInput */
         SetPasswordInput: {
@@ -9039,17 +6819,13 @@ export interface components {
              * @description UI accent colour #rrggbb (None = built-in theme)
              */
             accent_color?: string | null;
-            /**
-             * Cinema Name
-             * @description Name of the cinema
-             */
+            /** Cinema Name */
             cinema_name: string;
             /**
              * Cinema Web Logo Url
              * @description Navbar logo URL (None = default mark)
              */
             cinema_web_logo_url?: string | null;
-            /** @description Default cinema ident details */
             default_cinema_ident?: components["schemas"]["CinemaIdentSchema"] | null;
             /**
              * Default Cinema Ident Id
@@ -9064,7 +6840,6 @@ export interface components {
             display_time_format: string;
             /**
              * Kiosk Clock
-             * @description Show the clock
              * @default true
              */
             kiosk_clock: boolean;
@@ -9094,7 +6869,6 @@ export interface components {
             kiosk_layout: string;
             /**
              * Kiosk Night
-             * @description Dim to a clock during quiet hours
              * @default false
              */
             kiosk_night: boolean;
@@ -9124,7 +6898,6 @@ export interface components {
             kiosk_show_showtimes: boolean;
             /**
              * Kiosk Takeover
-             * @description Now Showing takeover while a programme is live
              * @default true
              */
             kiosk_takeover: boolean;
@@ -9148,7 +6921,6 @@ export interface components {
             subtitle_back_color: string;
             /**
              * Subtitle Bold
-             * @description Bold subtitle text
              * @default false
              */
             subtitle_bold: boolean;
@@ -9160,7 +6932,6 @@ export interface components {
             subtitle_border_style: string;
             /**
              * Subtitle Color
-             * @description Subtitle text colour #rrggbb
              * @default #FFFFFF
              */
             subtitle_color: string;
@@ -9184,7 +6955,6 @@ export interface components {
             subtitle_position: number;
             /**
              * Subtitle Use Margins
-             * @description Keep subtitles inside the video margins
              * @default true
              */
             subtitle_use_margins: boolean;
@@ -9212,10 +6982,7 @@ export interface components {
              * @default 384
              */
             ticket_paper_width: number;
-            /**
-             * Ticket Printer Device
-             * @description Thermal printer device file path
-             */
+            /** Ticket Printer Device */
             ticket_printer_device: string;
             /**
              * Ticket Printer Host
@@ -9225,7 +6992,6 @@ export interface components {
             ticket_printer_host: string;
             /**
              * Ticket Printer Port
-             * @description Network printer port
              * @default 9100
              */
             ticket_printer_port: number;
@@ -9241,20 +7007,11 @@ export interface components {
              * @default file
              */
             ticket_printer_type: string;
-            /**
-             * Ticket Seats Per Row
-             * @description Seats per row
-             */
+            /** Ticket Seats Per Row */
             ticket_seats_per_row: number;
-            /**
-             * Ticket Total Rows
-             * @description Number of seat rows
-             */
+            /** Ticket Total Rows */
             ticket_total_rows: number;
-            /**
-             * Updated At
-             * @description Last update timestamp
-             */
+            /** Updated At */
             updated_at: string;
         };
         /** SettingsTestDataSchema */
@@ -9267,14 +7024,10 @@ export interface components {
         /** SettingsTestResponseSchema */
         SettingsTestResponseSchema: {
             data: components["schemas"]["SettingsTestDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -9339,14 +7092,6 @@ export interface components {
              */
             type: "spacer";
         };
-        /** SpeedControlSchema */
-        SpeedControlSchema: {
-            /**
-             * Speed
-             * @description Playback speed multiplier (e.g., 1.0 for normal, 2.0 for double)
-             */
-            speed: number;
-        };
         /** StatusSchema */
         StatusSchema: {
             /**
@@ -9366,67 +7111,32 @@ export interface components {
              */
             wizard_step: number;
         };
-        /** SubtitleTrackListResponseSchema */
-        SubtitleTrackListResponseSchema: {
-            /** Data */
-            data: components["schemas"]["SubtitleTrackSchema"][];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
         /** SubtitleTrackSchema */
         SubtitleTrackSchema: {
-            /**
-             * Forced
-             * @description Whether subtitle is forced
-             */
+            /** Forced */
             forced: boolean;
-            /**
-             * Id
-             * @description Subtitle track unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Index
-             * @description Track index in media file
-             */
+            /** Index */
             index: number;
-            /**
-             * Language
-             * @description Subtitle language
-             */
+            /** Language */
             language: string;
             /**
              * Sdh
-             * @description Whether subtitle is SDH (Subtitles for Deaf and Hard-of-hearing)
+             * @description Subtitles for the deaf and hard of hearing
              */
             sdh: boolean;
         };
         /** SuccessResponseSchema */
         SuccessResponseSchema: {
-            /**
-             * Data
-             * @description Response data payload
-             */
+            /** Data */
             data?: {
                 [key: string]: unknown;
             } | null;
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -9457,29 +7167,19 @@ export interface components {
         /** SuggestionsResponseSchema */
         SuggestionsResponseSchema: {
             data: components["schemas"]["SuggestionsDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** TagBasicSchema */
         TagBasicSchema: {
-            /**
-             * Id
-             * @description Tag ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Tag name
-             */
+            /** Name */
             name: string;
         };
         /** TagCreateSchema */
@@ -9489,33 +7189,24 @@ export interface components {
              * @description Optional badge colour as #RRGGBB
              */
             color?: string | null;
-            /**
-             * Name
-             * @description Tag name
-             */
+            /** Name */
             name: string;
         };
         /** TagListDataSchema */
         TagListDataSchema: {
-            /** @description Pagination information */
             pagination: components["schemas"]["MediaPaginationSchema"];
-            /**
-             * Tags
-             * @description List of tags
-             */
+            /** Tags */
             tags: components["schemas"]["TagSchema"][];
         };
         /** TagListFilters */
         TagListFilters: {
             /**
              * Page
-             * @description Page number
              * @default 1
              */
             page: number;
             /**
              * Per Page
-             * @description Items per page
              * @default 20
              */
             per_page: number;
@@ -9527,32 +7218,18 @@ export interface components {
         };
         /** TagListResponseSchema */
         TagListResponseSchema: {
-            /** @description Tag list data */
             data: components["schemas"]["TagListDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** TagResponseSchema */
         TagResponseSchema: {
-            /** @description The affected tag */
             data: components["schemas"]["TagSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** TagSchema */
@@ -9567,15 +7244,9 @@ export interface components {
              * @description Number of media items carrying this tag, when computed
              */
             count?: number | null;
-            /**
-             * Id
-             * @description Tag unique identifier
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Tag name
-             */
+            /** Name */
             name: string;
         };
         /** TagUpdateSchema */
@@ -9585,87 +7256,33 @@ export interface components {
              * @description New badge colour as #RRGGBB, or '' to clear
              */
             color?: string | null;
-            /**
-             * Name
-             * @description New tag name
-             */
+            /** Name */
             name?: string | null;
-        };
-        /** TemplateCreateResponseSchema */
-        TemplateCreateResponseSchema: {
-            /** @description Created template data */
-            data: components["schemas"]["TemplateDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
         };
         /** TemplateDataSchema */
         TemplateDataSchema: {
-            /**
-             * Id
-             * @description Template ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Name
-             * @description Template name
-             */
+            /** Name */
             name: string;
-            /** @description Full template details */
             template?: components["schemas"]["TemplateSchema"] | null;
-        };
-        /** TemplateDetailResponseSchema */
-        TemplateDetailResponseSchema: {
-            /** @description Template details */
-            data: components["schemas"]["TemplateDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
         };
         /** TemplateItemSchema */
         TemplateItemSchema: {
-            /**
-             * Bound To Feature
-             * @description Feature this item is bound to
-             */
+            /** Bound To Feature */
             bound_to_feature?: number | null;
-            /** @description Associated bumper details */
             bumper?: components["schemas"]["BumperBasicSchema"] | null;
-            /**
-             * Certification Feature
-             * @description Feature number for certification reference
-             */
+            /** Certification Feature */
             certification_feature?: number | null;
-            /** @description Associated command details */
             command?: components["schemas"]["CommandBasicSchema"] | null;
             /**
              * Count
-             * @description Number of items to include
              * @default 1
              */
             count: number;
             /** @description Command to execute when credits begin (for feature items) */
             credits_command?: components["schemas"]["CommandBasicSchema"] | null;
-            /**
-             * Feature Number
-             * @description Feature number this item is associated with
-             */
+            /** Feature Number */
             feature_number?: number | null;
             /**
              * Hold Black
@@ -9673,46 +7290,34 @@ export interface components {
              * @default false
              */
             hold_black: boolean;
-            /**
-             * Id
-             * @description Template item ID
-             */
+            /** Id */
             id: number;
             /**
              * Item Type
-             * @description Type of template item (feature, trailer_rule, command, etc.)
+             * @description feature, trailer_rule, command, etc.
              */
             item_type: string;
             /**
              * Match Certification
-             * @description Whether to match certification when selecting trailers
              * @default true
              */
             match_certification: boolean;
             /**
              * Match Genre
-             * @description Whether to match genre when selecting trailers
              * @default true
              */
             match_genre: boolean;
             /**
              * Match Year
-             * @description Whether to match year when selecting trailers
              * @default false
              */
             match_year: boolean;
-            /**
-             * Order
-             * @description Display order within template
-             */
+            /** Order */
             order: number;
-            /** @description Associated tag details */
             tag?: components["schemas"]["TagBasicSchema"] | null;
-            /** @description Associated specific-trailer details */
             trailer?: components["schemas"]["TrailerBasicSchema"] | null;
             /**
              * Trailer Count
-             * @description Number of trailers to include
              * @default 3
              */
             trailer_count: number | null;
@@ -9720,150 +7325,97 @@ export interface components {
             trailer_tag?: components["schemas"]["TagBasicSchema"] | null;
             /**
              * Year Delta
-             * @description Acceptable year difference for trailer matching
              * @default 5
              */
             year_delta: number | null;
         };
         /** TemplateListDataSchema */
         TemplateListDataSchema: {
-            /** @description Pagination information */
             pagination: components["schemas"]["TemplatePaginationSchema"];
-            /**
-             * Templates
-             * @description List of templates
-             */
+            /** Templates */
             templates: components["schemas"]["TemplateSummarySchema"][];
         };
         /** TemplateListFilters */
         TemplateListFilters: {
             /**
              * Page
-             * @description Page number for pagination
              * @default 1
              */
             page: number;
             /**
              * Per Page
-             * @description Number of items per page
              * @default 20
              */
             per_page: number;
-            /**
-             * Search
-             * @description Search term for template name or description
-             */
+            /** Search */
             search?: string | null;
         };
         /** TemplateListResponseSchema */
         TemplateListResponseSchema: {
-            /** @description Template list data */
             data: components["schemas"]["TemplateListDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
         };
         /** TemplatePaginationSchema */
         TemplatePaginationSchema: {
-            /**
-             * Page
-             * @description Current page number
-             */
+            /** Page */
             page: number;
-            /**
-             * Per Page
-             * @description Items per page
-             */
+            /** Per Page */
             per_page: number;
-            /**
-             * Total
-             * @description Total number of templates
-             */
+            /** Total */
             total: number;
-            /**
-             * Total Pages
-             * @description Total number of pages
-             */
+            /** Total Pages */
             total_pages: number;
+        };
+        /** TemplateResponseSchema */
+        TemplateResponseSchema: {
+            data: components["schemas"]["TemplateDataSchema"];
+            /** Message */
+            message?: string | null;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
         };
         /** TemplateSchema */
         TemplateSchema: {
-            /**
-             * Created At
-             * @description Template creation timestamp in ISO format
-             */
+            /** Created At */
             created_at: string;
-            /**
-             * Description
-             * @description Template description
-             */
+            /** Description */
             description: string;
-            /**
-             * Id
-             * @description Template ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Items
-             * @description List of template items
-             */
+            /** Items */
             items: components["schemas"]["TemplateItemSchema"][];
-            /**
-             * Name
-             * @description Template name
-             */
+            /** Name */
             name: string;
-            /**
-             * Number Of Features
-             * @description Number of features this template supports
-             */
+            /** Number Of Features */
             number_of_features: number;
         };
         /** TemplateSummarySchema */
         TemplateSummarySchema: {
-            /**
-             * Created At
-             * @description Template creation timestamp in ISO format
-             */
+            /** Created At */
             created_at: string;
-            /**
-             * Description
-             * @description Template description
-             */
+            /** Description */
             description: string;
-            /**
-             * Id
-             * @description Template ID
-             */
+            /** Id */
             id: number;
             /**
              * Item Types
-             * @description Ordered item types, for structure previews
              * @default []
              */
             item_types: string[];
-            /**
-             * Items Count
-             * @description Total number of items in template
-             */
+            /** Items Count */
             items_count: number;
-            /**
-             * Name
-             * @description Template name
-             */
+            /** Name */
             name: string;
-            /**
-             * Number Of Features
-             * @description Number of features this template supports
-             */
+            /** Number Of Features */
             number_of_features: number;
         };
         /** TestCardInput */
@@ -9877,14 +7429,10 @@ export interface components {
         /** TestCardResponse */
         TestCardResponse: {
             data: components["schemas"]["TestCardSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -9893,17 +7441,13 @@ export interface components {
         TestCardSchema: {
             /**
              * Off In S
-             * @description Seconds until the player hides it by itself
              * @default 0
              */
             off_in_s: number;
             /** On */
             on: boolean;
         };
-        /**
-         * TestCommandSchema
-         * @description Schema for testing a command configuration without saving it.
-         */
+        /** TestCommandSchema */
         TestCommandSchema: {
             /**
              * Config
@@ -9914,7 +7458,6 @@ export interface components {
             };
             /**
              * Provider
-             * @description Execution provider
              * @default rest
              */
             provider: string;
@@ -9946,14 +7489,10 @@ export interface components {
         /** TestSoundResponse */
         TestSoundResponse: {
             data: components["schemas"]["TestSoundSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -10065,29 +7604,21 @@ export interface components {
         };
         /** TicketIssuedDataSchema */
         TicketIssuedDataSchema: {
-            /**
-             * Count
-             * @description Total number of issued tickets matching the filter
-             */
+            /** Count */
             count: number;
             /**
              * Tickets
-             * @description Issued tickets, newest first
+             * @description Newest first
              */
             tickets: components["schemas"]["TicketIssueSchema"][];
         };
         /** TicketIssuedResponseSchema */
         TicketIssuedResponseSchema: {
-            /** @description Issued-ticket history */
             data: components["schemas"]["TicketIssuedDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -10129,16 +7660,11 @@ export interface components {
         };
         /** TicketPreviewResponseSchema */
         TicketPreviewResponseSchema: {
-            /** @description Ticket preview */
             data: components["schemas"]["TicketPreviewDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -10147,7 +7673,6 @@ export interface components {
         TicketPrintDataSchema: {
             /**
              * Copies
-             * @description Number of tickets printed
              * @default 1
              */
             copies: number;
@@ -10161,10 +7686,7 @@ export interface components {
              * @description Seat of every printed ticket, in print order
              */
             seats?: string[];
-            /**
-             * Text
-             * @description Custom ticket text
-             */
+            /** Text */
             text?: string | null;
             /**
              * Ticket Numbers
@@ -10174,58 +7696,14 @@ export interface components {
         };
         /** TicketPrintResponseSchema */
         TicketPrintResponseSchema: {
-            /** @description Ticket print data */
             data: components["schemas"]["TicketPrintDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
-        };
-        /** TicketSettingsDataSchema */
-        TicketSettingsDataSchema: {
-            /** @description Ticket settings */
-            settings: components["schemas"]["TicketSettingsSchema"];
-        };
-        /** TicketSettingsResponseSchema */
-        TicketSettingsResponseSchema: {
-            /** @description Ticket settings data */
-            data: components["schemas"]["TicketSettingsDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
-        /** TicketSettingsSchema */
-        TicketSettingsSchema: {
-            /** Cinema Name */
-            cinema_name: string;
-            /** Ticket Seats Per Row */
-            ticket_seats_per_row: number;
-            /** Ticket Total Rows */
-            ticket_total_rows: number;
-            /** Total Seats */
-            total_seats: number;
-        };
-        /** TicketSettingsUpdateSchema */
-        TicketSettingsUpdateSchema: {
-            /** Ticket Seats Per Row */
-            ticket_seats_per_row?: number | null;
-            /** Ticket Total Rows */
-            ticket_total_rows?: number | null;
         };
         /** TitlePreviewRequest */
         TitlePreviewRequest: {
@@ -10305,88 +7783,40 @@ export interface components {
              */
             api_key?: string | null;
         };
-        /** TrackControlSchema */
-        TrackControlSchema: {
-            /**
-             * Track Id
-             * @description Track ID or 'no' to disable subtitles
-             */
-            track_id: string | number;
-            /**
-             * Type
-             * @description Track type to control
-             * @enum {string}
-             */
-            type: "audio" | "sub";
-        };
         /** TrackSchema */
         TrackSchema: {
-            /**
-             * Codec
-             * @description Track codec
-             */
+            /** Codec */
             codec?: string | null;
-            /**
-             * Id
-             * @description Track ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Language
-             * @description Track language code
-             */
+            /** Language */
             language?: string | null;
-            /**
-             * Selected
-             * @description Whether this track is currently selected
-             */
+            /** Selected */
             selected: boolean;
-            /**
-             * Title
-             * @description Track title/name
-             */
+            /** Title */
             title?: string | null;
         };
         /** TracksInfoSchema */
         TracksInfoSchema: {
-            /**
-             * Audio Tracks
-             * @description Available audio tracks
-             */
+            /** Audio Tracks */
             audio_tracks: components["schemas"]["TrackSchema"][];
-            /**
-             * Sub Tracks
-             * @description Available subtitle tracks
-             */
+            /** Sub Tracks */
             sub_tracks: components["schemas"]["TrackSchema"][];
-            /**
-             * Video Tracks
-             * @description Available video tracks
-             */
+            /** Video Tracks */
             video_tracks: components["schemas"]["TrackSchema"][];
         };
         /** TrailerBasicSchema */
         TrailerBasicSchema: {
             /**
              * Content Rating
-             * @description Trailer content rating
              * @default
              */
             content_rating: string;
-            /**
-             * Id
-             * @description Trailer ID
-             */
+            /** Id */
             id: number;
-            /**
-             * Title
-             * @description Trailer title
-             */
+            /** Title */
             title: string;
-            /**
-             * Year
-             * @description Trailer release year
-             */
+            /** Year */
             year?: number | null;
         };
         /** TrailerBulkIdsSchema */
@@ -10397,283 +7827,41 @@ export interface components {
              * @default true
              */
             delete_files: boolean;
-            /**
-             * Ids
-             * @description Trailer IDs to delete
-             */
+            /** Ids */
             ids: number[];
         };
         /** TrailerBulkTagSchema */
         TrailerBulkTagSchema: {
-            /**
-             * Ids
-             * @description Trailer IDs to tag
-             */
+            /** Ids */
             ids: number[];
             /**
              * Name
              * @description Tag name (created if new) — used when tag_id is absent
              */
             name?: string | null;
-            /**
-             * Tag Id
-             * @description Existing tag id
-             */
+            /** Tag Id */
             tag_id?: number | null;
-        };
-        /** TrailerDetailDataSchema */
-        TrailerDetailDataSchema: {
-            /** @description Trailer details */
-            trailer: components["schemas"]["TrailerDetailSchema"];
-        };
-        /** TrailerDetailResponseSchema */
-        TrailerDetailResponseSchema: {
-            /** @description Trailer detail data */
-            data: components["schemas"]["TrailerDetailDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
-        /** TrailerDetailSchema */
-        TrailerDetailSchema: {
-            /** @description Associated movie details */
-            associated_movie?: components["schemas"]["AssociatedMovieSchema"] | null;
-            /**
-             * Certificates
-             * @description Certificates per ratings system, e.g. {'BBFC': '15'}
-             * @default {}
-             */
-            certificates: {
-                [key: string]: string;
-            };
-            /**
-             * Content Rating
-             * @description Content rating
-             */
-            content_rating?: string | null;
-            /**
-             * Director
-             * @description Director name
-             */
-            director?: string | null;
-            /**
-             * Duration
-             * @description Duration in seconds
-             */
-            duration?: number | null;
-            /**
-             * File Path
-             * @description Path to trailer file
-             */
-            file_path?: string | null;
-            /**
-             * Genres
-             * @description List of genres
-             * @default []
-             */
-            genres: components["schemas"]["GenreSchema"][];
-            /**
-             * Id
-             * @description Trailer ID
-             */
-            id: number;
-            /**
-             * Month
-             * @description Release month
-             */
-            month?: number | null;
-            /**
-             * Rating Lookups
-             * @description Provider lookup outcome per system (matched/unmatched)
-             * @default {}
-             */
-            rating_lookups: {
-                [key: string]: string;
-            };
-            /**
-             * Title
-             * @description Trailer title
-             */
-            title: string;
-            /**
-             * Tmdbid
-             * @description TMDB ID
-             */
-            tmdbid?: number | null;
-            /**
-             * Trailer Tags
-             * @description Trailer tags (trailer-library vocabulary)
-             * @default []
-             */
-            trailer_tags: components["schemas"]["TrailerTagSchema"][];
-            /**
-             * Year
-             * @description Release year
-             */
-            year?: number | null;
-        };
-        /** TrailerListDataSchema */
-        TrailerListDataSchema: {
-            /** @description Pagination information */
-            pagination: components["schemas"]["TrailerPaginationSchema"];
-            /**
-             * Trailers
-             * @description List of trailers
-             */
-            trailers: components["schemas"]["TrailerListItemSchema"][];
-        };
-        /** TrailerListItemSchema */
-        TrailerListItemSchema: {
-            /**
-             * Content Rating
-             * @description Content rating
-             */
-            content_rating?: string | null;
-            /**
-             * Director
-             * @description Director name
-             */
-            director?: string | null;
-            /**
-             * Duration
-             * @description Duration in seconds
-             */
-            duration?: number | null;
-            /**
-             * File Path
-             * @description Path to trailer file
-             */
-            file_path?: string | null;
-            /**
-             * Genres
-             * @description List of genre names
-             * @default []
-             */
-            genres: string[];
-            /**
-             * Id
-             * @description Trailer ID
-             */
-            id: number;
-            /**
-             * Month
-             * @description Release month
-             */
-            month?: number | null;
-            /**
-             * Title
-             * @description Trailer title
-             */
-            title: string;
-            /**
-             * Tmdbid
-             * @description TMDB ID
-             */
-            tmdbid?: number | null;
-            /**
-             * Trailer Tags
-             * @description Trailer tags (trailer-library vocabulary)
-             * @default []
-             */
-            trailer_tags: components["schemas"]["TrailerTagSchema"][];
-            /**
-             * Year
-             * @description Release year
-             */
-            year?: number | null;
-        };
-        /** TrailerListResponseSchema */
-        TrailerListResponseSchema: {
-            /** @description Trailer list data */
-            data: components["schemas"]["TrailerListDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
-            message?: string | null;
-            /**
-             * Success
-             * @description Always True for successful responses
-             * @default true
-             */
-            success: boolean;
-        };
-        /** TrailerPaginationSchema */
-        TrailerPaginationSchema: {
-            /**
-             * Has More
-             * @description Whether more items are available
-             */
-            has_more: boolean;
-            /**
-             * Limit
-             * @description Maximum items per page
-             */
-            limit: number;
-            /**
-             * Offset
-             * @description Number of items skipped
-             */
-            offset: number;
-            /**
-             * Total
-             * @description Total number of trailers
-             */
-            total: number;
         };
         /** TrailerPatchSchema */
         TrailerPatchSchema: {
             /** Content Rating */
             content_rating?: string | null;
         };
-        /** TrailerQueryParams */
-        TrailerQueryParams: {
-            /**
-             * Limit
-             * @description Maximum number of items to return
-             * @default 50
-             */
-            limit: number;
-            /**
-             * Offset
-             * @description Number of items to skip
-             * @default 0
-             */
-            offset: number;
-            /**
-             * Rating
-             * @description Filter by content rating
-             */
-            rating?: string | null;
-            /**
-             * Year
-             * @description Filter by release year
-             */
-            year?: number | null;
-        };
         /** TrailerSettingsSchema */
         TrailerSettingsSchema: {
             /**
              * Download Quality
-             * @description Video quality: 720, 1080, 1440, 2160, best
+             * @description 720, 1080, 1440, 2160 or best
              */
             download_quality?: string | null;
             /**
              * Filename Template
-             * @description Filename template (e.g. {title} ({year}) [tmdb-{tmdbid}])
+             * @description e.g. {title} ({year}) [tmdb-{tmdbid}]
              */
             filename_template?: string | null;
             /**
              * Folder Template
-             * @description Folder template (e.g. {year})
+             * @description e.g. {year}
              */
             folder_template?: string | null;
             /**
@@ -10681,39 +7869,25 @@ export interface components {
              * @description Backfill missing certificates from the classification bodies' websites
              */
             rating_lookup_enabled?: boolean | null;
-            /**
-             * Tmdb Api Key
-             * @description TMDB API key
-             */
+            /** Tmdb Api Key */
             tmdb_api_key?: string | null;
-            /**
-             * Upcoming Months Ahead
-             * @description Months ahead for upcoming releases
-             */
+            /** Upcoming Months Ahead */
             upcoming_months_ahead?: number | null;
         };
         /** TrailerStatsDataSchema */
         TrailerStatsDataSchema: {
-            /**
-             * Statistics
-             * @description Trailer statistics
-             */
+            /** Statistics */
             statistics: {
                 [key: string]: unknown;
             };
         };
         /** TrailerStatsResponseSchema */
         TrailerStatsResponseSchema: {
-            /** @description Trailer statistics data */
             data: components["schemas"]["TrailerStatsDataSchema"];
-            /**
-             * Message
-             * @description Human-readable message about the operation
-             */
+            /** Message */
             message?: string | null;
             /**
              * Success
-             * @description Always True for successful responses
              * @default true
              */
             success: boolean;
@@ -10725,37 +7899,15 @@ export interface components {
              * @description Tag name (created if new) — used when tag_id is absent
              */
             name?: string | null;
-            /**
-             * Tag Id
-             * @description Existing tag id
-             */
+            /** Tag Id */
             tag_id?: number | null;
         };
         /** TrailerTagCreateSchema */
         TrailerTagCreateSchema: {
-            /**
-             * Name
-             * @description Tag name
-             */
+            /** Name */
             name: string;
         };
-        /** TrailerTagSchema */
-        TrailerTagSchema: {
-            /**
-             * Id
-             * @description Trailer tag ID
-             */
-            id: number;
-            /**
-             * Name
-             * @description Trailer tag name
-             */
-            name: string;
-        };
-        /**
-         * UpdateCommandSchema
-         * @description Schema for updating existing commands.
-         */
+        /** UpdateCommandSchema */
         UpdateCommandSchema: {
             /**
              * Config
@@ -10769,15 +7921,9 @@ export interface components {
              * @description Duration in seconds that this command takes to execute
              */
             duration?: number | null;
-            /**
-             * Name
-             * @description Command name
-             */
+            /** Name */
             name?: string | null;
-            /**
-             * Provider
-             * @description Execution provider
-             */
+            /** Provider */
             provider?: string | null;
         };
         /** UpdateMediaSchema */
@@ -10792,45 +7938,27 @@ export interface components {
              * @description As the ident: where standby freezes, in seconds; send null for its last frame
              */
             hold_point?: number | null;
-            /**
-             * Tag Names
-             * @description Updated list of tag names
-             */
+            /** Tag Names */
             tag_names?: string[] | null;
-            /**
-             * Title
-             * @description Updated media title
-             */
+            /** Title */
             title?: string | null;
         };
         /** UpdateProgrammeSchema */
         UpdateProgrammeSchema: {
-            /**
-             * Description
-             * @description Updated programme description
-             */
+            /** Description */
             description?: string | null;
-            /**
-             * Items
-             * @description Updated list of programme items
-             */
+            /** Items */
             items?: {
                 [key: string]: unknown;
             }[] | null;
-            /**
-             * Name
-             * @description Updated programme name
-             */
+            /** Name */
             name?: string | null;
             /**
              * Title Background Color
              * @description Background color (hex format)
              */
             title_background_color?: string | null;
-            /**
-             * Title Background File
-             * @description Path to background image or video file
-             */
+            /** Title Background File */
             title_background_file?: string | null;
             /**
              * Title Background Type
@@ -10852,10 +7980,7 @@ export interface components {
              * @description When cued, play the title's fade-in, then hold
              */
             title_hold?: boolean | null;
-            /**
-             * Title Template Id
-             * @description Title template ID for programme title card
-             */
+            /** Title Template Id */
             title_template_id?: number | null;
         };
         /** UpdateScheduleSchema */
@@ -10890,10 +8015,7 @@ export interface components {
              * @description UI accent colour #rrggbb; empty string resets to the built-in theme
              */
             accent_color?: string | null;
-            /**
-             * Cinema Name
-             * @description Cinema name
-             */
+            /** Cinema Name */
             cinema_name?: string | null;
             /**
              * Default Cinema Ident
@@ -10905,20 +8027,14 @@ export interface components {
              * @description Wall-clock rendering: 24h or 12h
              */
             display_time_format?: string | null;
-            /**
-             * Kiosk Clock
-             * @description Show the clock
-             */
+            /** Kiosk Clock */
             kiosk_clock?: boolean | null;
             /**
              * Kiosk Content Source
              * @description Films shown: flagged, all or scheduled
              */
             kiosk_content_source?: string | null;
-            /**
-             * Kiosk Countdown Minutes
-             * @description Countdown threshold
-             */
+            /** Kiosk Countdown Minutes */
             kiosk_countdown_minutes?: number | null;
             /**
              * Kiosk Header
@@ -10975,25 +8091,16 @@ export interface components {
              * @description Box/shadow colour #rrggbb
              */
             subtitle_back_color?: string | null;
-            /**
-             * Subtitle Bold
-             * @description Bold subtitle text
-             */
+            /** Subtitle Bold */
             subtitle_bold?: boolean | null;
             /**
              * Subtitle Border Style
              * @description outline-and-shadow | opaque-box | background-box
              */
             subtitle_border_style?: string | null;
-            /**
-             * Subtitle Color
-             * @description Subtitle text colour #rrggbb
-             */
+            /** Subtitle Color */
             subtitle_color?: string | null;
-            /**
-             * Subtitle Font Size
-             * @description Subtitle font size
-             */
+            /** Subtitle Font Size */
             subtitle_font_size?: number | null;
             /**
              * Subtitle Margin Y
@@ -11005,20 +8112,14 @@ export interface components {
              * @description Vertical position 0–100
              */
             subtitle_position?: number | null;
-            /**
-             * Subtitle Use Margins
-             * @description Keep subtitles inside the video margins
-             */
+            /** Subtitle Use Margins */
             subtitle_use_margins?: boolean | null;
             /**
              * Ticket Cut
              * @description Paper cut after each ticket: off / partial / full
              */
             ticket_cut?: string | null;
-            /**
-             * Ticket Feed Lines
-             * @description Blank lines fed after each ticket
-             */
+            /** Ticket Feed Lines */
             ticket_feed_lines?: number | null;
             /**
              * Ticket Image Mode
@@ -11030,20 +8131,11 @@ export interface components {
              * @description Printable width in dots: 384 (58mm) or 576 (80mm)
              */
             ticket_paper_width?: number | null;
-            /**
-             * Ticket Printer Device
-             * @description Thermal printer device file path
-             */
+            /** Ticket Printer Device */
             ticket_printer_device?: string | null;
-            /**
-             * Ticket Printer Host
-             * @description Network printer host
-             */
+            /** Ticket Printer Host */
             ticket_printer_host?: string | null;
-            /**
-             * Ticket Printer Port
-             * @description Network printer port
-             */
+            /** Ticket Printer Port */
             ticket_printer_port?: number | null;
             /**
              * Ticket Printer Timeout
@@ -11055,134 +8147,57 @@ export interface components {
              * @description Printer connection: file or network
              */
             ticket_printer_type?: string | null;
-            /**
-             * Ticket Seats Per Row
-             * @description Seats per row
-             */
+            /** Ticket Seats Per Row */
             ticket_seats_per_row?: number | null;
-            /**
-             * Ticket Total Rows
-             * @description Total seat rows
-             */
+            /** Ticket Total Rows */
             ticket_total_rows?: number | null;
         };
         /** UpdateTemplateSchema */
         UpdateTemplateSchema: {
-            /**
-             * Description
-             * @description Updated template description
-             */
+            /** Description */
             description?: string | null;
-            /**
-             * Items
-             * @description Updated list of template items
-             */
+            /** Items */
             items?: components["schemas"]["CreateTemplateItemSchema"][] | null;
-            /**
-             * Name
-             * @description Updated template name
-             */
+            /** Name */
             name?: string | null;
-            /**
-             * Number Of Features
-             * @description Updated number of features
-             */
+            /** Number Of Features */
             number_of_features?: number | null;
         };
         /** VideoInfoSchema */
         VideoInfoSchema: {
-            /**
-             * Bitrate
-             * @description Video bitrate in bps
-             */
+            /** Bitrate */
             bitrate?: number | null;
-            /**
-             * Codec
-             * @description Video codec
-             */
+            /** Codec */
             codec?: string | null;
-            /**
-             * Framerate
-             * @description Video framerate
-             */
+            /** Framerate */
             framerate?: number | null;
-            /**
-             * Height
-             * @description Video height in pixels
-             */
+            /** Height */
             height?: number | null;
-            /**
-             * Width
-             * @description Video width in pixels
-             */
+            /** Width */
             width?: number | null;
         };
         /** VideoTechInfoSchema */
         VideoTechInfoSchema: {
-            /**
-             * Codec
-             * @description Video codec
-             */
+            /** Codec */
             codec?: string | null;
-            /**
-             * Colorlevels
-             * @description Color levels
-             */
+            /** Colorlevels */
             colorlevels?: string | null;
-            /**
-             * Colormatrix
-             * @description Color matrix/space
-             */
+            /** Colormatrix */
             colormatrix?: string | null;
-            /**
-             * Fps
-             * @description Frame rate
-             */
+            /** Fps */
             fps?: number | null;
-            /**
-             * Gamma
-             * @description Gamma/transfer function
-             */
+            /** Gamma */
             gamma?: string | null;
-            /**
-             * Height
-             * @description Video height in pixels
-             */
+            /** Height */
             height?: number | null;
-            /**
-             * Hw Decoding
-             * @description Hardware decoding method in use
-             */
+            /** Hw Decoding */
             hw_decoding?: string | null;
-            /**
-             * Pixelformat
-             * @description Pixel format
-             */
+            /** Pixelformat */
             pixelformat?: string | null;
-            /**
-             * Primaries
-             * @description Color primaries
-             */
+            /** Primaries */
             primaries?: string | null;
-            /**
-             * Width
-             * @description Video width in pixels
-             */
+            /** Width */
             width?: number | null;
-        };
-        /** VolumeControlSchema */
-        VolumeControlSchema: {
-            /**
-             * Action
-             * @description Volume control action
-             * @enum {string}
-             */
-            action: "set" | "up" | "down" | "mute";
-            /**
-             * Volume
-             * @description Volume level (0-100) for 'set' action
-             */
-            volume?: number | null;
         };
         /** WizardStepInput */
         WizardStepInput: {
@@ -11194,47 +8209,28 @@ export interface components {
         };
         /** YearStatsSchema */
         YearStatsSchema: {
-            /**
-             * Count
-             * @description Number of movies from this year
-             */
+            /** Count */
             count: number;
-            /**
-             * Year
-             * @description Release year
-             */
+            /** Year */
             year: number;
         };
         /** YouTubeDownloadSchema */
         YouTubeDownloadSchema: {
             /**
              * Tag Names
-             * @description Tags to assign to downloaded video
              * @default []
              */
             tag_names: string[] | null;
-            /**
-             * Title
-             * @description Custom title for downloaded video
-             */
+            /** Title */
             title?: string | null;
-            /**
-             * Url
-             * @description YouTube video URL
-             */
+            /** Url */
             url: string;
         };
         /** YouTubeProgressDataSchema */
         YouTubeProgressDataSchema: {
-            /**
-             * Error
-             * @description Error message if failed
-             */
+            /** Error */
             error?: string | null;
-            /**
-             * Filename
-             * @description Downloaded filename
-             */
+            /** Filename */
             filename?: string | null;
             /**
              * Media Id
@@ -11243,56 +8239,36 @@ export interface components {
             media_id?: number | null;
             /**
              * Progress
-             * @description Download progress percentage (0-100)
+             * @description Percent (0-100)
              */
             progress?: number | null;
             /**
              * Status
-             * @description Download status (downloading, completed, failed)
+             * @description downloading, completed or failed
              */
             status: string;
-            /**
-             * Task Id
-             * @description Task identifier
-             */
+            /** Task Id */
             task_id: string;
         };
         /** YouTubeProgressSchema */
         YouTubeProgressSchema: {
-            /** @description Progress information */
             data: components["schemas"]["YouTubeProgressDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
         /** YouTubeTaskDataSchema */
         YouTubeTaskDataSchema: {
-            /**
-             * Task Id
-             * @description Unique task identifier for tracking progress
-             */
+            /** Task Id */
             task_id: string;
         };
         /** YouTubeTaskResponseSchema */
         YouTubeTaskResponseSchema: {
-            /** @description Task information */
             data: components["schemas"]["YouTubeTaskDataSchema"];
-            /**
-             * Message
-             * @description Response message
-             */
+            /** Message */
             message: string;
-            /**
-             * Success
-             * @description Request success status
-             */
+            /** Success */
             success: boolean;
         };
     };
@@ -11446,9 +8422,7 @@ export interface operations {
     cinefin_api_ninja_views_command_ninja_list_commands: {
         parameters: {
             query?: {
-                /** @description Filter by provider */
                 type?: string | null;
-                /** @description Search in command names */
                 search?: string | null;
             };
             header?: never;
@@ -11737,46 +8711,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_command_ninja_get_command_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                command_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CommandDetailResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_command_ninja_delete_command: {
         parameters: {
             query?: never;
@@ -11916,62 +8850,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorResponseSchema"];
                 };
-            };
-        };
-    };
-    cinefin_api_ninja_views_docs_ninja_api_documentation_summary: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["APISummaryResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_docs_ninja_redirect_to_ninja_docs: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    cinefin_api_ninja_views_docs_ninja_redirect_to_openapi_spec: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };
@@ -12272,31 +9150,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_logs_ninja_list_logs: {
-        parameters: {
-            query?: {
-                /** @description Minimum level to include (DEBUG/INFO/WARNING/ERROR) */
-                level?: string;
-                /** @description Maximum number of records to return */
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LogsResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_media_management_bulk_tag: {
         parameters: {
             query?: never;
@@ -12395,15 +9248,13 @@ export interface operations {
             query?: {
                 /** @description Search term for title */
                 search?: string | null;
-                /** @description Comma-separated tag names; an item must carry ALL of them (AND) to match */
+                /** @description Comma-separated tag names; an item carrying any of them matches */
                 tags?: string | null;
-                /** @description Page number */
                 page?: number;
-                /** @description Items per page */
                 per_page?: number;
-                /** @description Sort field: title | duration | file_size | upload_date */
+                /** @description title | duration | file_size | upload_date */
                 sort?: string | null;
-                /** @description Sort direction: asc | desc */
+                /** @description asc | desc */
                 order?: string | null;
             };
             header?: never;
@@ -12437,9 +9288,7 @@ export interface operations {
             query?: {
                 /** @description Search term for tag name */
                 search?: string | null;
-                /** @description Page number */
                 page?: number;
-                /** @description Items per page */
                 per_page?: number;
             };
             header?: never;
@@ -12643,7 +9492,7 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_media_uploads_upload_media: {
+    cinefin_api_ninja_views_media_management_upload_media: {
         parameters: {
             query?: never;
             header?: never;
@@ -12702,7 +9551,7 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_media_downloads_youtube_download: {
+    cinefin_api_ninja_views_media_management_youtube_download: {
         parameters: {
             query?: never;
             header?: never;
@@ -12744,7 +9593,7 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_media_downloads_youtube_progress: {
+    cinefin_api_ninja_views_media_management_youtube_progress: {
         parameters: {
             query?: never;
             header?: never;
@@ -12917,7 +9766,7 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_media_movies_download_media: {
+    cinefin_api_ninja_views_media_management_download_media: {
         parameters: {
             query?: {
                 inline?: boolean;
@@ -12957,7 +9806,7 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_media_movies_get_media_screenshot: {
+    cinefin_api_ninja_views_media_management_get_media_screenshot: {
         parameters: {
             query?: never;
             header?: never;
@@ -13171,33 +10020,24 @@ export interface operations {
             query?: {
                 /** @description Search in title, director, or description */
                 search?: string | null;
-                /** @description Filter by genre (comma-separated for multiple) */
+                /** @description Comma-separated; a movie must have every genre */
                 genre?: string | null;
-                /** @description Filter movies from this year */
                 year_from?: number | null;
-                /** @description Filter movies up to this year */
                 year_to?: number | null;
-                /** @description Filter movies with runtime >= this value (minutes) */
+                /** @description Minutes */
                 runtime_from?: number | null;
-                /** @description Filter movies with runtime <= this value (minutes) */
+                /** @description Minutes */
                 runtime_to?: number | null;
-                /** @description Filter by certification */
                 certification?: string | null;
-                /** @description Filter by resolution */
                 resolution?: string | null;
-                /** @description Filter by kiosk display flag (true = shown on the kiosk, false = hidden from it) */
                 kiosk?: boolean | null;
-                /** @description Filter by downloaded trailer (true = has one, false = missing) */
                 has_trailer?: boolean | null;
-                /** @description Filter by TMDB id presence: 'missing' (tmdbid=0), 'present' (tmdbid>0), or unset for any */
+                /** @description 'missing' (tmdbid=0), 'present' (tmdbid>0), or unset for any */
                 tmdb?: string | null;
-                /** @description Page number */
                 page?: number;
-                /** @description Items per page (the library page fetches the whole filtered set in one request) */
                 per_page?: number;
-                /** @description Sort field */
                 sort?: string;
-                /** @description Sort order (asc/desc) */
+                /** @description asc/desc */
                 order?: string;
                 /** @description Seed for sort=random so pagination stays consistent (omit to reshuffle) */
                 random_seed?: number | null;
@@ -13366,46 +10206,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_movies_ninja_get_movie_audio_tracks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                movie_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AudioTrackListResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_movies_ninja_update_movie_certification: {
         parameters: {
             query?: never;
@@ -13544,46 +10344,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_movies_ninja_get_movie_subtitle_tracks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                movie_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SubtitleTrackListResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_movies_ninja_toggle_movie_kiosk: {
         parameters: {
             query?: never;
@@ -13606,66 +10366,6 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    mpv_send_chapter_command: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MPVCommandSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -13713,222 +10413,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_control_fullscreen: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_control_playback: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlaybackControlSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_control_playlist: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PlaylistControlSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_get_mpv_property: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                property_name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessResponseSchema"];
                 };
             };
             /** @description Not Found */
@@ -14022,117 +10506,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_mpv_ninja_control_seek: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SeekControlSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_control_speed: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SpeedControlSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_mpv_ninja_get_mpv_status: {
         parameters: {
             query?: never;
@@ -14149,117 +10522,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MPVStatusResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_control_tracks: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TrackControlSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_mpv_ninja_control_volume: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["VolumeControlSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
                 };
             };
             /** @description Bad Request */
@@ -14483,35 +10745,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiscoveredPlayerListResponse"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_playout_ninja_get_host_config: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HostConfigResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
                 };
             };
         };
@@ -15269,35 +11502,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_programmes_management_get_active_programme: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActiveProgrammeResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_programmes_management_bulk_delete_programmes: {
         parameters: {
             query?: never;
@@ -15463,7 +11667,6 @@ export interface operations {
     cinefin_api_ninja_views_programmes_management_list_programmes: {
         parameters: {
             query?: {
-                /** @description Search term for programme name or description */
                 search?: string | null;
             };
             header?: never;
@@ -16084,15 +12287,12 @@ export interface operations {
     cinefin_api_ninja_views_schedules_ninja_list_schedules: {
         parameters: {
             query?: {
-                /** @description Filter by schedule status */
                 status?: string | null;
-                /** @description Filter by programme ID */
                 programme_id?: number | null;
                 /** @description Filter schedules from this date (ISO format) */
                 date_from?: string | null;
                 /** @description Filter schedules to this date (ISO format) */
                 date_to?: string | null;
-                /** @description Include past schedules in results */
                 show_past?: boolean;
             };
             header?: never;
@@ -16697,30 +12897,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_settings_ninja_test_ratings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RatingsTestInput"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CheckResultResponse"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_settings_ninja_test_tmdb: {
         parameters: {
             query?: never;
@@ -16753,28 +12929,6 @@ export interface operations {
             };
             header?: never;
             path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    cinefin_api_ninja_views_sync_ninja_get_job: {
-        parameters: {
-            query?: {
-                include_log?: boolean;
-            };
-            header?: never;
-            path: {
-                job_id: number;
-            };
             cookie?: never;
         };
         requestBody?: never;
@@ -16868,26 +13022,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_sync_ninja_get_source: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                source_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     cinefin_api_ninja_views_sync_ninja_delete_source: {
         parameters: {
             query?: {
@@ -16924,28 +13058,6 @@ export interface operations {
                 "application/json": components["schemas"]["SourceUpdateSchema"];
             };
         };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    cinefin_api_ninja_views_sync_ninja_list_runs: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                source_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
         responses: {
             /** @description OK */
             200: {
@@ -17007,24 +13119,6 @@ export interface operations {
             path: {
                 source_id: number;
             };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    cinefin_api_ninja_views_sync_ninja_list_source_types: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -17117,7 +13211,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TemplateCreateResponseSchema"];
+                    "application/json": components["schemas"]["TemplateResponseSchema"];
                 };
             };
             /** @description Bad Request */
@@ -17161,11 +13255,8 @@ export interface operations {
     cinefin_api_ninja_views_template_ninja_list_templates: {
         parameters: {
             query?: {
-                /** @description Search term for template name or description */
                 search?: string | null;
-                /** @description Page number for pagination */
                 page?: number;
-                /** @description Number of items per page */
                 per_page?: number;
             };
             header?: never;
@@ -17211,7 +13302,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TemplateDetailResponseSchema"];
+                    "application/json": components["schemas"]["TemplateResponseSchema"];
                 };
             };
             /** @description Not Found */
@@ -17255,7 +13346,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TemplateCreateResponseSchema"];
+                    "application/json": components["schemas"]["TemplateResponseSchema"];
                 };
             };
             /** @description Bad Request */
@@ -17353,7 +13444,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TemplateCreateResponseSchema"];
+                    "application/json": components["schemas"]["TemplateResponseSchema"];
                 };
             };
             /** @description Not Found */
@@ -17671,57 +13762,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_ticket_ninja_print_custom_ticket: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CustomTicketRequestSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketPrintResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_ticket_ninja_print_programme_ticket: {
         parameters: {
             query?: never;
@@ -17960,77 +14000,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_ticket_ninja_get_ticket_settings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TicketSettingsResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_ticket_ninja_update_ticket_settings: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TicketSettingsUpdateSchema"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessageResponseSchema"];
-                };
-            };
-            /** @description Bad Request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_ticket_ninja_test_ticket_print: {
         parameters: {
             query?: never;
@@ -18128,30 +14097,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GenerateTitleResponse"];
-                };
-            };
-        };
-    };
-    cinefin_api_ninja_views_titlegen_ninja_get_programme_title_status: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                programme_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
         };
@@ -18325,46 +14270,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    cinefin_api_ninja_views_trailer_ninja_get_trailer_detail: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                trailer_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrailerDetailResponseSchema"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
             };
         };
     };
@@ -18804,44 +14709,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_trailer_ninja_list_trailers: {
-        parameters: {
-            query?: {
-                /** @description Filter by release year */
-                year?: number | null;
-                /** @description Filter by content rating */
-                rating?: string | null;
-                /** @description Maximum number of items to return */
-                limit?: number;
-                /** @description Number of items to skip */
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrailerListResponseSchema"];
-                };
-            };
-            /** @description Internal Server Error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponseSchema"];
-                };
-            };
-        };
-    };
     cinefin_api_ninja_views_trailer_ninja_match_test: {
         parameters: {
             query?: {
@@ -19111,26 +14978,6 @@ export interface operations {
                         [key: string]: unknown;
                     };
                 };
-            };
-        };
-    };
-    cinefin_api_ninja_views_trailer_ninja_delete_trailer_tag: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tag_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

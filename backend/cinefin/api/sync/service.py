@@ -5,8 +5,6 @@ tmdbid globally, so two sources would race and silently overwrite each other's
 file path/resolution/tracks. `create_source` refuses a second; ask via `the_source()`.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 
@@ -24,15 +22,14 @@ _TOKEN_PLACEHOLDERS = {"", "***", "********"}
 
 
 def _clean_path_mappings(raw) -> list[dict[str, str]]:
-    cleaned = []
-    for rule in raw or []:
-        if not isinstance(rule, dict):
-            continue
-        src = str(rule.get("from") or "").strip()
-        dst = str(rule.get("to") or "").strip()
-        if src and dst:
-            cleaned.append({"from": src, "to": dst})
-    return cleaned
+    rules = [r for r in raw or [] if isinstance(r, dict)]
+    pairs = ((str(r.get("from") or "").strip(), str(r.get("to") or "").strip()) for r in rules)
+    return [{"from": src, "to": dst} for src, dst in pairs if src and dst]
+
+
+def _probe(plugin) -> dict[str, Any]:
+    ok, message = plugin.test_connection()
+    return {"success": ok, "message": message, "libraries": plugin.get_libraries() if ok else []}
 
 
 class SyncManager:
@@ -54,8 +51,7 @@ class SyncManager:
 
     @classmethod
     def create_source(cls, data: dict[str, Any]) -> SyncSource:
-        existing = cls.the_source()
-        if existing is not None:
+        if (existing := cls.the_source()) is not None:
             raise ConflictError(
                 f"A library source is already configured ({existing.name}). "
                 "Remove it before adding a different server.",
@@ -88,23 +84,15 @@ class SyncManager:
         if cls.has_active_job(source):
             raise ValidationError("Cannot edit a source while it is syncing", error_code="SYNC_IN_PROGRESS")
 
-        if "name" in data:
-            source.name = data["name"]
-        if "enabled" in data:
-            source.enabled = data["enabled"]
-
-        # Overwrite the secret only for a real value (UI sends '***' = keep existing).
-        token = data.get("token")
-        keep_token = token is None or token in _TOKEN_PLACEHOLDERS
-
+        for field in ("name", "enabled", "libraries", "extra_config"):
+            if field in data:
+                setattr(source, field, data[field])
         if "url" in data:
             source.url = data["url"].rstrip("/")
-        if not keep_token:
+        # Overwrite the secret only for a real value (the UI sends '***' = keep existing).
+        token = data.get("token")
+        if token is not None and token not in _TOKEN_PLACEHOLDERS:
             source.token = token
-        if "libraries" in data:
-            source.libraries = data["libraries"]
-        if "extra_config" in data:
-            source.extra_config = data["extra_config"]
         if "path_mappings" in data:
             source.path_mappings = _clean_path_mappings(data["path_mappings"])
 
@@ -120,11 +108,8 @@ class SyncManager:
             raise ValidationError("Cannot delete a source while it is syncing", error_code="SYNC_IN_PROGRESS")
         movies_deleted = 0
         if delete_movies:
-            from cinefin.api.models import Movie
-
-            qs = Movie.objects.filter(sync_source=source)
-            movies_deleted = qs.count()
-            qs.delete()
+            movies_deleted = source.movies.count()
+            source.movies.all().delete()
         source.delete()
         return movies_deleted
 
@@ -134,24 +119,12 @@ class SyncManager:
         plugin = registry.get_plugin(source)
         if plugin is None:
             raise ValidationError("No plugin for this source type", error_code="NO_PLUGIN")
-        ok, message = plugin.test_connection()
-        libraries = plugin.get_libraries() if ok else []
-        return {"success": ok, "message": message, "libraries": libraries}
+        return _probe(plugin)
 
     @classmethod
-    def probe(
-        cls,
-        sync_type: str,
-        url: str,
-        token: str | None,
-        source_id: int | None = None,
-    ) -> dict[str, Any]:
-        """Test an un-saved connection and list its server-side libraries.
-
-        Used by the Add/Edit form so the operator picks from the real library
-        names instead of typing them. When editing (`source_id` given) a blank
-        token means "keep the saved one".
-        """
+    def probe(cls, sync_type: str, url: str, token: str | None, source_id: int | None = None) -> dict[str, Any]:
+        """Test an un-saved connection and list its libraries; when editing (`source_id`) a blank token keeps
+        the saved one."""
         plugin_cls = registry.get_plugin_class(sync_type)
         if plugin_cls is None:
             raise ValidationError(f"Invalid sync type: {sync_type}", error_code="INVALID_SYNC_TYPE")
@@ -162,11 +135,7 @@ class SyncManager:
         if not url or not token:
             raise ValidationError("URL and token are required", error_code="MISSING_REQUIRED_FIELDS")
 
-        probe_source = SyncSource(sync_type=sync_type, url=url.rstrip("/"), token=token, libraries="")
-        plugin = plugin_cls(probe_source)
-        ok, message = plugin.test_connection()
-        libraries = plugin.get_libraries() if ok else []
-        return {"success": ok, "message": message, "libraries": libraries}
+        return _probe(plugin_cls(SyncSource(sync_type=sync_type, url=url.rstrip("/"), token=token, libraries="")))
 
     @staticmethod
     def has_active_job(source: SyncSource) -> bool:
@@ -197,10 +166,7 @@ class SyncManager:
             raise ValidationError("A sync is already queued or running for this source", error_code="SYNC_IN_PROGRESS")
 
         job = Job.sync.create(
-            source=source,
-            operation=operation,
-            params=params or {},
-            max_attempts=max(1, max_attempts),
+            source=source, operation=operation, params=params or {}, max_attempts=max(1, max_attempts)
         )
         logger.info("Enqueued job #%s (%s:%s)", job.pk, source.name, operation)
         return job
@@ -231,18 +197,11 @@ class SyncManager:
         return list(qs[:limit])
 
     @classmethod
-    def get_job(cls, job_id: int) -> Job:
-        try:
-            return Job.sync.get(pk=job_id)
-        except Job.DoesNotExist:
-            raise NotFoundError("Sync job not found", error_code="SYNC_JOB_NOT_FOUND") from None
-
-    @classmethod
     def serialize_source(cls, source: SyncSource) -> dict[str, Any]:
         active = Job.sync.filter(source=source, state__in=Job.ACTIVE_STATES).order_by("-created_at").first()
         last = Job.sync.filter(source=source, state__in=Job.TERMINAL_STATES).order_by("-created_at").first()
 
-        data = {
+        return {
             "id": source.id,
             "name": source.name,
             "sync_type": source.sync_type,
@@ -259,7 +218,6 @@ class SyncManager:
             "created_at": source.created_at.isoformat(),
             "updated_at": source.updated_at.isoformat(),
         }
-        return data
 
     @classmethod
     def serialize_job(cls, job: Job | None, brief: bool = False, include_log: bool = False) -> dict[str, Any] | None:

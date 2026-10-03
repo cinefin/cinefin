@@ -3,33 +3,24 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Media servers sometimes prefix a certificate with an ISO country code,
-# e.g. Plex's "gb/15" or "us/PG-13". Stripped before canonicalising.
+# Media servers sometimes prefix a certificate with an ISO country code (Plex's "gb/15", "us/PG-13").
 _COUNTRY_PREFIX_RE = re.compile(r"^[A-Za-z]{2}/")
 
 
 def canonical_certificate(value: str | None, system: str) -> str | None:
-    # Canonical form within a system ('pg' → 'PG'), else None.
+    """Canonical form within a system ('pg' → 'PG'), else None."""
     from cinefin.api.models import Settings
 
-    value = (value or "").strip()
-    if not value:
-        return None
-    for valid in Settings.get_valid_ratings(system):
-        if value.upper() == valid.upper():
-            return valid
-    return None
+    value = (value or "").strip().upper()
+    return next((valid for valid in Settings.get_valid_ratings(system) if value and value == valid.upper()), None)
 
 
 def file_source_certificate(item, raw: str | None) -> None:
-    """File a media-server-reported rating into the right system slot of
-    `item.certificates` (does not save).
+    """File a media-server-reported rating into the right system slot of `item.certificates` (does not save).
 
-    Filing blindly under the configured system would pollute it with a foreign
-    scheme (MPAA "R" on a BBFC install) and clobber provider-fetched certs on
-    re-sync. So: valid-for-configured → its slot; valid-for-another → that
-    system's slot (leaving configured for providers to backfill); unrecognised
-    → configured slot only when empty (never overwrites a good certificate).
+    Filing blindly under the configured system would pollute it with a foreign scheme (MPAA "R" on a BBFC
+    install) and clobber provider-fetched certs on re-sync. So: valid for a system → that system's slot (the
+    configured one first); unrecognised → the configured slot only when empty.
     """
     from cinefin.api.models import Settings
 
@@ -38,16 +29,8 @@ def file_source_certificate(item, raw: str | None) -> None:
         return
 
     active = Settings.get_ratings_system()
-    canonical = canonical_certificate(raw, active)
-    if canonical:
-        item.set_certificate(active, canonical, active_system=active)
-        return
-
-    for system in Settings.VALID_RATINGS_SYSTEMS:
-        if system == active:
-            continue
-        canonical = canonical_certificate(raw, system)
-        if canonical:
+    for system in (active, *(s for s in Settings.VALID_RATINGS_SYSTEMS if s != active)):
+        if canonical := canonical_certificate(raw, system):
             item.set_certificate(system, canonical, active_system=active)
             return
 
@@ -56,9 +39,8 @@ def file_source_certificate(item, raw: str | None) -> None:
 
 
 def denormalize_certificates(system: str | None = None) -> int:
-    # Refresh the denormalised scalar cert fields (Movie.certification,
-    # Trailer.content_rating) from the per-system store for the display system.
-    # Called when `cinema.ratings_system` changes. Returns rows updated.
+    """Refresh Movie.certification / Trailer.content_rating from the per-system store when
+    `cinema.ratings_system` changes. Returns rows updated."""
     from cinefin.api.models import Movie, Settings, Trailer
 
     system = system or Settings.get_ratings_system()
@@ -81,9 +63,8 @@ def denormalize_certificates(system: str | None = None) -> int:
 
 
 def denormalize_certificate(item, system: str | None = None) -> None:
-    # One-row form of denormalize_certificates() for single-item edits: the
-    # full-table rescan is wasteful and would blank hand-set scalars on legacy
-    # rows whose store is empty.
+    """One-row denormalize_certificates() for single-item edits (a full rescan would blank hand-set scalars
+    on legacy rows whose store is empty)."""
     from cinefin.api.models import Movie, Settings
 
     system = system or Settings.get_ratings_system()

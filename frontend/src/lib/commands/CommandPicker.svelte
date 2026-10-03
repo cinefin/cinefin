@@ -38,10 +38,17 @@
 		[next[i], next[i + by]] = [next[i + by], next[i]];
 		draft = next;
 	}
-
-	const iconBtn =
-		'rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30';
 </script>
+
+{#snippet iconButton(Icon: typeof X, label: string, onclick: () => void, disabled = false)}
+	<button
+		type="button"
+		class="rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30"
+		aria-label={label}
+		{disabled}
+		{onclick}><Icon size={13} /></button
+	>
+{/snippet}
 
 <Dialog bind:open {title}>
 	<p class="text-xs text-muted">Saved on this device only.</p>
@@ -54,26 +61,18 @@
 				<li class="flex items-center gap-2 px-2.5 py-1.5 text-sm">
 					<Icon size={13} class="shrink-0 text-muted" />
 					<span class="min-w-0 flex-1 truncate">{c.name}</span>
-					<button
-						type="button"
-						class={iconBtn}
-						aria-label="Move {c.name} up"
-						disabled={i === 0}
-						onclick={() => move(i, -1)}><ArrowUp size={13} /></button
-					>
-					<button
-						type="button"
-						class={iconBtn}
-						aria-label="Move {c.name} down"
-						disabled={i === chosen.length - 1}
-						onclick={() => move(i, 1)}><ArrowDown size={13} /></button
-					>
-					<button
-						type="button"
-						class={iconBtn}
-						aria-label="Remove {c.name}"
-						onclick={() => (draft = draft.filter((id) => id !== c.id))}><X size={13} /></button
-					>
+					{@render iconButton(ArrowUp, `Move ${c.name} up`, () => move(i, -1), i === 0)}
+					{@render iconButton(
+						ArrowDown,
+						`Move ${c.name} down`,
+						() => move(i, 1),
+						i === chosen.length - 1
+					)}
+					{@render iconButton(
+						X,
+						`Remove ${c.name}`,
+						() => (draft = draft.filter((id) => id !== c.id))
+					)}
 				</li>
 			{/each}
 		</ul>

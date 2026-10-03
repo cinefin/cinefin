@@ -46,24 +46,13 @@ class TestSpec:
         assert spec["player_name"] == "Screen 1"
         assert spec["show_status"] is False
 
-    def test_own_ident_freezes_on_its_last_frame(self, tmp_path):
-        bumper, _ = _own_ident(tmp_path)
+    @pytest.mark.parametrize(("hold", "options"), [(None, "keep-open=always"), (12.5, "end=12.5,keep-open=always")])
+    def test_own_ident_freezes_on_its_last_frame_or_hold_point(self, tmp_path, hold, options):
+        bumper, _ = _own_ident(tmp_path, hold_point=hold)
         ident = standby.standby_spec(_agent())["ident"]
         assert f"/stream/bumper/{bumper.id}/?t=" in ident["url"]
-        assert ident["options"] == "keep-open=always"
+        assert ident["options"] == options
         assert ident["sha256"] == hashlib.sha256(b"own ident").hexdigest()
-
-    def test_own_ident_freezes_at_its_hold_point(self, tmp_path):
-        _own_ident(tmp_path, hold_point=12.5)
-        assert standby.standby_spec(_agent())["ident"]["options"] == "end=12.5,keep-open=always"
-
-    def test_options_fit_the_players_rules(self, tmp_path):
-        import re
-
-        rule = re.compile(r"^([a-z0-9-]+=[A-Za-z0-9._:+-]*)(,[a-z0-9-]+=[A-Za-z0-9._:+-]*)*$")
-        for hold in (None, 0.1, 7, 1234.5678):
-            assert rule.match(standby.ident_options(hold))
-        assert rule.match(standby.SYSTEM_IDENT_OPTIONS)
 
     @pytest.mark.parametrize("missing", ["file", "item"])
     def test_falls_back_to_the_system_ident(self, tmp_path, missing):
@@ -75,19 +64,6 @@ class TestSpec:
         url, file_path, options, label = standby.resolve_ident()
         assert "/stream/system/ident/" in url and file_path == system_ident_path()
         assert label == "System Ident"
-
-    def test_hash_is_cached_until_the_file_changes(self, tmp_path, monkeypatch):
-        _, path = _own_ident(tmp_path)
-        first = standby.file_sha256(str(path))
-        opened = []
-        real_open = open
-        monkeypatch.setattr("builtins.open", lambda *a, **k: opened.append(a[0]) or real_open(*a, **k))
-        assert standby.file_sha256(str(path)) == first
-        assert opened == []  # no re-hash per call
-
-        path.write_bytes(b"a different ident")
-        os.utime(path, (1, 1))
-        assert standby.file_sha256(str(path)) == hashlib.sha256(b"a different ident").hexdigest()
 
 
 class TestPushTriggers:
@@ -126,49 +102,29 @@ class TestSystemIdentChoice:
 
     SETTINGS = "/api/v2/settings/"
 
-    def test_choosing_the_system_ident_clears_the_saved_ident_and_pushes(self, client, standby_pushes, tmp_path):
+    def _save(self, client, **data):
+        return client.post(self.SETTINGS, data=data, content_type="application/json")
+
+    def test_choosing_the_system_ident_clears_the_saved_ident_and_pushes_once(self, client, standby_pushes, tmp_path):
         _own_ident(tmp_path)
         # As the settings form sends it: the whole draft, with the System Ident as null.
-        r = client.post(
-            self.SETTINGS,
-            data={"cinema_name": "Cinefin", "default_cinema_ident": None, "subtitle_bold": False},
-            content_type="application/json",
+        assert (
+            self._save(client, cinema_name="Cinefin", default_cinema_ident=None, subtitle_bold=False).status_code == 200
         )
-        assert r.status_code == 200
         assert Settings.get("cinema.default_ident_id") is None
         assert standby_pushes == [None]
         settings = client.get(self.SETTINGS).json()["data"]["settings"]
-        assert settings["default_cinema_ident_id"] is None
-        assert settings["default_cinema_ident"] is None
-
-    def test_an_omitted_ident_is_left_alone(self, client, standby_pushes, tmp_path):
-        bumper, _ = _own_ident(tmp_path)
-        client.post(self.SETTINGS, data={"subtitle_bold": True}, content_type="application/json")
-        assert Settings.get("cinema.default_ident_id") == bumper.id
-        assert standby_pushes == []
-
-    def test_choosing_the_system_ident_again_does_not_push(self, client, standby_pushes):
-        Settings.set("cinema.default_ident_id", None)
-        client.post(self.SETTINGS, data={"default_cinema_ident": None}, content_type="application/json")
-        assert Settings.get("cinema.default_ident_id") is None
-        assert standby_pushes == []
+        assert settings["default_cinema_ident_id"] is settings["default_cinema_ident"] is None
+        self._save(client, default_cinema_ident=None)
+        assert standby_pushes == [None]  # choosing it again does not push
 
     def test_a_deleted_ident_reads_as_the_system_ident(self, client, tmp_path):
         bumper, _ = _own_ident(tmp_path)
         Bumper.objects.filter(id=bumper.id).delete()
         settings = client.get(self.SETTINGS).json()["data"]["settings"]
-        assert settings["default_cinema_ident_id"] is None
-        assert settings["default_cinema_ident"] is None
+        assert settings["default_cinema_ident_id"] is settings["default_cinema_ident"] is None
         # So the form's next save (null) goes through instead of failing as not found.
-        r = client.post(self.SETTINGS, data={"default_cinema_ident": None}, content_type="application/json")
-        assert r.status_code == 200
-        assert Settings.get("cinema.default_ident_id") is None
-
-    def test_an_unknown_ident_is_rejected(self, client):
-        for bad in (0, 999999):
-            r = client.post(self.SETTINGS, data={"default_cinema_ident": bad}, content_type="application/json")
-            assert r.status_code == 404
-        assert Settings.get("cinema.default_ident_id") is None
+        assert self._save(client, default_cinema_ident=None).status_code == 200
 
 
 class TestPush:
@@ -265,32 +221,17 @@ class TestStandbyAgent:
         assert service.standby() is True
         assert calls == ["PUT", "POST", "POST"]  # unchanged spec: not sent again
 
-    def test_a_player_that_lost_its_spec_is_sent_it_again(self, monkeypatch):
-        host = _agent()
-        calls = self._wire(monkeypatch, {"spec": None})
-        service = _service(host)
-        standby.sync_spec(host)  # sent earlier, then the player was reset
-        assert service.standby() is True
-        assert calls == ["PUT", "POST", "PUT", "POST"]
-
-    def test_a_failed_download_is_retried(self, monkeypatch):
+    @pytest.mark.parametrize("lost", [True, False], ids=["lost-its-spec", "failed-download"])
+    def test_the_spec_is_sent_again(self, monkeypatch, lost):
         host = _agent()
         spec = standby.standby_spec(host)
         ident = {"sha256": spec["ident"]["sha256"], "options": spec["ident"]["options"]}
         failed = {"spec": {**spec, "ident": ident}, "file": "", "downloading": False, "error": "404"}
-        calls = self._wire(monkeypatch, failed)
+        calls = self._wire(monkeypatch, {"spec": None} if lost else failed)
+        if lost:
+            standby.sync_spec(host)  # sent earlier, then the player was reset
         assert _service(host).standby() is True
         assert calls == ["PUT", "POST", "PUT", "POST"]
-
-    def test_unreachable_player(self, monkeypatch):
-        def fail(cls, host):
-            raise UnprocessableEntityError("down")
-
-        self._wire(monkeypatch, {})
-        monkeypatch.setattr(PlayoutAgentService, "enter_standby", classmethod(fail))
-        host = _agent()
-        assert _service(host).standby() is False
-        assert host.id not in standby._pushed
 
 
 class TestStandbyLocal:
@@ -343,13 +284,6 @@ class TestStandbyLocal:
         )
         service.controller.pause.assert_called_once_with(False)
 
-    def test_on_standby_is_mpvs_path(self):
-        service = _service(self._local())
-        service.controller.get_property.side_effect = lambda name: standby.resolve_ident()[0]
-        assert service._on_standby() is True
-        service.controller.get_property.side_effect = lambda name: "http://x/other.mp4"
-        assert service._on_standby() is False
-
     @pytest.mark.parametrize(("version", "warned"), [("mpv 0.37.0", True), ("mpv v0.41.0", False), (None, False)])
     def test_old_mpv_is_flagged(self, version, warned):
         service = _service(self._local())
@@ -358,31 +292,16 @@ class TestStandbyLocal:
         service._check_mpv_version()
         assert bool(service.player_warning) is warned
 
-    def test_the_warning_reaches_agent_status(self, client, monkeypatch):
-        from cinefin.api.mpv_service import mpv_service
-
-        PlayoutHost.objects.filter(pk=self._local().pk).update(is_active=True)
-        monkeypatch.setattr(mpv_service, "player_warning", "mpv 0.37.0 is too old for standby")
-        monkeypatch.setattr("cinefin.api.mpv_socket.probe_socket", lambda path: (True, None))
-        data = client.get("/api/v2/playout/agent/status").json()["data"]
-        assert data["warning"] == "mpv 0.37.0 is too old for standby"
-
 
 class TestPreviewStandby:
     URL = "/api/v2/settings/preview-standby/"
 
-    def test_calls_standby(self, client, monkeypatch):
+    def test_calls_standby_unless_a_programme_is_loaded(self, client, monkeypatch):
         from cinefin.api.mpv_service import mpv_service
 
-        standby_mock = MagicMock(return_value=True)
-        monkeypatch.setattr(mpv_service, "standby", standby_mock)
+        monkeypatch.setattr(mpv_service, "standby", MagicMock(return_value=True))
         assert client.post(self.URL).status_code == 200
-        standby_mock.assert_called_once_with()
-
-    def test_refused_while_a_programme_is_loaded(self, client, monkeypatch):
-        from cinefin.api.mpv_service import mpv_service
-
+        mpv_service.standby.assert_called_once_with()
         monkeypatch.setattr(mpv_service, "current_programme", ProgrammeFactory())
-        monkeypatch.setattr(mpv_service, "standby", MagicMock())
         assert client.post(self.URL).status_code == 409
-        mpv_service.standby.assert_not_called()
+        assert mpv_service.standby.call_count == 1

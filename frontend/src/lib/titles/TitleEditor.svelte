@@ -23,6 +23,7 @@
 	import { api, toApiError, unwrap, type ApiError } from '$lib/api/client';
 	import type { components } from '$lib/api/types.gen';
 	import { showToast } from '$lib/toast.svelte';
+	import { raw } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
@@ -32,6 +33,7 @@
 	import PropertiesPanel from '$lib/titles/PropertiesPanel.svelte';
 	import {
 		emptyTemplateConfig,
+		loadTitleFonts,
 		TitleCanvasEditor,
 		type TTFeature,
 		type TTTemplateConfig
@@ -69,9 +71,7 @@
 	let ctxMenu = $state<{ x: number; y: number; hit: number; single: boolean } | null>(null);
 
 	const host = {
-		onChange: () => {
-			tick++;
-		},
+		onChange: () => tick++,
 		onEdited: () => hideServerPreview(),
 		onContextMenu: (clientX: number, clientY: number, hit: number) => {
 			ctxMenu = {
@@ -83,7 +83,6 @@
 		}
 	};
 
-	// Template metadata (outside the canvas engine).
 	let templateId = $state<number | null>(null);
 	let name = $state('');
 	let description = $state('');
@@ -94,24 +93,18 @@
 	let loadError = $state<ApiError | null>(null);
 	let initialConfig: TTTemplateConfig = emptyTemplateConfig();
 
-	async function loadTemplate(rid: string) {
+	// One template per mount; the host remounts this component for a different one.
+	async function loadTemplate() {
 		loading = true;
 		loadError = null;
 		// Drop the stale engine so it reattaches to the fresh canvas element.
 		editor?.destroy();
 		editor = null;
 		try {
-			if (rid === 'new') {
-				templateId = null;
-				name = '';
-				description = '';
-				defaultDuration = 10;
-				metaDirty = false;
-				initialConfig = emptyTemplateConfig();
-			} else {
+			if (initialTemplateId !== null) {
 				// Bare-object endpoint (no envelope) — read res.data directly.
 				const res = await api.GET('/api/v2/titlegen/templates/{template_id}', {
-					params: { path: { template_id: Number(rid) } }
+					params: { path: { template_id: initialTemplateId } }
 				});
 				if (!res.data) throw toApiError(undefined, res.response);
 				const t = res.data as TitleTemplate;
@@ -119,27 +112,19 @@
 				name = t.name;
 				description = t.description;
 				defaultDuration = t.default_duration;
-				metaDirty = false;
 				const cfg = t.template_config as Partial<TTTemplateConfig>;
 				initialConfig = {
 					canvas: cfg.canvas ?? { width: 1920, height: 1080 },
 					elements: cfg.elements ?? []
 				};
 			}
-			loading = false;
+			metaDirty = false;
 		} catch (e) {
 			loadError = toApiError(e);
-			loading = false;
 		}
+		loading = false;
 	}
-
-	// One load only; the host remounts this component when it needs a different template.
-	let booted = false;
-	$effect(() => {
-		if (booted) return;
-		booted = true;
-		void loadTemplate(initialTemplateId === null ? 'new' : String(initialTemplateId));
-	});
+	void loadTemplate();
 
 	// Create the engine once the canvas is in the DOM (after load resolves).
 	$effect(() => {
@@ -147,11 +132,8 @@
 		const ed = new TitleCanvasEditor(stageEl, host);
 		editor = ed;
 		ed.loadConfig(initialConfig);
-		ed.calculateOptimalZoom(containerEl?.clientWidth ?? 840);
-		ed.render();
-		// Konva paints text to a canvas, which never triggers @font-face loading, so
-		// document.fonts.ready would resolve with the bundled faces still absent.
-		// Request each family explicitly, then re-render with the real metrics.
+		fit();
+		// Re-render with the real metrics once the bundled faces land.
 		void loadTitleFonts().then(() => ed.render());
 	});
 
@@ -168,21 +150,18 @@
 		tick++;
 	}
 
-	const elementCount = $derived.by(() => {
-		void tick;
-		return editor?.config.elements.length ?? 0;
-	});
-	const zoomPercent = $derived.by(() => {
-		void tick;
-		return Math.round((editor?.zoom ?? 0.4) * 100);
-	});
+	function fit() {
+		if (!editor) return;
+		editor.calculateOptimalZoom(containerEl?.clientWidth ?? 840);
+		editor.render();
+	}
+
+	// `tick >= 0` is always true; reading it re-derives on every editor change.
+	const elementCount = $derived(tick >= 0 ? (editor?.config.elements.length ?? 0) : 0);
+	const zoomPercent = $derived(tick >= 0 ? Math.round((editor?.zoom ?? 0.4) * 100) : 0);
+	const dirty = $derived(tick >= 0 && ((editor?.isDirty ?? false) || metaDirty));
 	$effect(() => {
 		dirtyOut = dirty;
-	});
-
-	const dirty = $derived.by(() => {
-		void tick;
-		return (editor?.isDirty ?? false) || metaDirty;
 	});
 	const canSave = $derived(name.trim().length > 0 && elementCount > 0);
 
@@ -199,30 +178,18 @@
 	});
 
 	function onKeyDown(e: KeyboardEvent) {
-		// Don't hijack typing in form fields
 		const target = e.target as HTMLElement;
-		const tag = (target.tagName || '').toLowerCase();
-		if (tag === 'input' || tag === 'select' || tag === 'textarea' || target.isContentEditable)
-			return;
+		if (/^(input|select|textarea)$/i.test(target.tagName || '') || target.isContentEditable) return;
 		editor?.handleKeyDown(e);
 	}
 
 	let saving = $state(false);
 
 	async function saveTemplate() {
+		// The Save button is disabled until there is a name and an element (canSave).
 		if (!editor) return;
-		const trimmed = name.trim();
-		if (!trimmed) {
-			showToast('Please enter a template name', 'warning');
-			return;
-		}
-		if (editor.config.elements.length === 0) {
-			showToast('Please add at least one element', 'warning');
-			return;
-		}
-
 		const payload = {
-			name: trimmed,
+			name: name.trim(),
 			description,
 			default_duration: defaultDuration,
 			template_config: editor.config as unknown as Record<string, never>
@@ -230,22 +197,15 @@
 
 		saving = true;
 		try {
-			let saved: TitleTemplate;
-			if (templateId) {
-				const res = await api.PUT('/api/v2/titlegen/templates/{template_id}', {
-					params: { path: { template_id: templateId } },
-					body: payload
-				});
-				if (res.error !== undefined || !res.data) throw toApiError(res.error, res.response);
-				saved = res.data as TitleTemplate;
-			} else {
-				const res = await api.POST('/api/v2/titlegen/templates', { body: payload });
-				if (res.error !== undefined || !res.data) throw toApiError(res.error, res.response);
-				saved = res.data as TitleTemplate;
-			}
-			editor.isDirty = false;
-			metaDirty = false;
-			tick++;
+			const saved = (await raw(
+				templateId
+					? api.PUT('/api/v2/titlegen/templates/{template_id}', {
+							params: { path: { template_id: templateId } },
+							body: payload
+						})
+					: api.POST('/api/v2/titlegen/templates', { body: payload })
+			)) as TitleTemplate;
+			discardChanges();
 			showToast('Template saved successfully!', 'success');
 			const created = templateId === null;
 			templateId = saved.id;
@@ -260,22 +220,14 @@
 
 	// Live preview against a real programme (supplementary — a failure just leaves the placeholder).
 	let programmes = $state<ProgrammeListItem[]>([]);
-	$effect(() => {
-		void (async () => {
-			try {
-				const data = await unwrap(api.GET('/api/v2/programmes/list'));
-				programmes = data?.programmes ?? [];
-			} catch (e) {
-				console.error('Failed to load programmes for preview:', e);
-			}
-		})();
-	});
+	unwrap(api.GET('/api/v2/programmes/list')).then(
+		(data) => (programmes = data?.programmes ?? []),
+		(e) => console.error('Failed to load programmes for preview:', e)
+	);
 
 	let previewProgrammeId = $state('');
 
-	/** Minimal shape of a programme rundown row (details is an untyped dict
-	 * in the backend schema; movie rows carry movie_id — see
-	 * ninja_views/programmes/management.py get_programme_detail). */
+	// A rundown row's `details` is untyped in the schema; movie rows carry movie_id.
 	interface RundownItem {
 		type: string;
 		title?: string | null;
@@ -303,30 +255,19 @@
 
 			const features: TTFeature[] = await Promise.all(
 				movieItems.map(async (it) => {
-					try {
-						const m: MovieDetail = await unwrap(
-							api.GET('/api/v2/movies/{movie_id}', {
-								params: { path: { movie_id: it.details!.movie_id! } }
-							})
-						);
-						return {
-							title: m.title || it.title || '',
-							director: m.director || '',
-							year: m.year != null ? String(m.year) : '',
-							certification: m.certification || '',
-							runtime: m.runtime != null ? `${m.runtime} min` : '',
-							poster: m.thumbnail_url || ''
-						};
-					} catch {
-						return {
-							title: it.title || '',
-							director: '',
-							year: '',
-							certification: '',
-							runtime: '',
-							poster: ''
-						};
-					}
+					const m: Partial<MovieDetail> = await unwrap(
+						api.GET('/api/v2/movies/{movie_id}', {
+							params: { path: { movie_id: it.details!.movie_id! } }
+						})
+					).catch(() => ({}));
+					return {
+						title: m.title || it.title || '',
+						director: m.director || '',
+						year: m.year != null ? String(m.year) : '',
+						certification: m.certification || '',
+						runtime: m.runtime != null ? `${m.runtime} min` : '',
+						poster: m.thumbnail_url || ''
+					};
 				})
 			);
 
@@ -373,18 +314,6 @@
 		serverPreviewUrl = null;
 	}
 
-	function ctxAction(fn: () => void) {
-		fn();
-		ctxMenu = null;
-	}
-
-	// The bundled title-card faces (the @font-face set below / PIL's BUNDLED_FONTS).
-	const TITLE_FONTS = ['Bebas Neue', 'Courier Prime', 'Inter', 'Oswald', 'Playfair Display'];
-	function loadTitleFonts(): Promise<unknown> {
-		if (typeof document === 'undefined' || !('fonts' in document)) return Promise.resolve();
-		return Promise.allSettled(TITLE_FONTS.map((f) => document.fonts.load(`48px "${f}"`)));
-	}
-
 	const addButtons = [
 		{ type: 'poster', label: 'Movie poster', icon: Image },
 		{ type: 'text', label: 'Text label', icon: Type },
@@ -396,20 +325,9 @@
 		'h-9 w-full rounded-md border border-border-strong bg-surface-2 px-2.5 text-sm text-text ' +
 		'placeholder:text-faint focus:border-accent-dim';
 	const labelCls = 'flex flex-col gap-1 text-xs text-muted';
-	const menuBtn =
-		'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text hover:bg-surface-3';
 </script>
 
-<svelte:window
-	onbeforeunload={onBeforeUnload}
-	onkeydown={onKeyDown}
-	onresize={() => {
-		if (editor && containerEl) {
-			editor.calculateOptimalZoom(containerEl.clientWidth);
-			editor.render();
-		}
-	}}
-/>
+<svelte:window onbeforeunload={onBeforeUnload} onkeydown={onKeyDown} onresize={fit} />
 <svelte:document onclick={() => (ctxMenu = null)} onscrollcapture={() => (ctxMenu = null)} />
 
 <div class="mb-4 flex flex-wrap items-center gap-2">
@@ -433,10 +351,7 @@
 {#if loading}
 	<Spinner label="Loading template…" />
 {:else if loadError}
-	<ErrorState
-		error={loadError}
-		retry={() => void loadTemplate(initialTemplateId === null ? 'new' : String(initialTemplateId))}
-	/>
+	<ErrorState error={loadError} retry={() => void loadTemplate()} />
 {:else}
 	<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
 		<div class="min-w-0 space-y-4">
@@ -469,18 +384,7 @@
 					<Button size="sm" title="Zoom out" onclick={() => editor?.changeZoom(-0.1)}>
 						<ZoomOut size={13} />
 					</Button>
-					<Button
-						size="sm"
-						title="Fit to screen"
-						onclick={() => {
-							if (editor && containerEl) {
-								editor.calculateOptimalZoom(containerEl.clientWidth);
-								editor.render();
-							}
-						}}
-					>
-						<Expand size={13} />
-					</Button>
+					<Button size="sm" title="Fit to screen" onclick={fit}><Expand size={13} /></Button>
 					<span class="w-10 text-center font-mono text-xs text-muted">{zoomPercent}%</span>
 					<Button size="sm" title="Zoom in" onclick={() => editor?.changeZoom(0.1)}>
 						<ZoomIn size={13} />
@@ -503,26 +407,13 @@
 
 			<Card title="Template settings">
 				<div class="grid gap-3 sm:grid-cols-[2fr_2fr_1fr]">
-					<label class={labelCls}>
-						Template name *
-						<input
-							type="text"
-							class={fieldCls}
-							placeholder="e.g. Double feature"
-							bind:value={name}
-							oninput={() => (metaDirty = true)}
-						/>
-					</label>
-					<label class={labelCls}>
-						Description
-						<input
-							type="text"
-							class={fieldCls}
-							placeholder="Optional description"
-							bind:value={description}
-							oninput={() => (metaDirty = true)}
-						/>
-					</label>
+					{@render textField('Template name *', 'e.g. Double feature', name, (v) => (name = v))}
+					{@render textField(
+						'Description',
+						'Optional description',
+						description,
+						(v) => (description = v)
+					)}
 					<label class={labelCls}>
 						Default duration (s)
 						<input
@@ -581,57 +472,42 @@
 			if (e.key === 'Escape') ctxMenu = null;
 		}}
 	>
-		<button type="button" class={menuBtn} onclick={() => ctxAction(() => ed.duplicateSelected())}>
-			<Copy size={13} /> Duplicate
-		</button>
+		{@render menuItem(Copy, 'Duplicate', () => ed.duplicateSelected())}
 		{#if menu.single}
-			<button
-				type="button"
-				class={menuBtn}
-				onclick={() => ctxAction(() => ed.moveElement(menu.hit, 1))}
-			>
-				<ArrowUp size={13} /> Bring forward
-			</button>
-			<button
-				type="button"
-				class={menuBtn}
-				onclick={() => ctxAction(() => ed.moveElement(menu.hit, -1))}
-			>
-				<ArrowDown size={13} /> Send backward
-			</button>
+			{@render menuItem(ArrowUp, 'Bring forward', () => ed.moveElement(menu.hit, 1))}
+			{@render menuItem(ArrowDown, 'Send backward', () => ed.moveElement(menu.hit, -1))}
 		{/if}
 		<hr class="my-1 border-border" />
-		<button
-			type="button"
-			class="{menuBtn} text-danger hover:text-danger"
-			onclick={() => ctxAction(() => ed.deleteSelected())}
-		>
-			<Trash2 size={13} /> Delete
-		</button>
+		{@render menuItem(Trash2, 'Delete', () => ed.deleteSelected(), 'text-danger hover:text-danger')}
 	</div>
 {/if}
 
-<style>
-	/* Bundled title-card fonts — the SAME files PIL renders with, so the
-	   canvas preview is true WYSIWYG (served by Django from static/fonts). */
-	@font-face {
-		font-family: 'Bebas Neue';
-		src: url('/static/fonts/BebasNeue.ttf');
-	}
-	@font-face {
-		font-family: 'Courier Prime';
-		src: url('/static/fonts/CourierPrime.ttf');
-	}
-	@font-face {
-		font-family: 'Inter';
-		src: url('/static/fonts/Inter.ttf');
-	}
-	@font-face {
-		font-family: 'Oswald';
-		src: url('/static/fonts/Oswald.ttf');
-	}
-	@font-face {
-		font-family: 'Playfair Display';
-		src: url('/static/fonts/PlayfairDisplay.ttf');
-	}
-</style>
+{#snippet textField(label: string, placeholder: string, value: string, set: (v: string) => void)}
+	<label class={labelCls}>
+		{label}
+		<input
+			type="text"
+			class={fieldCls}
+			{placeholder}
+			{value}
+			oninput={(e) => {
+				set(e.currentTarget.value);
+				metaDirty = true;
+			}}
+		/>
+	</label>
+{/snippet}
+
+{#snippet menuItem(Icon: typeof Copy, label: string, fn: () => void, cls = '')}
+	<button
+		type="button"
+		class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-text hover:bg-surface-3 {cls}"
+		onclick={() => {
+			fn();
+			ctxMenu = null;
+		}}
+	>
+		<Icon size={13} />
+		{label}
+	</button>
+{/snippet}

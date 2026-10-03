@@ -48,10 +48,7 @@
 
 	let genreIds = $state<number[]>([]);
 	let certification = $state('');
-	let yearFrom = $state('');
-	let yearTo = $state('');
-	let runtimeFrom = $state('');
-	let runtimeTo = $state('');
+	let range = $state({ year_from: '', year_to: '', runtime_from: '', runtime_to: '' });
 	let addGenre = $state('');
 	let pendingGenreNames = $state<string[]>([]);
 
@@ -66,10 +63,12 @@
 		// A caller with only names (the library) gets them matched once genres load.
 		pendingGenreNames = genreIds.length ? [] : [...(initial?.genre_names ?? [])];
 		certification = initial?.certification ?? '';
-		yearFrom = n(initial?.year_from);
-		yearTo = n(initial?.year_to);
-		runtimeFrom = n(initial?.runtime_from);
-		runtimeTo = n(initial?.runtime_to);
+		range = {
+			year_from: n(initial?.year_from),
+			year_to: n(initial?.year_to),
+			runtime_from: n(initial?.runtime_from),
+			runtime_to: n(initial?.runtime_to)
+		};
 		addGenre = '';
 	});
 
@@ -107,10 +106,10 @@
 		genre_ids: genreIds,
 		genre_names: chosenGenres.map((g) => g.name),
 		certification: certification || null,
-		year_from: num(yearFrom),
-		year_to: num(yearTo),
-		runtime_from: num(runtimeFrom),
-		runtime_to: num(runtimeTo)
+		year_from: num(range.year_from),
+		year_to: num(range.year_to),
+		runtime_from: num(range.runtime_from),
+		runtime_to: num(range.runtime_to)
 	});
 
 	// Live match count: debounced, sequence-guarded, same filters as the backend's
@@ -152,6 +151,7 @@
 
 	const fieldLabel = 'w-24 shrink-0 pt-2 text-xs text-muted';
 	const row = 'flex flex-wrap items-start gap-2';
+	const rangeInput = 'h-8 w-24 text-xs';
 </script>
 
 <Dialog bind:open title="Random movie" size="xl">
@@ -212,24 +212,27 @@
 			</Select>
 		</div>
 
-		<div class={row}>
-			<span class={fieldLabel}>Release year</span>
-			<div class="flex items-center gap-2">
-				<Input type="number" bind:value={yearFrom} placeholder="From" class="h-8 w-24 text-xs" />
-				<span class="text-faint" aria-hidden="true">-</span>
-				<Input type="number" bind:value={yearTo} placeholder="To" class="h-8 w-24 text-xs" />
+		{#each [['Release year', 'year'], ['Runtime', 'runtime']] as const as [label, key] (key)}
+			<div class={row}>
+				<span class={fieldLabel}>{label}</span>
+				<div class="flex items-center gap-2">
+					<Input
+						type="number"
+						bind:value={range[`${key}_from`]}
+						placeholder="From"
+						class={rangeInput}
+					/>
+					<span class="text-faint" aria-hidden="true">-</span>
+					<Input
+						type="number"
+						bind:value={range[`${key}_to`]}
+						placeholder="To"
+						class={rangeInput}
+					/>
+					{#if key === 'runtime'}<span class="text-xs text-faint">minutes</span>{/if}
+				</div>
 			</div>
-		</div>
-
-		<div class={row}>
-			<span class={fieldLabel}>Runtime</span>
-			<div class="flex items-center gap-2">
-				<Input type="number" bind:value={runtimeFrom} placeholder="From" class="h-8 w-24 text-xs" />
-				<span class="text-faint" aria-hidden="true">-</span>
-				<Input type="number" bind:value={runtimeTo} placeholder="To" class="h-8 w-24 text-xs" />
-				<span class="text-xs text-faint">minutes</span>
-			</div>
-		</div>
+		{/each}
 
 		<p
 			class="flex items-center gap-1.5 border-t border-border pt-3 font-mono text-xs

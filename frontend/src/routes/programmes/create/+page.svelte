@@ -18,16 +18,14 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, unwrap } from '$lib/api/client';
-	import { query } from '$lib/api/query.svelte';
+	import { Query, query } from '$lib/api/query.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import { formatRuntime } from '$lib/format';
 	import {
-		audioTrackLabel,
 		movieCount,
-		hasSubtitleChoice,
 		itemTitle,
-		subtitleTrackLabel,
 		type RandomSlot,
 		type SelectedFilm,
 		type SelectedItem
@@ -55,6 +53,7 @@
 	import { fetchMovieDetail } from '$lib/editor/pick-actions';
 	import SlotRow from './SlotRow.svelte';
 	import SupportRow from './SupportRow.svelte';
+	import TrackRadios from '$lib/programmes/TrackRadios.svelte';
 
 	type Step = 'films' | 'template' | 'rundown';
 	let step = $state<Step>('films');
@@ -67,10 +66,15 @@
 	const allTemplates = $derived(templates.data?.templates ?? []);
 
 	let selectedTemplateId = $state<number | null>(null);
-	let detail = $state<TemplateDetail | null>(null);
-	let detailLoading = $state(false);
-	let detailFailed = $state(false);
-	let detailSeq = 0;
+	const detailQuery = new Query(async () => {
+		const path = { template_id: selectedTemplateId! };
+		return (await unwrap(api.GET('/api/v2/templates/{template_id}', { params: { path } })))
+			.template;
+	});
+	// Kept while the next template loads; dropped with the choice or on a failed load.
+	const detail = $derived<TemplateDetail | null>(
+		(selectedTemplateId && !detailQuery.error && detailQuery.data) || null
+	);
 
 	const selectedTemplate = $derived(allTemplates.find((t) => t.id === selectedTemplateId) ?? null);
 	const slotCount = $derived(featureItems(detail).length);
@@ -94,41 +98,18 @@
 		return `Takes ${takes} - you have ${movieCount(features.length)}`;
 	}
 
-	async function selectTemplate(id: number): Promise<void> {
+	function selectTemplate(id: number): void {
 		selectedTemplateId = id;
-		const seq = ++detailSeq;
-		detailLoading = true;
-		detailFailed = false;
 		step = 'rundown';
-		try {
-			const data = await unwrap(
-				api.GET('/api/v2/templates/{template_id}', { params: { path: { template_id: id } } })
-			);
-			if (seq !== detailSeq) return;
-			detail = data.template ?? null;
-		} catch (e) {
-			if (seq !== detailSeq) return;
-			console.error('Error loading the template:', e);
-			detail = null;
-			detailFailed = true;
-		} finally {
-			if (seq === detailSeq) detailLoading = false;
-		}
+		void detailQuery.load();
 	}
 
-	function retryTemplate(): void {
-		if (selectedTemplateId) void selectTemplate(selectedTemplateId);
-	}
-
-	// Adding/removing a feature invalidates the chosen template — cleared here
-	// at the mutation, with the reason surfaced, never discovered at Create time.
+	// Adding/removing a feature can invalidate the chosen template: cleared here, with the reason.
 	function invalidateTemplate(): void {
 		if (!selectedTemplateId) return;
 		if (selectedTemplate && fits(selectedTemplate.number_of_features)) return;
 		const was = selectedTemplate?.name;
 		selectedTemplateId = null;
-		detail = null;
-		detailFailed = false;
 		if (step === 'rundown') step = 'template';
 		if (was) {
 			showToast(`“${was}” doesn't take ${movieCount(features.length)} - pick a template`, 'info');
@@ -136,15 +117,9 @@
 	}
 
 	let loading = $state(true);
-	let initialised = false;
-
-	$effect(() => {
-		void initialLoad();
-	});
+	void initialLoad();
 
 	async function initialLoad(): Promise<void> {
-		if (initialised) return;
-		initialised = true;
 		try {
 			const params = page.url.searchParams;
 			const movieIds = (params.get('movies') || '')
@@ -161,8 +136,7 @@
 						genre_id?: number | null;
 						genre_name?: string | null;
 					};
-					// `searchParams.get` has already decoded once; the legacy links
-					// were double-encoded, so fall back to decoding again.
+					// Legacy links were double-encoded.
 					let json = randomParam;
 					try {
 						JSON.parse(json);
@@ -274,10 +248,10 @@
 		if (item?.kind === 'movie') item.subtitle_track_index = trackIndex;
 	}
 
-	// A draft, so Cancel leaves the film exactly as it was.
+	// A draft, so Cancel leaves the film as it was.
 	let tracksOpen = $state(false);
 	let tracksIndex = $state<number | null>(null);
-	let draftAudio = $state(0);
+	let draftAudio = $state<number | null>(0);
 	let draftSubtitle = $state<number | null>(null);
 	const tracksFilm = $derived.by(() => {
 		const item = tracksIndex === null ? null : features[tracksIndex];
@@ -295,29 +269,21 @@
 
 	function applyTracks(): void {
 		if (tracksIndex !== null) {
-			setAudio(tracksIndex, draftAudio);
+			setAudio(tracksIndex, draftAudio ?? 0);
 			setSubtitle(tracksIndex, draftSubtitle);
 		}
 		tracksOpen = false;
 	}
 
-	// A feature can hold a QUERY instead of a film: the filters are stored on
-	// the block and the film is drawn when the playlist is generated.
 	let randomOpen = $state(false);
 	// null = a new pick appended; a number = that feature's pick edited.
 	let randomIndex = $state<number | null>(null);
 	let randomInitial = $state<RandomSlot | null>(null);
 
-	function editRandom(index: number): void {
+	function editRandom(index: number | null): void {
 		randomIndex = index;
-		const current = features[index];
+		const current = index === null ? null : features[index];
 		randomInitial = current?.kind === 'random' ? current : null;
-		randomOpen = true;
-	}
-
-	function addRandom(): void {
-		randomIndex = null;
-		randomInitial = null;
 		randomOpen = true;
 	}
 
@@ -337,11 +303,7 @@
 	let nameEdited = $state(false);
 	let descEdited = $state(false);
 
-	const autoName = $derived.by(() => {
-		if (!features.length) return '';
-		if (features.length === 1) return itemTitle(features[0]);
-		return features.map(itemTitle).join(' / ');
-	});
+	const autoName = $derived(features.map(itemTitle).join(' / '));
 	const autoDescription = $derived.by(() => {
 		if (!features.length) return '';
 		if (features.length === 1) {
@@ -360,8 +322,7 @@
 		if (!descEdited) description = autoDescription;
 	});
 
-	// Keyed by the template's own feature numbering, so what each feature
-	// holds is exactly what create-from-template expects for that slot.
+	// Keyed by the template's own feature numbering, as create-from-template expects.
 	function buildMoviesPayload(): Record<string, Record<string, unknown>> {
 		const numbers = slotFeatureNumbers(detail);
 		const movies: Record<string, Record<string, unknown>> = {};
@@ -389,8 +350,7 @@
 		return movies;
 	}
 
-	// Debounced and sequence-guarded; the last good preview stays on screen
-	// while the next one is fetched.
+	// Debounced and sequence-guarded; the last good preview stays while the next is fetched.
 	let preview = $state<ProgrammePreview | null>(null);
 	let previewFailed = $state(false);
 	let previewSeq = 0;
@@ -494,7 +454,7 @@
 			return;
 		}
 		creating = true;
-		try {
+		await attempt(async () => {
 			const data = await unwrap(
 				api.POST('/api/v2/programmes/create-from-template', {
 					body: {
@@ -515,14 +475,8 @@
 			} else {
 				showToast('Could not create the programme', 'error');
 			}
-		} catch (e) {
-			showToast(
-				e instanceof Error ? e.message : 'Could not create the programme - try again',
-				'error'
-			);
-		} finally {
-			creating = false;
-		}
+		}, 'Could not create the programme - try again');
+		creating = false;
 	}
 
 	const createdSummary = $derived.by(() => {
@@ -555,12 +509,28 @@
 			cueing = false;
 		}
 	}
-
-	const heading =
-		'flex flex-wrap items-baseline gap-2 border-b border-border pb-2 text-sm font-semibold';
-	const radioRow =
-		'flex cursor-pointer items-start gap-2 rounded-sm -mx-2 px-2 py-1.5 text-sm hover:bg-surface-2';
 </script>
+
+{#snippet heading(title: string, note: string)}
+	<div
+		class="flex flex-wrap items-baseline gap-2 border-b border-border pb-2 text-sm font-semibold"
+	>
+		<h2>{title}</h2>
+		<span class="font-normal text-muted">{note}</span>
+	</div>
+{/snippet}
+
+{#snippet addButtons(variant: 'primary' | 'default' = 'default')}
+	<Button {variant} onclick={() => addPicker?.show()}>
+		<Plus size={14} /> Add movies
+	</Button>
+	<Button
+		title="Add a feature drawn at random from filters when the playlist is generated"
+		onclick={() => editRandom(null)}
+	>
+		<Dices size={14} /> Add a random movie
+	</Button>
+{/snippet}
 
 <PageHeader title="Create programme" back={{ href: `${base}/programmes`, label: 'Programmes' }} />
 
@@ -571,14 +541,12 @@
 
 	{#if step === 'films'}
 		<section class="mt-6">
-			<div class={heading}>
-				<h2>The movies</h2>
-				<span class="font-normal text-muted">
-					{features.length
-						? `${movieCount(features.length)} - in this order`
-						: 'What the programme is built around'}
-				</span>
-			</div>
+			{@render heading(
+				'The movies',
+				features.length
+					? `${movieCount(features.length)} - in this order`
+					: 'What the programme is built around'
+			)}
 
 			{#if features.length}
 				<div class="mt-3 grid gap-3 grid-cols-[repeat(auto-fill,minmax(min(30rem,100%),1fr))]">
@@ -603,43 +571,22 @@
 					message="Add the features this programme will show."
 				>
 					{#snippet action()}
-						<Button variant="primary" onclick={() => addPicker?.show()}>
-							<Plus size={14} /> Add movies
-						</Button>
-						<Button
-							title="Add a feature drawn at random from filters when the playlist is generated"
-							onclick={addRandom}
-						>
-							<Dices size={14} /> Add a random movie
-						</Button>
+						{@render addButtons('primary')}
 						<Button href="{base}/library">Browse the library</Button>
 					{/snippet}
 				</EmptyState>
 			{/if}
 
 			{#if features.length}
-				<div class="mt-3 flex flex-wrap items-center gap-2">
-					<Button onclick={() => addPicker?.show()}>
-						<Plus size={14} /> Add movies
-					</Button>
-					<Button
-						title="Add a feature drawn at random from filters when the playlist is generated"
-						onclick={addRandom}
-					>
-						<Dices size={14} /> Add a random movie
-					</Button>
-				</div>
+				<div class="mt-3 flex flex-wrap items-center gap-2">{@render addButtons()}</div>
 			{/if}
 		</section>
 	{:else if step === 'template'}
 		<section class="mt-6">
-			<div class={heading}>
-				<h2>The template</h2>
-				<span class="font-normal text-muted">
-					Its running order is what your {movieCount(features.length)}
-					{features.length === 1 ? 'is' : 'are'} built into
-				</span>
-			</div>
+			{@render heading(
+				'The template',
+				`Its running order is what your ${movieCount(features.length)} ${features.length === 1 ? 'is' : 'are'} built into`
+			)}
 
 			{#if templates.loading}
 				<Spinner label="Loading templates…" size="sm" />
@@ -663,7 +610,7 @@
 							<TemplateCard
 								{template}
 								selected={selectedTemplateId === template.id}
-								onselect={() => void selectTemplate(template.id)}
+								onselect={() => selectTemplate(template.id)}
 							/>
 						{/each}
 					</div>
@@ -721,8 +668,6 @@
 				{/if}
 			{/if}
 
-			<!-- The escape hatch, offered here because it's where it becomes a real
-			     choice: none of the shown templates suits. Chosen films travel with you. -->
 			<p class="mt-4 border-t border-border pt-4 text-sm text-muted">
 				None of these fit?
 				<button type="button" class="text-accent hover:underline" onclick={startFromBlank}>
@@ -733,10 +678,7 @@
 		</section>
 	{:else}
 		<section class="mt-6">
-			<div class={heading}>
-				<h2>The programme</h2>
-				<span class="font-normal text-muted">Name it, then create it</span>
-			</div>
+			{@render heading('The programme', 'Name it, then create it')}
 
 			<div class="mt-3 border border-border bg-surface-1 p-4">
 				<div class="flex flex-col gap-3 sm:flex-row">
@@ -822,20 +764,16 @@
 		</section>
 
 		<section class="mt-8">
-			<div class={heading}>
-				<h2>Running order</h2>
-				<span class="font-normal text-muted">
-					{selectedTemplate?.name}{slotCount
-						? ` · ${slotCount === 1 ? '1 feature slot' : `${slotCount} feature slots`}`
-						: ''}
-				</span>
-			</div>
-			{#if detailLoading}
+			{@render heading(
+				'Running order',
+				`${selectedTemplate?.name ?? ''}${slotCount ? ` · ${slotCount === 1 ? '1 feature slot' : `${slotCount} feature slots`}` : ''}`
+			)}
+			{#if detailQuery.loading}
 				<Spinner label="Laying out the running order…" size="sm" />
-			{:else if detailFailed}
+			{:else if detailQuery.error}
 				<ErrorState
 					message="Could not load the template's running order."
-					retry={retryTemplate}
+					retry={() => selectedTemplateId && selectTemplate(selectedTemplateId)}
 					compact
 				/>
 			{:else if !rows.length}
@@ -863,8 +801,6 @@
 		</section>
 	{/if}
 
-	<!-- Steps 1 and 2's action rides the bottom of the page; step 3 carries its
-	     own panel above the running order instead. -->
 	{#if step !== 'rundown'}
 		<div
 			class="sticky bottom-0 z-[5] mt-8 -mx-4 -mb-4 border-t border-border bg-bg px-4 py-3
@@ -911,62 +847,13 @@
 
 <Dialog bind:open={tracksOpen} title="Tracks - {tracksFilm ? tracksFilm.title : ''}">
 	{#if tracksFilm}
-		<div class="grid gap-4 sm:grid-cols-2">
-			<fieldset class="min-w-0">
-				<legend class="mb-1 w-full border-b border-border pb-1 text-sm font-semibold">Audio</legend>
-				{#if tracksFilm.audio_tracks.length}
-					{#each tracksFilm.audio_tracks as track, idx (track.id)}
-						<label class={radioRow}>
-							<input
-								type="radio"
-								name="cp-audio"
-								class="mt-0.5 accent-accent"
-								value={idx}
-								checked={draftAudio === idx}
-								onchange={() => (draftAudio = idx)}
-							/>
-							<span class="min-w-0">{audioTrackLabel(track, idx)}</span>
-						</label>
-					{/each}
-				{:else}
-					<p class="py-1.5 text-sm text-muted">
-						No track data - the movie plays with its default audio.
-					</p>
-				{/if}
-			</fieldset>
-
-			<fieldset class="min-w-0">
-				<legend class="mb-1 w-full border-b border-border pb-1 text-sm font-semibold">
-					Subtitles
-				</legend>
-				{#if hasSubtitleChoice(tracksFilm)}
-					<label class={radioRow}>
-						<input
-							type="radio"
-							name="cp-subtitle"
-							class="mt-0.5 accent-accent"
-							checked={draftSubtitle === null}
-							onchange={() => (draftSubtitle = null)}
-						/>
-						<span>Off</span>
-					</label>
-					{#each tracksFilm.subtitle_tracks as track, idx (track.id)}
-						<label class={radioRow}>
-							<input
-								type="radio"
-								name="cp-subtitle"
-								class="mt-0.5 accent-accent"
-								checked={draftSubtitle === idx}
-								onchange={() => (draftSubtitle = idx)}
-							/>
-							<span class="min-w-0">{subtitleTrackLabel(track, idx)}</span>
-						</label>
-					{/each}
-				{:else}
-					<p class="py-1.5 text-sm text-muted">This movie has no subtitle tracks.</p>
-				{/if}
-			</fieldset>
-		</div>
+		<TrackRadios
+			name="cp"
+			audioTracks={tracksFilm.audio_tracks}
+			subtitleTracks={tracksFilm.subtitle_tracks}
+			bind:audio={draftAudio}
+			bind:subtitle={draftSubtitle}
+		/>
 	{/if}
 	{#snippet footer()}
 		<Button onclick={() => (tracksOpen = false)}>Cancel</Button>

@@ -3,6 +3,7 @@
 	import { api } from '$lib/api/client';
 	import { unwrapLoose } from '$lib/jobs';
 	import { relativeTime } from '$lib/format';
+	import { invalidate } from '$lib/invalidate';
 	import { health } from '$lib/stores/health.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -135,7 +136,7 @@
 				>.
 			</p>
 		{:else}
-			<PosterShelf movies={data.movies} onmutated={() => data.refreshLibrary()} />
+			<PosterShelf movies={data.movies} onmutated={() => invalidate(['movies'])} />
 		{/if}
 	</Card>
 </div>

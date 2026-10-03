@@ -1,11 +1,20 @@
 <script lang="ts">
-	// Ticket designs, ticket first: pick a design from the row at the top, click a line on the
-	// receipt to edit it beside it (drag lines to reorder them), and set the design's name, font,
-	// date and time formats and surprise links below. Everything saves as you go, with undo.
-	import { Copy, Ellipsis, Plus, Printer, Redo2, Star, Trash2, Undo2 } from '@lucide/svelte';
-	import { ChevronDown, ChevronUp } from '@lucide/svelte';
+	// Pick a design, click a line on the receipt to edit it beside it (drag to reorder), and set the
+	// design's own fields below. Everything saves as you go, with undo.
+	import {
+		ChevronDown,
+		ChevronUp,
+		Copy,
+		Ellipsis,
+		Plus,
+		Printer,
+		Redo2,
+		Star,
+		Trash2,
+		Undo2
+	} from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
-	import { raw } from '$lib/settings/form.svelte';
+	import { attempt, raw } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -15,6 +24,7 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import ColumnsFields from '$lib/tickets/ColumnsFields.svelte';
+	import IconButton from '$lib/tickets/IconButton.svelte';
 	import ItemFields from '$lib/tickets/ItemFields.svelte';
 	import Receipt from '$lib/tickets/Receipt.svelte';
 	import { History } from '$lib/tickets/history';
@@ -35,11 +45,7 @@
 	} from '$lib/tickets/kinds';
 	import Disclosure from './Disclosure.svelte';
 
-	interface Props {
-		confirm: ConfirmDialog['confirm'];
-	}
-	let { confirm }: Props = $props();
-
+	let { confirm }: { confirm: ConfirmDialog['confirm'] } = $props();
 	type Summary = Pick<Design, 'id' | 'name' | 'is_default'>;
 
 	let designs = $state<Summary[]>([]);
@@ -51,18 +57,25 @@
 	let canUndo = $state(false);
 	let canRedo = $state(false);
 
-	let savePending: ReturnType<typeof setTimeout> | null = null;
-	let previewPending: ReturnType<typeof setTimeout> | null = null;
+	function debounced(fn: () => unknown, ms: number) {
+		let pending: ReturnType<typeof setTimeout> | undefined;
+		const run = () => {
+			clearTimeout(pending);
+			pending = setTimeout(fn, ms);
+		};
+		run.cancel = () => clearTimeout(pending);
+		return run;
+	}
+	const scheduleSave = debounced(() => save(), 500);
+	const schedulePreview = debounced(() => preview(), 300);
 
 	$effect(() => {
 		void loadDesigns().then(() => (loading = false));
 		return () => {
-			if (savePending) clearTimeout(savePending);
-			if (previewPending) clearTimeout(previewPending);
+			scheduleSave.cancel();
+			schedulePreview.cancel();
 		};
 	});
-
-	// ── Loading ───────────────────────────────────────────────────────────────────
 
 	async function loadDesigns() {
 		try {
@@ -91,15 +104,14 @@
 		schedulePreview();
 	}
 
-	// ── Editing: every change goes through edit(), which records it for undo and saves ──
-
 	function draft(): DesignDraft {
 		const { name, elements, date_format, time_format, qr_links, font } = $state.snapshot(current!);
 		return { name, elements, date_format, time_format, qr_links, font };
 	}
 
-	/** The editor's loose elements are the API's elements (kinds.ts checks they fit). */
-	function forApi<T extends { elements: TicketElement[] }>(fields: T) {
+	/** The draft without its name, as the API takes it (kinds.ts checks the elements fit). */
+	function apiFields() {
+		const { name: _name, ...fields } = draft();
 		return { ...fields, elements: fields.elements as Element[] };
 	}
 
@@ -108,14 +120,18 @@
 		canRedo = history.canRedo;
 	}
 
+	function changed() {
+		syncHistory();
+		scheduleSave();
+		schedulePreview();
+	}
+
 	/** Apply `mutate` to the design; `key` merges a burst of edits to one field into one undo step. */
 	function edit(mutate: (design: Design) => void, key = '') {
 		if (!current) return;
 		mutate(current);
 		history.record(draft(), key);
-		syncHistory();
-		scheduleSave();
-		schedulePreview();
+		changed();
 	}
 
 	const lineAt = (design: Design) => design.elements[selection!.index];
@@ -129,9 +145,7 @@
 		const line = selection && current.elements[selection.index];
 		if (selection?.cell !== undefined && line?.type !== 'columns')
 			selection = { index: selection.index };
-		syncHistory();
-		scheduleSave();
-		schedulePreview();
+		changed();
 	}
 	const undo = () => restore(history.undo(draft()));
 	const redo = () => restore(history.redo(draft()));
@@ -169,47 +183,33 @@
 		selection = left ? { index: Math.min(index, left - 1) } : null;
 	}
 
-	// ── Saving, preview, test print ───────────────────────────────────────────
-
-	function scheduleSave() {
-		if (savePending) clearTimeout(savePending);
-		savePending = setTimeout(() => void save(), 500);
-	}
-
 	async function save() {
 		if (!current) return;
-		const { name, ...fields } = draft();
-		try {
+		const name = current.name;
+		const design_id = current.id;
+		await attempt(async () => {
 			const updated = (await raw(
 				api.PUT('/api/v2/tickets/designs/{design_id}', {
-					params: { path: { design_id: current.id } },
-					body: { name: name.trim() || 'Untitled', ...forApi(fields) }
+					params: { path: { design_id } },
+					body: { name: name.trim() || 'Untitled', ...apiFields() }
 				})
 			)) as Design;
 			const summary = designs.find((d) => d.id === updated.id);
 			if (summary) summary.name = updated.name;
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to save design', 'error');
-		}
+		}, 'Failed to save design');
 	}
 
 	let previewImage = $state<Preview | null>(null);
 
-	function schedulePreview() {
-		if (previewPending) clearTimeout(previewPending);
-		previewPending = setTimeout(() => void preview(), 300);
-	}
-
 	async function preview() {
 		if (!current) return;
-		const { name: _name, ...design } = draft();
 		try {
 			const data = await raw(
-				api.POST('/api/v2/tickets/preview', { body: { design: forApi(design) } })
+				api.POST('/api/v2/tickets/preview', { body: { design: apiFields() } })
 			);
 			previewImage = data.data;
 		} catch {
-			// The preview is supplementary: keep the last good one.
+			// Supplementary: keep the last good one.
 		}
 	}
 
@@ -217,79 +217,71 @@
 	async function testPrint() {
 		if (!current) return;
 		printing = true;
-		const { name: _name, ...design } = draft();
-		try {
+		await attempt(async () => {
 			const data = await unwrap(
-				api.POST('/api/v2/tickets/test', { body: { include_seat: true, design: forApi(design) } })
+				api.POST('/api/v2/tickets/test', { body: { include_seat: true, design: apiFields() } })
 			);
 			showToast(`Test ticket printed${data.seat ? ` (seat ${data.seat})` : ''}`, 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to print test ticket', 'error');
-		} finally {
-			printing = false;
-		}
+		}, 'Failed to print test ticket');
+		printing = false;
 	}
 
-	// ── Designs ───────────────────────────────────────────────────────────────
-
-	async function newDesign(starter: (typeof STARTERS)[number]['id']) {
-		try {
-			const d = await raw(
-				api.POST('/api/v2/tickets/designs', { body: { name: 'New design', starter } })
-			);
+	/** Make a design (new or a copy), then open it. */
+	function create(make: () => Promise<{ id: number }>, fail: string) {
+		return attempt(async () => {
+			const d = await make();
 			await loadDesigns();
 			await openDesign(d.id);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not create design', 'error');
-		}
+		}, fail);
 	}
 
-	async function duplicate() {
+	const newDesign = (starter: (typeof STARTERS)[number]['id']) =>
+		create(
+			() => raw(api.POST('/api/v2/tickets/designs', { body: { name: 'New design', starter } })),
+			'Could not create design'
+		);
+
+	function duplicate() {
 		if (!current) return;
-		try {
-			const d = await raw(
-				api.POST('/api/v2/tickets/designs/{design_id}/duplicate', {
-					params: { path: { design_id: current.id } }
-				})
-			);
-			await loadDesigns();
-			await openDesign(d.id);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not duplicate', 'error');
-		}
+		const design_id = current.id;
+		void create(
+			() =>
+				raw(
+					api.POST('/api/v2/tickets/designs/{design_id}/duplicate', {
+						params: { path: { design_id } }
+					})
+				),
+			'Could not duplicate'
+		);
 	}
 
 	async function setDefault() {
 		if (!current) return;
-		try {
+		const design = current;
+		await attempt(async () => {
 			await raw(
 				api.PUT('/api/v2/tickets/designs/{design_id}', {
-					params: { path: { design_id: current.id } },
+					params: { path: { design_id: design.id } },
 					body: { is_default: true }
 				})
 			);
-			current.is_default = true;
+			design.is_default = true;
 			await loadDesigns();
 			showToast('Default design set', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not set default', 'error');
-		}
+		}, 'Could not set default');
 	}
 
 	async function deleteCurrent() {
 		if (!current || designs.length <= 1) return;
 		if (!(await confirm(`Delete design "${current.name}"?`, { confirmLabel: 'Delete' }))) return;
-		try {
+		const design_id = current.id;
+		await attempt(async () => {
 			await raw(
-				api.DELETE('/api/v2/tickets/designs/{design_id}', {
-					params: { path: { design_id: current.id } }
-				})
+				api.DELETE('/api/v2/tickets/designs/{design_id}', { params: { path: { design_id } } })
 			);
 			current = null;
 			await loadDesigns();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not delete', 'error');
-		}
+		}, 'Could not delete');
 	}
 
 	const starterItems: MenuItem[] = STARTERS.map((s) => ({
@@ -302,29 +294,27 @@
 		onclick: () => add(k.make())
 	}));
 	const designItems = $derived<MenuItem[]>([
-		{
-			label: 'Set as default',
-			icon: Star,
-			disabled: !!current?.is_default,
-			onclick: () => void setDefault()
-		},
+		{ label: 'Set as default', icon: Star, disabled: !!current?.is_default, onclick: setDefault },
 		{
 			label: 'Delete',
 			icon: Trash2,
 			danger: true,
 			disabled: designs.length <= 1,
-			onclick: () => void deleteCurrent()
+			onclick: deleteCurrent
 		}
 	]);
 
 	const val = (e: Event) => (e.currentTarget as HTMLInputElement).value;
+	const DESIGN_SELECTS = [
+		{ id: 'td-font', label: 'Columns font', key: 'font', options: FONTS },
+		{ id: 'td-date', label: 'Date', key: 'date_format', options: DATE_FORMATS },
+		{ id: 'td-time', label: 'Time', key: 'time_format', options: TIME_FORMATS }
+	] as const;
 	const linkLines = (text: string) =>
 		text
 			.split('\n')
 			.map((l) => l.trim())
 			.filter(Boolean);
-	const iconBtn =
-		'rounded-sm p-1 text-muted hover:bg-surface-3 hover:text-text disabled:pointer-events-none disabled:opacity-30';
 </script>
 
 <svelte:window onkeydown={onKeydown} />
@@ -335,7 +325,6 @@
 	<p class="text-sm text-muted">No ticket designs could be loaded.</p>
 {:else}
 	{@const line = selection ? current.elements[selection.index] : undefined}
-	<!-- The designs -->
 	<div class="mb-5 flex flex-wrap items-center gap-2">
 		{#each designs as d (d.id)}
 			<button
@@ -353,33 +342,14 @@
 		{/each}
 		<Menu items={starterItems} label="New design" icon={Plus} size="sm" variant="ghost" />
 		<div class="ml-auto flex items-center gap-1.5">
-			<button
-				type="button"
-				class={iconBtn}
-				title="Undo"
-				aria-label="Undo"
-				disabled={!canUndo}
-				onclick={undo}
-			>
-				<Undo2 size={15} />
-			</button>
-			<button
-				type="button"
-				class={iconBtn}
-				title="Redo"
-				aria-label="Redo"
-				disabled={!canRedo}
-				onclick={redo}
-			>
-				<Redo2 size={15} />
-			</button>
-			<Button size="sm" onclick={() => void duplicate()}><Copy size={13} /> Duplicate</Button>
+			<IconButton icon={Undo2} label="Undo" title="Undo" disabled={!canUndo} onclick={undo} />
+			<IconButton icon={Redo2} label="Redo" title="Redo" disabled={!canRedo} onclick={redo} />
+			<Button size="sm" onclick={duplicate}><Copy size={13} /> Duplicate</Button>
 			<Menu items={designItems} icon={Ellipsis} size="sm" ariaLabel="More design actions" />
 		</div>
 	</div>
 
 	<div class="grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)]">
-		<!-- The ticket -->
 		<div class="flex flex-col gap-2.5 self-start">
 			<div class="flex items-center gap-1.5">
 				<Menu items={addItems} label="Add a line" icon={Plus} size="sm" />
@@ -408,7 +378,6 @@
 		</div>
 
 		<div class="min-w-0 space-y-4">
-			<!-- The selected line -->
 			{#if line && selection}
 				{@const index = selection.index}
 				<section class="space-y-4 border border-border bg-surface-1 p-4">
@@ -417,26 +386,19 @@
 						<span class="mr-1 text-xs text-muted"
 							>Line {index + 1} of {current.elements.length}</span
 						>
-						<button
-							type="button"
-							class={iconBtn}
-							aria-label="Move up"
+						<IconButton
+							icon={ChevronUp}
+							label="Move up"
 							disabled={index === 0}
-							onclick={() => move(index, index - 1)}><ChevronUp size={15} /></button
-						>
-						<button
-							type="button"
-							class={iconBtn}
-							aria-label="Move down"
+							onclick={() => move(index, index - 1)}
+						/>
+						<IconButton
+							icon={ChevronDown}
+							label="Move down"
 							disabled={index === current.elements.length - 1}
-							onclick={() => move(index, index + 1)}><ChevronDown size={15} /></button
-						>
-						<button
-							type="button"
-							class="{iconBtn} hover:text-danger"
-							aria-label="Remove line"
-							onclick={() => remove(index)}><Trash2 size={15} /></button
-						>
+							onclick={() => move(index, index + 1)}
+						/>
+						<IconButton icon={Trash2} label="Remove line" danger onclick={() => remove(index)} />
 					</div>
 
 					{#if line.type === 'columns'}
@@ -451,9 +413,7 @@
 						<ItemFields
 							el={line}
 							onpatch={(key, value) =>
-								edit((d) => {
-									setField(lineAt(d), key, value);
-								}, `${index}-${key}`)}
+								edit((d) => setField(lineAt(d), key, value), `${index}-${key}`)}
 						/>
 					{/if}
 				</section>
@@ -463,7 +423,6 @@
 				</p>
 			{/if}
 
-			<!-- This design -->
 			<section class="space-y-4 border border-border bg-surface-1 p-4">
 				<h3 class="text-sm font-medium">This design</h3>
 				<div class="grid gap-4 sm:grid-cols-2">
@@ -475,35 +434,20 @@
 							placeholder="Design name"
 						/>
 					</Field>
-					<Field label="Columns font" forId="td-font">
-						<Select
-							id="td-font"
-							value={current.font}
-							onchange={(e) => edit((d) => (d.font = val(e)))}
-						>
-							{#each FONTS as f (f.id)}
-								<option value={f.id}>{f.label}{f.hint ? ` (${f.hint.toLowerCase()})` : ''}</option>
-							{/each}
-						</Select>
-					</Field>
-					<Field label="Date" forId="td-date">
-						<Select
-							id="td-date"
-							value={current.date_format}
-							onchange={(e) => edit((d) => (d.date_format = val(e)))}
-						>
-							{#each DATE_FORMATS as f (f.id)}<option value={f.id}>{f.label}</option>{/each}
-						</Select>
-					</Field>
-					<Field label="Time" forId="td-time">
-						<Select
-							id="td-time"
-							value={current.time_format}
-							onchange={(e) => edit((d) => (d.time_format = val(e)))}
-						>
-							{#each TIME_FORMATS as f (f.id)}<option value={f.id}>{f.label}</option>{/each}
-						</Select>
-					</Field>
+					{#each DESIGN_SELECTS as s (s.id)}
+						<Field label={s.label} forId={s.id}>
+							<Select
+								id={s.id}
+								value={current[s.key]}
+								onchange={(e) => edit((d) => (d[s.key] = val(e)))}
+							>
+								{#each s.options as o (o.id)}
+									<option value={o.id}>{o.label}{o.hint ? ` (${o.hint.toLowerCase()})` : ''}</option
+									>
+								{/each}
+							</Select>
+						</Field>
+					{/each}
 				</div>
 				<Disclosure
 					title="Surprise links"

@@ -1,9 +1,5 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	// Remote — the operator console. The status (phase, what is on screen, the allowed
-	// actions) is the shared playout feed read through $lib/playout/phase; the mpv store
-	// only adds the player's own settings (volume, speed, tracks, technical info), and the
-	// playlist store the running order. Commands are the ones picked on this device.
 	import { base } from '$app/paths';
 	import {
 		Captions,
@@ -30,10 +26,9 @@
 	import { api } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import CommandPad from '$lib/commands/CommandPad.svelte';
-	import { showToast as toast } from '$lib/toast.svelte';
+	import { showToast as toast, toastFailure } from '$lib/toast.svelte';
 	import { formatClock, formatTime } from '$lib/format';
 	import { itemTypeDisplay } from '$lib/item-types';
-	import OnScreen from '$lib/playout/OnScreen.svelte';
 	import RunningOrder from '$lib/playout/RunningOrder.svelte';
 	import { can, primaryAction, started } from '$lib/playout/phase';
 	import { playout, type ControlBody } from '$lib/stores/playout.svelte';
@@ -42,6 +37,10 @@
 	import type { components } from '$lib/api/types.gen';
 	import TypeBadge from '$lib/components/TypeBadge.svelte';
 	import Cued from '$lib/remote/Cued.svelte';
+	import ComingUp from '$lib/remote/ComingUp.svelte';
+	import CueDialog, { skippedText } from '$lib/playout/CueDialog.svelte';
+	import { Upcoming } from '$lib/remote/upcoming.svelte';
+	import NowPlaying from '$lib/remote/NowPlaying.svelte';
 	import Standby from '$lib/remote/Standby.svelte';
 	import ManualQueue from '$lib/remote/ManualQueue.svelte';
 	import ManualSearch from '$lib/remote/ManualSearch.svelte';
@@ -71,23 +70,26 @@
 	$effect(() => playlist.subscribe());
 	$effect(() => playoutReach.subscribe()); // the player's address when it is offline
 
+	const upcoming = new Upcoming();
+	$effect(() => upcoming.start());
+	let cueOpen = $state(false);
+	let cueDlg = $state<CueDialog>();
+	/** Cue that programme now, or open the picker. */
+	function cue(programmeId?: number) {
+		if (programmeId != null) void cueDlg?.cue(programmeId);
+		else cueOpen = true;
+	}
+
 	// Pre-flight warnings stashed by the programme page's "Cue & open console".
 	try {
 		const raw = sessionStorage.getItem('playout:preflightWarnings');
 		if (raw) {
 			sessionStorage.removeItem('playout:preflightWarnings');
 			const warnings: unknown = JSON.parse(raw);
-			if (Array.isArray(warnings) && warnings.length) {
-				toast(
-					`${warnings.length} item${warnings.length === 1 ? ' is' : 's are'} unreachable and will be skipped: ` +
-						warnings.slice(0, 3).join('; ') +
-						(warnings.length > 3 ? '…' : ''),
-					'warning'
-				);
-			}
+			if (Array.isArray(warnings) && warnings.length) toast(skippedText(warnings), 'warning');
 		}
 	} catch {
-		// Stale/corrupt handoff — ignore.
+		// Stale/corrupt handoff.
 	}
 
 	const status = $derived(playout.status);
@@ -96,11 +98,10 @@
 	const programme = $derived(status?.programme ?? null);
 	const primary = $derived(primaryAction(status));
 	const holding = $derived(phase === 'hold');
-	const st = $derived(mpv.status);
+	const st = $derived(mpv.data);
 	const pb = $derived(st?.status ?? null);
 	const mpvPos = $derived(status?.playlist?.mpv_position ?? null);
 
-	// Manual mode: one-off items the player holds outside any programme (server-side queue).
 	const manual = $derived(status?.manual ?? null);
 	const manualCurrent = $derived(manual?.items[manual.position ?? -1] ?? null);
 	/** Something plays under the operator's hand: the transport and tracks apply. */
@@ -121,7 +122,6 @@
 	}
 
 	const items = $derived((playlist.data?.playlist ?? []) as PlayoutPlaylistItem[]);
-	const offset = $derived(status?.playlist?.offset ?? 0);
 	// The trailing "system" item is the end-of-programme black sentinel, and entry 0 is
 	// standby, which the programme never replays: hide both.
 	const visibleItems = $derived(
@@ -130,13 +130,13 @@
 	const programmeItems = $derived(
 		visibleItems
 			.filter((it) => it.programme_position != null)
-			.slice()
 			.sort((a, b) => a.programme_position! - b.programme_position!)
 	);
-	const programmeCount = $derived(programmeItems.length);
+	const itemCount = $derived(
+		`${programmeItems.length} item${programmeItems.length === 1 ? '' : 's'}`
+	);
 	const current = $derived(items.find((it) => it.index === mpvPos));
 
-	// The item's clock (a hold's own dwell during a hold) and the programme's, from the status.
 	const live = $derived(status?.playback ?? null);
 	const itemTime = $derived(live?.position ?? 0);
 	const itemDuration = $derived((live?.duration || current?.duration) ?? 0);
@@ -167,13 +167,23 @@
 	const npMeta = $derived((current?.details?.metadata ?? {}) as ItemMeta);
 	const npType = $derived(status?.current_item?.type || current?.type || 'item');
 	const npTitle = $derived(status?.current_item?.title || status?.screen || '');
+	// Cued: the first feature's poster for the banner.
+	const cuedArt = $derived(
+		items
+			.map((it) => (it.details?.metadata ?? {}) as ItemMeta)
+			.find((m, i) => ['movie', 'feature'].includes(items[i].type ?? '') && m.thumbnail_url)
+			?.thumbnail_url ?? null
+	);
+	const artOf = (type: string, meta: ItemMeta) =>
+		['movie', 'feature', 'trailer'].includes(type) ? meta.thumbnail_url || '' : '';
+	const npArt = $derived(artOf(npType, npMeta) || null);
 	const facts = $derived(
 		[
 			npMeta.year,
 			npMeta.certification,
 			current?.duration ? formatTime(current.duration) : null,
 			npMeta.resolution
-		].filter(Boolean)
+		].filter((fact): fact is string | number => !!fact)
 	);
 
 	const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -192,18 +202,27 @@
 	let starting = $state(false);
 	let confirmDlg = $state<ConfirmDialog>();
 
-	async function mpvCommand(command: string, args: (string | number)[] = []): Promise<void> {
-		await mutate(api.POST('/api/v2/mpv/command', { body: { command, args } }));
+	/** Run one of the player's own settings changes; refresh its status after unless `quiet`. */
+	async function player(run: () => Promise<unknown>, failed: string, quiet = false): Promise<void> {
+		try {
+			await run();
+			if (!quiet) void mpv.refresh();
+		} catch (err) {
+			toastFailure(failed, err);
+		}
 	}
-
-	async function setProperty(property: string, value: string | number): Promise<void> {
-		await mutate(
+	const mpvCommand = (command: string, ...args: string[]) =>
+		mutate(api.POST('/api/v2/mpv/command', { body: { command, args } }));
+	const setProperty = (property: string, value: string | number) =>
+		mutate(
 			api.POST('/api/v2/mpv/property/{property_name}', {
 				params: { path: { property_name: property } },
 				body: { value }
 			})
 		);
-	}
+
+	const selectTrack = (type: 'audio' | 'sub', id: number | 'no') =>
+		player(() => setProperty(type === 'audio' ? 'aid' : 'sid', id), 'Track selection failed');
 
 	// Every transport button: one server path, which refuses what the phase doesn't allow.
 	async function act(body: ControlBody, failed: string): Promise<void> {
@@ -211,7 +230,7 @@
 			await playout.control(body);
 			playlist.refresh();
 		} catch (err) {
-			toast(`${failed}: ${(err as Error).message}`, 'error');
+			toastFailure(failed, err);
 		}
 	}
 
@@ -231,77 +250,17 @@
 		await act({ action: 'end' }, 'Failed to end');
 	}
 
-	// Put the player on standby. Works whenever the player is
-	// connected — a recovery for a stale or fiddled screen — and confirms first
-	// only when it would clear a show that's on air.
+	// A recovery for a stale screen; confirms only when it would clear a programme.
 	async function goToStandby(): Promise<void> {
-		if (programme) {
-			if (
-				!(await confirmDlg?.confirm(
-					`"${programme.name}" is on the player. Go to standby and clear it?`,
-					{ confirmLabel: 'Go to standby' }
-				))
-			)
-				return;
-		}
+		const question = `"${programme?.name}" is on the player. Go to standby and clear it?`;
+		if (programme && !(await confirmDlg?.confirm(question, { confirmLabel: 'Go to standby' })))
+			return;
 		try {
 			await mutate(api.POST('/api/v2/playout/reset'));
 			toast('The player is on standby', 'info');
 			refreshPlayer();
 		} catch (err) {
-			toast(`Failed to reset the player: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function toggleFill(): Promise<void> {
-		try {
-			await setProperty('panscan', filling ? 0 : 1);
-			void mpv.refresh();
-		} catch (err) {
-			toast(`Fill toggle failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function toggleFullscreen(): Promise<void> {
-		try {
-			await mpvCommand('cycle', ['fullscreen']);
-		} catch (err) {
-			toast(`Fullscreen toggle failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function setVolume(value: number): Promise<void> {
-		try {
-			await setProperty('volume', value);
-		} catch (err) {
-			toast(`Volume change failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function toggleMute(): Promise<void> {
-		try {
-			await mpvCommand('cycle', ['mute']);
-			void mpv.refresh();
-		} catch (err) {
-			toast(`Mute toggle failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function setSpeed(speed: number): Promise<void> {
-		try {
-			await setProperty('speed', speed);
-			void mpv.refresh();
-		} catch (err) {
-			toast(`Speed change failed: ${(err as Error).message}`, 'error');
-		}
-	}
-
-	async function selectTrack(type: 'audio' | 'sub', id: number | 'no'): Promise<void> {
-		try {
-			await setProperty(type === 'audio' ? 'aid' : 'sid', id);
-			void mpv.refresh();
-		} catch (err) {
-			toast(`Track selection failed: ${(err as Error).message}`, 'error');
+			toastFailure('Failed to reset the player', err);
 		}
 	}
 
@@ -320,21 +279,18 @@
 	}
 
 	function onItemTrackMove(e: PointerEvent) {
-		if (dragPct == null || !itemTrackEl) return;
-		dragPct = trackPct(e, itemTrackEl);
+		if (dragPct != null && itemTrackEl) dragPct = trackPct(e, itemTrackEl);
 	}
 
 	async function onItemTrackUp(e: PointerEvent) {
 		if (dragPct == null || !itemTrackEl) return;
-		const pct = trackPct(e, itemTrackEl);
-		dragPct = pct;
-		await act({ action: 'seek', seconds: (pct / 100) * itemDuration }, 'Seek failed');
+		dragPct = trackPct(e, itemTrackEl);
+		await act({ action: 'seek', seconds: (dragPct / 100) * itemDuration }, 'Seek failed');
 		dragPct = null;
 	}
 
-	// Open state is seeded ONCE from the breakpoint, then user-controlled via bind:open.
-	// It must NOT be a reactive `open={...}`: that re-asserts on every status re-render,
-	// snapping shut a panel the operator just opened (the "resets every second" bug).
+	// Seeded once from the breakpoint, then bind:open: a reactive `open={...}` would snap
+	// shut a panel the operator just opened on every status re-render.
 	const startCollapsed =
 		typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches;
 	let tracksOpen = $state(!startCollapsed);
@@ -375,26 +331,14 @@
 		}
 	]);
 
-	// While a programme item is on air its start is `now − position` and later rows add
-	// durations forward. When nothing is on air, starts project forward from "now" (~ marked).
+	// On air, starts count from `now − position`; otherwise they project from now (~ marked).
 	const startTimes = $derived.by(() => {
-		let anchorAt = 0;
-		let projected = true;
-		if (started(status) && mpvPos != null) {
-			const cur = programmeItems.findIndex((it) => it.index === mpvPos);
-			if (cur >= 0) {
-				anchorAt = cur;
-				projected = false;
-			}
-		}
-		const anchorMs = projected ? Date.now() : Date.now() - itemTime * 1000;
+		const cur = started(status) ? programmeItems.findIndex((it) => it.index === mpvPos) : -1;
+		const projected = cur < 0;
 		const starts = new Map<number, number | null>();
-		let t = anchorMs;
+		let t = projected ? Date.now() : Date.now() - itemTime * 1000;
 		programmeItems.forEach((it, i) => {
-			if (i < anchorAt) {
-				starts.set(it.index, null);
-				return;
-			}
+			if (i < cur) return void starts.set(it.index, null);
 			starts.set(it.index, t);
 			t += (it.duration || 0) * 1000;
 		});
@@ -412,9 +356,27 @@
 			?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 	});
 
+	const sideColumn =
+		'min-w-0 xl:sticky xl:top-[4.5rem] xl:col-start-2 xl:row-span-2 xl:row-start-1 2xl:col-start-3 2xl:row-span-1';
+
 	function hideBrokenImage(e: Event) {
 		(e.currentTarget as HTMLImageElement).style.display = 'none';
 	}
+
+	// Panels and controls drawn only on this page.
+	const panel = 'border border-border bg-surface-1';
+	const lifted = 'border border-border bg-surface-2';
+	const panelLabel = 'inline-flex items-center gap-[0.4rem] text-[0.8rem] font-medium text-muted';
+	const tbtnBase =
+		'flex h-14 flex-col items-center justify-center gap-[0.1rem] rounded-md border transition-[background-color] duration-150 ease-[ease] active:brightness-90 disabled:pointer-events-none disabled:opacity-40';
+	const tbtnCls = `${tbtnBase} border-border-strong bg-surface-2 text-text hover:bg-surface-3`;
+	const tbtnPrimary = `${tbtnBase} border-transparent bg-accent text-on-accent hover:bg-accent-hover`;
+	const seg =
+		'w-full truncate rounded-sm border px-[0.6rem] py-1 text-left text-[0.75rem] transition-[color,border-color,background-color] duration-150 ease-[ease] hover:text-text disabled:pointer-events-none disabled:opacity-45';
+	const segOff = 'border-border-strong bg-surface-2 text-muted';
+	const trackCol = 'flex max-h-48 flex-col gap-1 overflow-y-auto';
+	const segOn =
+		'border-accent bg-[color-mix(in_srgb,var(--color-accent)_12%,transparent)] text-accent';
 </script>
 
 <PageHeader title="Remote" />
@@ -437,7 +399,7 @@
 			<div class="absolute inset-0 bg-surface-3">
 				<div
 					class="h-full {holding ? 'bg-live' : itemTypeDisplay(npType).classes.bar} {dragPct == null
-						? 'fill-smooth'
+						? 'transition-[width] duration-[260ms] ease-linear motion-reduce:transition-none'
 						: ''}"
 					style="width: {(dragPct ?? itemPct).toFixed(2)}%"
 				></div>
@@ -451,31 +413,28 @@
 	</div>
 {/snippet}
 
+{#snippet tbtn(label: string, body: ControlBody, Icon: typeof SkipBack)}
+	{@const seek = body.action === 'seek'}
+	<button
+		type="button"
+		class={tbtnCls}
+		title={label}
+		aria-label={label}
+		disabled={!can(status, body.action)}
+		onclick={() => void act(body, seek ? 'Seek failed' : 'Navigation failed')}
+	>
+		<Icon size={seek ? 18 : 20} />
+		{#if seek}<span class="font-mono text-[0.6rem] text-muted">10s</span>{/if}
+	</button>
+{/snippet}
+
 {#snippet transport()}
 	<div class="mx-auto grid max-w-md grid-cols-5 items-center gap-2">
+		{@render tbtn('Previous item', { action: 'previous' }, SkipBack)}
+		{@render tbtn('Back 10 seconds', { action: 'seek', offset: -10 }, RotateCcw)}
 		<button
 			type="button"
-			class="tbtn"
-			title="Previous item"
-			aria-label="Previous item"
-			disabled={!can(status, 'previous')}
-			onclick={() => void act({ action: 'previous' }, 'Navigation failed')}
-		>
-			<SkipBack size={20} />
-		</button>
-		<button
-			type="button"
-			class="tbtn"
-			title="Back 10 seconds"
-			aria-label="Back 10 seconds"
-			disabled={!can(status, 'seek')}
-			onclick={() => void act({ action: 'seek', offset: -10 }, 'Seek failed')}
-		>
-			<RotateCcw size={18} /><span class="tbtn-num">10s</span>
-		</button>
-		<button
-			type="button"
-			class="tbtn tbtn-primary h-16"
+			class={tbtnPrimary}
 			title={primary.label}
 			aria-label={primary.label}
 			disabled={!primary.enabled}
@@ -483,20 +442,11 @@
 		>
 			{#if primary.action === 'pause'}<Pause size={24} />{:else}<Play size={24} />{/if}
 		</button>
-		<button
-			type="button"
-			class="tbtn"
-			title="Forward 10 seconds"
-			aria-label="Forward 10 seconds"
-			disabled={!can(status, 'seek')}
-			onclick={() => void act({ action: 'seek', offset: 10 }, 'Seek failed')}
-		>
-			<RotateCw size={18} /><span class="tbtn-num">10s</span>
-		</button>
+		{@render tbtn('Forward 10 seconds', { action: 'seek', offset: 10 }, RotateCw)}
 		{#if holding}
 			<button
 				type="button"
-				class="tbtn text-xs"
+				class="{tbtnCls} text-xs"
 				title="End the command's hold and move on"
 				disabled={!can(status, 'end_hold')}
 				onclick={() => void act({ action: 'end_hold' }, 'Navigation failed')}
@@ -504,18 +454,36 @@
 				End hold
 			</button>
 		{:else}
-			<button
-				type="button"
-				class="tbtn"
-				title="Next item"
-				aria-label="Next item"
-				disabled={!can(status, 'next')}
-				onclick={() => void act({ action: 'next' }, 'Navigation failed')}
-			>
-				<SkipForward size={20} />
-			</button>
+			{@render tbtn('Next item', { action: 'next' }, SkipForward)}
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet trackButton(type: 'audio' | 'sub', id: number | 'no', on: unknown, label: string)}
+	<button
+		type="button"
+		class="{seg} {on ? segOn : segOff}"
+		disabled={!connected}
+		onclick={() => void selectTrack(type, id)}
+		title={id === 'no' ? undefined : label}
+	>
+		{label}
+	</button>
+{/snippet}
+
+{#snippet trackList(type: 'audio' | 'sub', tracks: Track[], kind: 'Audio' | 'Subtitle')}
+	{#each tracks as track, i (track.id)}
+		{@render trackButton(type, track.id, track.selected, trackLabel(track, i, kind))}
+	{/each}
+{/snippet}
+
+{#snippet phoneSummary(Icon: typeof Cpu, label: string, count = '')}
+	<summary
+		class="cursor-pointer px-4 py-3 text-[0.85rem] font-medium text-muted select-none hover:text-text sm:hidden"
+	>
+		<span class="inline-flex items-center gap-1.5"><Icon size={13} /> {label}</span>
+		{#if count}<span class="ml-3 font-mono text-xs text-muted">{count}</span>{/if}
+	</summary>
 {/snippet}
 
 {#snippet endButton()}
@@ -526,9 +494,14 @@
 {/snippet}
 
 <ConfirmDialog bind:this={confirmDlg} title="End programme?" />
+<CueDialog bind:this={cueDlg} bind:open={cueOpen} oncued={refreshPlayer} />
 
-<div class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-	<div class="min-w-0 space-y-4">
+<!-- Three columns on a wide screen: the player's controls, what is on air, the running order.
+	 Narrower, the controls drop under what is on air; on a phone everything stacks. -->
+<div
+	class="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22.5rem] 2xl:grid-cols-[19rem_minmax(0,1fr)_22.5rem]"
+>
+	<div class="min-w-0 space-y-4 xl:col-start-1 xl:row-start-1 2xl:col-start-2">
 		<Tabs
 			tabs={[
 				{ id: 'programme', label: 'Programme' },
@@ -542,7 +515,7 @@
 		{#if !status}
 			<Spinner label="Connecting to the player…" />
 		{:else if phase === 'offline'}
-			<section class="panel max-w-xl space-y-3 p-4">
+			<section class="{panel} max-w-xl space-y-3 p-4">
 				<p class="font-mono text-xs text-faint">{status.player?.name ?? 'Player'}</p>
 				<p class="text-lg font-semibold">{status.label}</p>
 				<p class="text-sm text-muted">
@@ -556,7 +529,7 @@
 			</section>
 		{:else if mode === 'manual'}
 			{#if manual}
-				<section class="panel panel-lifted max-w-xl space-y-4 p-4">
+				<section class="{lifted} space-y-4 p-4">
 					<div>
 						<p class="font-mono text-xs text-faint">
 							Manual{manual.position != null
@@ -573,64 +546,74 @@
 				</section>
 			{/if}
 		{:else if phase === 'standby'}
-			<Standby {status} oncued={refreshPlayer} />
+			<Standby {status} {upcoming} oncue={cue} />
 		{:else if phase === 'cued'}
-			<Cued {status} {starting} onstart={() => void runProgramme()} onend={() => void end()} />
+			<Cued
+				{status}
+				art={cuedArt}
+				{starting}
+				onstart={() => void runProgramme()}
+				onend={() => void end()}
+			/>
 		{:else if programme}
-			{@const typeInfo = itemTypeDisplay(npType)}
-			<section class="panel panel-lifted max-w-xl space-y-4 p-4">
-				<div>
-					<p class="truncate text-sm text-muted">
-						{programme.name} · {status.current_item && status.current_item.position >= 0
-							? `${status.current_item.position + 1} of ${status.playlist?.total_items ?? 0}`
-							: 'Pre-show'}
-					</p>
-					<h2
-						class="mt-1 flex items-baseline gap-2 text-xl leading-tight font-semibold sm:text-2xl"
-					>
-						{#if npType !== 'title'}
-							<span class="shrink-0 text-sm font-medium {typeInfo.classes.icon}">
-								{holding ? 'Hold' : typeInfo.short}
+			<section class={lifted}>
+				<NowPlaying
+					art={npArt}
+					type={npType}
+					title={npTitle}
+					kicker="{programme.name} · {status.current_item && status.current_item.position >= 0
+						? `${status.current_item.position + 1} of ${status.playlist?.total_items ?? 0}`
+						: 'Pre-show'}"
+					{facts}
+					{holding}
+				/>
+				<div class="space-y-5 p-4">
+					{@render itemBar()}
+					{@render transport()}
+
+					<div class="space-y-2 border border-border bg-surface-1 p-3">
+						<p class="font-mono text-xs text-faint">Whole programme</p>
+						<RunningOrder
+							{status}
+							items={playlist.data?.playlist ?? []}
+							onjump={(index) => void act({ action: 'jump', index }, 'Jump failed')}
+						/>
+						<p class="flex justify-between text-sm text-muted">
+							<span>
+								{#if phase === 'preshow'}
+									Programme starts in <span class="font-mono"
+										>{formatTime(live?.remaining ?? 0)}</span
+									>
+								{:else if programmeTotal > 0}
+									Ends <span class="font-mono"
+										>{formatClock(new Date(Date.now() + programmeRemaining * 1000))}</span
+									>
+								{/if}
 							</span>
-						{/if}
-						<span class="min-w-0 truncate">{npTitle}</span>
-					</h2>
-					{#if facts.length}
-						<p class="mt-1 font-mono text-xs text-faint">{facts.join(' · ')}</p>
-					{/if}
+							<span>Then standby</span>
+						</p>
+					</div>
+					{@render endButton()}
 				</div>
-
-				<OnScreen {status} class="aspect-[12/5]" />
-				{@render itemBar()}
-				{@render transport()}
-
-				<div class="space-y-2 border border-border bg-surface-1 p-3">
-					<p class="font-mono text-xs text-faint">Whole programme</p>
-					<RunningOrder
-						{status}
-						items={playlist.data?.playlist ?? []}
-						onjump={(index) => void act({ action: 'jump', index }, 'Jump failed')}
-					/>
-					<p class="flex justify-between text-sm text-muted">
-						<span>
-							{#if phase === 'preshow'}
-								Programme starts in <span class="font-mono">{formatTime(live?.remaining ?? 0)}</span
-								>
-							{:else if programmeTotal > 0}
-								Ends <span class="font-mono"
-									>{formatClock(new Date(Date.now() + programmeRemaining * 1000))}</span
-								>
-							{/if}
-						</span>
-						<span>Then standby</span>
-					</p>
-				</div>
-				{@render endButton()}
 			</section>
 		{/if}
 
+		{#if mode === 'manual'}
+			<ManualSearch
+				onchanged={refreshPlayer}
+				confirmEnd={(msg) =>
+					confirmDlg!.confirm(`${msg}. End it and play this instead?`, {
+						confirmLabel: 'End and play'
+					})}
+			/>
+		{/if}
+	</div>
+
+	<!-- The player's own controls. -->
+	<div class="min-w-0 space-y-4 xl:col-start-1 xl:row-start-2 2xl:col-start-1 2xl:row-start-1">
 		{#if connected}
-			<section class="panel p-4">
+			<section class="{panel} p-4">
+				<p class="{panelLabel} mb-3"><Volume2 size={12} /> Sound and picture</p>
 				<div class="flex flex-wrap items-center gap-x-4 gap-y-3">
 					<div class="flex min-w-40 flex-1 items-center gap-2">
 						<button
@@ -638,7 +621,7 @@
 							class="rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text"
 							title={muted ? 'Unmute' : 'Mute'}
 							aria-label={muted ? 'Unmute' : 'Mute'}
-							onclick={() => void toggleMute()}
+							onclick={() => void player(() => mpvCommand('cycle', 'mute'), 'Mute toggle failed')}
 						>
 							<VolumeIcon size={16} />
 						</button>
@@ -650,7 +633,7 @@
 							bind:value={volume}
 							oninput={() => {
 								volDragging = true;
-								void setVolume(volume);
+								void player(() => setProperty('volume', volume), 'Volume change failed', true);
 							}}
 							onchange={() => (volDragging = false)}
 							aria-label="Volume"
@@ -663,10 +646,13 @@
 							<Gauge size={14} class="shrink-0" />
 							<span class="sr-only">Playback speed</span>
 							<select
-								class="speed-select"
+								class="rounded-sm border border-border-strong bg-surface-2 px-[0.4rem] py-[0.2rem] text-[0.75rem] text-text"
 								value={String(currentSpeed)}
 								onchange={(e) =>
-									void setSpeed(parseFloat((e.currentTarget as HTMLSelectElement).value))}
+									void player(
+										() => setProperty('speed', parseFloat(e.currentTarget.value)),
+										'Speed change failed'
+									)}
 							>
 								{#each SPEEDS as speed (speed)}
 									<option value={String(speed)}>{speed}×</option>
@@ -682,11 +668,21 @@
 							title={filling
 								? 'Filling the screen: wide films are cropped at the sides. Click to show the whole picture'
 								: 'Zoom to fill the screen, removing thin bars on wide (DCI) films'}
-							onclick={() => void toggleFill()}
+							onclick={() =>
+								void player(() => setProperty('panscan', filling ? 0 : 1), 'Fill toggle failed')}
 						>
 							<ScanSearch size={13} /> Fill
 						</Button>
-						<Button size="sm" title="Toggle fullscreen" onclick={() => void toggleFullscreen()}>
+						<Button
+							size="sm"
+							title="Toggle fullscreen"
+							onclick={() =>
+								void player(
+									() => mpvCommand('cycle', 'fullscreen'),
+									'Fullscreen toggle failed',
+									true
+								)}
+						>
 							<Maximize size={13} />
 						</Button>
 						<Button size="sm" title="Put the player on standby" onclick={() => void goToStandby()}>
@@ -697,87 +693,43 @@
 			</section>
 		{/if}
 
-		{#if mode === 'manual'}
-			<ManualSearch
-				onchanged={refreshPlayer}
-				confirmEnd={(msg) =>
-					confirmDlg!.confirm(`${msg}. End it and play this instead?`, {
-						confirmLabel: 'End and play'
-					})}
-			/>
-		{/if}
-
 		{#if playing}
-			<details class="panel" bind:open={tracksOpen}>
-				<summary class="phone-summary sm:hidden">
-					<span class="inline-flex items-center gap-1.5"><Headphones size={13} /> Tracks</span>
-				</summary>
+			<details class={panel} bind:open={tracksOpen}>
+				{@render phoneSummary(Headphones, 'Tracks')}
 				<div class="grid grid-cols-2 gap-3 p-4">
 					<div class="min-w-0">
-						<p class="panel-label"><Headphones size={12} /> Audio</p>
-						<div class="track-col mt-1.5">
+						<p class={panelLabel}><Headphones size={12} /> Audio</p>
+						<div class="{trackCol} mt-1.5">
 							{#if !audioTracks.length}
 								<span class="text-xs text-faint">No audio tracks</span>
-							{:else}
-								{#each audioTracks as track, i (track.id)}
-									<button
-										type="button"
-										class="seg seg-block {track.selected ? 'seg-on' : ''}"
-										disabled={!connected}
-										onclick={() => void selectTrack('audio', track.id)}
-										title={trackLabel(track, i, 'Audio')}
-									>
-										{trackLabel(track, i, 'Audio')}
-									</button>
-								{/each}
 							{/if}
+							{@render trackList('audio', audioTracks, 'Audio')}
 						</div>
 					</div>
 					<div class="min-w-0">
-						<p class="panel-label"><Captions size={12} /> Subtitles</p>
-						<div class="track-col mt-1.5">
-							<button
-								type="button"
-								class="seg seg-block {subOffActive ? 'seg-on' : ''}"
-								disabled={!connected}
-								onclick={() => void selectTrack('sub', 'no')}
-							>
-								Off
-							</button>
-							{#each subTracks as track, i (track.id)}
-								<button
-									type="button"
-									class="seg seg-block {track.selected ? 'seg-on' : ''}"
-									disabled={!connected}
-									onclick={() => void selectTrack('sub', track.id)}
-									title={trackLabel(track, i, 'Subtitle')}
-								>
-									{trackLabel(track, i, 'Subtitle')}
-								</button>
-							{/each}
+						<p class={panelLabel}><Captions size={12} /> Subtitles</p>
+						<div class="{trackCol} mt-1.5">
+							{@render trackButton('sub', 'no', subOffActive, 'Off')}
+							{@render trackList('sub', subTracks, 'Subtitle')}
 						</div>
 					</div>
 				</div>
 			</details>
 		{/if}
 
-		<details class="panel" bind:open={commandsOpen}>
-			<summary class="phone-summary sm:hidden">
-				<span class="inline-flex items-center gap-1.5">
-					<SquareTerminal size={13} /> Commands
-				</span>
-			</summary>
+		<details class={panel} bind:open={commandsOpen}>
+			{@render phoneSummary(SquareTerminal, 'Commands')}
 			<div class="p-4">
 				<CommandPad surface="remote" variant="grid">
 					{#snippet label()}
-						<span class="panel-label hidden sm:flex"><SquareTerminal size={12} /> Commands</span>
+						<span class={panelLabel}><SquareTerminal size={12} /> Commands</span>
 					{/snippet}
 				</CommandPad>
 			</div>
 		</details>
 
 		{#if hasTech}
-			<details class="panel">
+			<details class={panel}>
 				<summary
 					class="cursor-pointer px-4 py-2.5 text-[0.8rem] font-medium text-muted select-none"
 				>
@@ -803,28 +755,29 @@
 	</div>
 
 	{#if mode === 'manual'}
-		<div class="min-w-0 xl:sticky xl:top-[4.5rem]">
+		<div class={sideColumn}>
 			<ManualQueue
 				items={manual?.items ?? []}
 				position={manual?.position ?? null}
 				onchanged={refreshPlayer}
 			/>
 		</div>
+	{:else if phase === 'standby'}
+		<div class={sideColumn}>
+			<ComingUp
+				{upcoming}
+				oncue={can(status, 'cue') ? (id) => cue(id) : undefined}
+				skip={status?.next_screening?.id ?? null}
+			/>
+		</div>
 	{:else if programme}
-		<details class="panel min-w-0 xl:sticky xl:top-[4.5rem]" bind:open={upNextOpen}>
-			<summary class="phone-summary sm:hidden">
-				<span class="inline-flex items-center gap-1.5"><ListOrdered size={13} /> Rundown</span>
-				<span class="ml-3 font-mono text-xs text-muted">
-					{programmeCount} item{programmeCount === 1 ? '' : 's'}
-				</span>
-			</summary>
+		<details class="{panel} {sideColumn}" bind:open={upNextOpen}>
+			{@render phoneSummary(ListOrdered, 'Rundown', itemCount)}
 			<header
 				class="hidden items-center justify-between gap-3 border-b border-border px-4 py-2.5 sm:flex"
 			>
-				<p class="panel-label"><ListOrdered size={13} /> Rundown</p>
-				<span class="font-mono text-xs text-muted">
-					{programmeCount} item{programmeCount === 1 ? '' : 's'}
-				</span>
+				<p class={panelLabel}><ListOrdered size={13} /> Rundown</p>
+				<span class="font-mono text-xs text-muted">{itemCount}</span>
 			</header>
 
 			<div
@@ -844,10 +797,7 @@
 						{@const sub = preshow
 							? 'Pre-show'
 							: [meta.year, meta.certification].filter(Boolean).join(' · ')}
-						{@const artUrl =
-							rowType === 'movie' || rowType === 'feature' || rowType === 'trailer'
-								? meta.thumbnail_url || ''
-								: ''}
+						{@const artUrl = artOf(rowType, meta)}
 						{@const isCurrent = item.index === mpvPos}
 						{@const played = mpvPos != null && item.index < mpvPos}
 						{@const startMs = startTimes.starts.get(item.index)}
@@ -923,132 +873,3 @@
 		</details>
 	{/if}
 </div>
-
-<style>
-	.panel {
-		border: 1px solid var(--color-border);
-		background: var(--color-surface-1);
-	}
-	.panel-lifted {
-		background: var(--color-surface-2);
-	}
-	.phone-summary {
-		cursor: pointer;
-		user-select: none;
-		padding: 0.75rem 1rem;
-		font-size: 0.85rem;
-		font-weight: 500;
-		color: var(--color-muted);
-	}
-	.phone-summary:hover {
-		color: var(--color-text);
-	}
-	.panel-label {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		font-size: 0.8rem;
-		font-weight: 500;
-		color: var(--color-muted);
-	}
-
-	.tbtn {
-		display: flex;
-		height: 3.5rem;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.1rem;
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-md);
-		background: var(--color-surface-2);
-		color: var(--color-text);
-		transition: background-color 0.15s ease;
-	}
-	.tbtn:hover {
-		background: var(--color-surface-3);
-	}
-	.tbtn:active {
-		filter: brightness(0.9);
-	}
-	.tbtn:disabled {
-		pointer-events: none;
-		opacity: 0.4;
-	}
-	.tbtn-num {
-		font-family: var(--font-mono);
-		font-size: 0.6rem;
-		color: var(--color-muted);
-	}
-	.tbtn-primary {
-		border-color: transparent;
-		background: var(--color-accent);
-		color: var(--color-on-accent);
-	}
-	.tbtn-primary:hover {
-		background: var(--color-accent-hover);
-	}
-
-	.seg {
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-sm);
-		background: var(--color-surface-2);
-		color: var(--color-muted);
-		padding: 0.25rem 0.6rem;
-		font-size: 0.75rem;
-		transition:
-			color 0.15s ease,
-			border-color 0.15s ease,
-			background-color 0.15s ease;
-	}
-	.seg:hover {
-		color: var(--color-text);
-		border-color: var(--color-border-strong);
-	}
-	.seg:disabled {
-		pointer-events: none;
-		opacity: 0.45;
-	}
-	.seg-on {
-		border-color: var(--color-accent);
-		background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-		color: var(--color-accent);
-	}
-
-	.track-col {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-		max-height: 12rem;
-		overflow-y: auto;
-	}
-	.seg-block {
-		width: 100%;
-		text-align: left;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.fill-smooth {
-		transition: width 260ms linear;
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.fill-smooth {
-			transition: none;
-		}
-	}
-
-	.speed-select {
-		border: 1px solid var(--color-border-strong);
-		border-radius: var(--radius-sm);
-		background: var(--color-surface-2);
-		color: var(--color-text);
-		padding: 0.2rem 0.4rem;
-		font-size: 0.75rem;
-	}
-	.speed-select:disabled {
-		pointer-events: none;
-		opacity: 0.45;
-	}
-</style>

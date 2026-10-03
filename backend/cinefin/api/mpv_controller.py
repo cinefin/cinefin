@@ -45,15 +45,7 @@ class MPVController:
         self.restart_path = None
         self.restart_serial = 0
         self.event_handlers = {
-            "pause": [],
-            "chapter_change": [],
-            "file_end": [],
-            "file_start": [],
-            "track_change": [],
-            "seek": [],
-            "playlist_change": [],
-            "time_pos": [],
-            "quit": [],
+            e: [] for e in ("pause", "file_end", "file_start", "playlist_change", "time_pos", "quit")
         }
 
         self.player = None
@@ -78,29 +70,20 @@ class MPVController:
                 self._connected = False
                 return False
             kind, target, token = config
-            factory = (
-                (lambda: SocketMPV(target, quit_callback=self._on_quit))
-                if kind == "socket"
-                else (lambda: WSMPV(target, token=token, quit_callback=self._on_quit))
-            )
-            ok = self._connect_player(factory, kind, target)
-            if ok:
-                self.transport = config
-            return ok
-
-    def _connect_player(self, factory, kind, target):
-        """Open the chosen transport. Caller holds _connection_lock. player is
-        already None here (first connect or after teardown), so nothing leaks."""
-        try:
-            self.player = factory()
-            logger.info("Connected to mpv via %s at %s", "local socket" if kind == "socket" else "agent WS", target)
-            self._register_observers()
+            try:
+                if kind == "socket":
+                    self.player = SocketMPV(target, quit_callback=self._on_quit)
+                else:
+                    self.player = WSMPV(target, token=token, quit_callback=self._on_quit)
+                logger.info("Connected to mpv via %s at %s", "local socket" if kind == "socket" else "agent WS", target)
+                self._register_observers()
+            except Exception:
+                self.player = None
+                self._connected = False
+                return False
             self._connected = True
+            self.transport = config
             return True
-        except Exception:
-            self.player = None
-            self._connected = False
-            return False
 
     def _on_quit(self):
         """The mpv link dropped. WSMPV reconnects and re-subscribes itself, so we
@@ -109,31 +92,28 @@ class MPVController:
         self._dispatch_event("quit", None)
 
     def _register_observers(self):
+        p = self.player
         try:
-            self.player.bind_property_observer("chapter", self._on_chapter_change)
-            self.player.bind_property_observer("pause", self._on_pause_change)
-            self.player.bind_property_observer("path", self._on_path_change)
-            self.player.bind_property_observer("playlist-pos", self._on_playlist_pos_change)
-            self.player.bind_property_observer("time-pos", self._on_time_pos_change)
-
-            self.player.bind_event("end-file", self._on_end_file)
-            self.player.bind_event("file-loaded", self._on_file_loaded)
-            self.player.bind_event("start-file", self._on_start_file)
-            self.player.bind_event("playlist-change", self._on_playlist_change)
-            self.player.bind_event("playback-restart", self._on_playback_restart)
-
+            # "chapter" has no handler, but is observed all the same.
+            p.bind_property_observer("chapter", lambda _n, _v: None)
+            p.bind_property_observer("pause", lambda _n, v: self._dispatch_event("pause", v))
+            p.bind_property_observer("path", self._on_path_change)
+            p.bind_property_observer("playlist-pos", self._on_value("playlist_change"))
+            p.bind_property_observer("time-pos", self._on_value("time_pos"))
+            p.bind_event("end-file", lambda data: self._dispatch_event("file_end", data))
+            p.bind_event("playback-restart", self._on_playback_restart)
             logger.info("Registered all MPV event observers")
         except Exception as e:
             logger.error(f"Error registering observers: {e}")
 
-    def _on_chapter_change(self, name, value):
-        if value is not None:
-            logger.debug(f"Chapter changed to {value}")
-            self._dispatch_event("chapter_change", value)
+    def _on_value(self, event_name):
+        """An observer dispatching ``event_name`` for every non-None value."""
 
-    def _on_pause_change(self, name, value):
-        logger.debug(f"Pause state changed to {value}")
-        self._dispatch_event("pause", value)
+        def observer(_name, value):
+            if value is not None:
+                self._dispatch_event(event_name, value)
+
+        return observer
 
     def _on_playback_restart(self, event_data=None):
         # mpv has a frame of the current file on screen (after a load or a seek).
@@ -145,47 +125,21 @@ class MPVController:
     def _on_path_change(self, name, value):
         self.current_path = value
         if value is not None:
-            logger.debug(f"File changed to {value}")
             self._dispatch_event("file_start", value)
 
-    def _on_playlist_pos_change(self, name, value):
-        if value is not None:
-            logger.debug(f"Playlist position changed to {value}")
-            self._dispatch_event("playlist_change", value)
-
-    def _on_time_pos_change(self, name, value):
-        if value is not None:
-            self._dispatch_event("time_pos", value)
-
-    def _on_end_file(self, event_data):
-        logger.debug(f"File ended with reason: {event_data.get('reason', 'unknown')}")
-        self._dispatch_event("file_end", event_data)
-
-    def _on_file_loaded(self, event_data):
-        logger.debug(f"File loaded: {event_data}")
-
-    def _on_start_file(self, event_data):
-        filename = event_data.get("filename", "")
-        logger.debug(f"Starting file: {filename}")
-
-    def _on_playlist_change(self, event_data):
-        logger.debug(f"Playlist changed: {event_data}")
-
     def _dispatch_event(self, event_name, value):
-        if event_name in self.event_handlers:
-            for handler in self.event_handlers[event_name]:
-                try:
-                    handler(value)
-                except Exception as e:
-                    logger.error(f"Error in event handler for {event_name}: {e}")
+        for handler in self.event_handlers.get(event_name, ()):
+            try:
+                handler(value)
+            except Exception as e:
+                logger.error(f"Error in event handler for {event_name}: {e}")
 
     def add_event_handler(self, event_name, handler_function):
-        if event_name in self.event_handlers:
-            self.event_handlers[event_name].append(handler_function)
-            return True
-        else:
+        if event_name not in self.event_handlers:
             logger.warning(f"Unknown event: {event_name}")
             return False
+        self.event_handlers[event_name].append(handler_function)
+        return True
 
     def _ensure_connected(self):
         """A WSMPV self-heals its own connection, so its mere presence is
@@ -207,16 +161,8 @@ class MPVController:
             logger.error(f"MPV command failed: {command} {args} - {e}")
             return False
 
-    def play(self, filepath=None):
-        try:
-            if filepath:
-                self.player.play(filepath)
-            else:
-                self.player.pause = False
-            return True
-        except Exception as e:
-            logger.error(f"Error playing: {e}")
-            return False
+    def play(self):
+        return self.pause(False)
 
     def pause(self, pause=True):
         try:
@@ -226,26 +172,12 @@ class MPVController:
             logger.error(f"Error setting pause: {e}")
             return False
 
-    def toggle_pause(self):
-        return self._mpv_command("cycle", "pause")
-
-    def stop(self):
-        try:
-            self.player.command("stop")
-            return True
-        except Exception as e:
-            logger.error(f"Error stopping playback: {e}")
-            return False
-
     def load_file(self, filepath, replace=True, options="", title=None):
         """``options`` are mpv per-file options ("key=value,..."), passed with the
         playlist index argument that mpv 0.38 put before them. ``title`` names the
         file in the player's window title ("Trailer: …")."""
-        if not self._ensure_connected():
-            return False
         if title:
             options = ",".join(o for o in (options, title_option(title)) if o)
-
         mode = "replace" if replace else "append"
         logger.info(f"Loading file: {filepath} (mode: {mode})")
         if options:
@@ -258,41 +190,25 @@ class MPVController:
     def next(self):
         if not self._ensure_connected():
             return False
-
-        try:
-            # Every attribute read is a live get_property, so playlist_pos can be
-            # None (idle mpv) — treat None as "at the end" (else the comparison raises).
-            playlist = self.get_playlist() or []
-            current_pos = self.get_property("playlist_pos")
-
-            if current_pos is None or current_pos >= len(playlist) - 1:
-                logger.warning(f"Already at end of playlist (pos {current_pos}, length {len(playlist)})")
-                return False
-
-            return self._mpv_command("playlist-next")
-        except Exception as e:
-            logger.error(f"Error in next(): {e}")
+        # playlist_pos is None on an idle mpv: treat that as "at the end".
+        playlist = self.get_playlist() or []
+        current_pos = self.get_property("playlist_pos")
+        if current_pos is None or current_pos >= len(playlist) - 1:
+            logger.warning(f"Already at end of playlist (pos {current_pos}, length {len(playlist)})")
             return False
+        return self._mpv_command("playlist-next")
 
     def previous(self):
         return self._mpv_command("playlist-prev")
 
-    def seek(self, position, reference="absolute", percent=False):
-        try:
-            if percent:
-                self.player.command("seek", position, reference + "-percent")
-            else:
-                self.player.command("seek", position, reference)
-            return True
-        except Exception as e:
-            logger.error(f"Error seeking: {e}")
-            return False
+    def seek(self, position, reference="absolute"):
+        return self._mpv_command("seek", position, reference)
 
-    def keypress(self, key):
-        return self._mpv_command("keypress", key)
+    def seek_relative(self, seconds):
+        return self.seek(seconds, reference="relative")
 
     def get_property(self, name):
-        """Accepts dashed or underscore names — a dashed name would silently read
+        """Accepts dashed or underscore names: a dashed name would silently read
         back a plain Python attribute instead of asking MPV."""
         try:
             return getattr(self.player, name.replace("-", "_"))
@@ -301,8 +217,8 @@ class MPVController:
             return None
 
     def set_property(self, name, value, quiet=False):
-        """Accepts dashed or underscore names (see get_property). quiet logs a
-        failure at DEBUG — for best-effort cosmetic writes that shouldn't spam the log."""
+        """Accepts dashed or underscore names (see get_property). ``quiet`` logs a
+        failure at DEBUG, for best-effort cosmetic writes."""
         try:
             setattr(self.player, name.replace("-", "_"), value)
             return True
@@ -319,59 +235,8 @@ class MPVController:
     def enable_subtitles(self):
         return self._mpv_command("set_property", "sub-visibility", True)
 
-    def disable_subtitles(self):
-        return self._mpv_command("set_property", "sub-visibility", False)
-
-    def seek_relative(self, seconds):
-        return self.seek(seconds, reference="relative")
-
-    def seek_percentage(self, percent):
-        return self.seek(percent, reference="absolute", percent=True)
-
-    def set_volume(self, volume):
-        return self._mpv_command("set_property", "volume", volume)
-
-    def volume_up(self):
-        return self._mpv_command("add", "volume", 10)
-
-    def volume_down(self):
-        return self._mpv_command("add", "volume", -10)
-
-    def mute(self):
-        return self._mpv_command("set_property", "mute", True)
-
-    def unmute(self):
-        return self._mpv_command("set_property", "mute", False)
-
-    def toggle_mute(self):
-        return self._mpv_command("cycle", "mute")
-
-    def select_audio_track(self, track_id):
-        return self._mpv_command("set_property", "aid", track_id)
-
-    def select_subtitle_track(self, track_id):
-        return self._mpv_command("set_property", "sid", track_id)
-
     def playlist_jump(self, index):
         return self._mpv_command("set_property", "playlist-pos", index)
-
-    def set_speed(self, speed):
-        return self._mpv_command("set_property", "speed", speed)
-
-    def toggle_fullscreen(self):
-        return self._mpv_command("cycle", "fullscreen")
-
-    def set_fullscreen(self, enabled):
-        return self._mpv_command("set_property", "fullscreen", enabled)
-
-    def chapter_next(self):
-        return self._mpv_command("add", "chapter", 1)
-
-    def chapter_previous(self):
-        return self._mpv_command("add", "chapter", -1)
-
-    def chapter_seek(self, chapter_number):
-        return self._mpv_command("set_property", "chapter", chapter_number)
 
     @staticmethod
     def _num(value):
@@ -387,71 +252,55 @@ class MPVController:
     def get_status(self):
         if not self._ensure_connected():
             return None
+        n = self._num
+
+        def prop(name):
+            return getattr(self.player, name, None)
 
         try:
             pause = self.player.pause
-            state = "paused" if pause else "playing"
-
-            # Try alternate property names for compatibility
-            time_pos = self._num(getattr(self.player, "time_pos", None))
+            # Older and newer mpv name some of these differently: try both.
+            time_pos = n(prop("time_pos"))
             if time_pos is None:
-                time_pos = self._num(getattr(self.player, "playback_time", None))
-
-            duration = self._num(getattr(self.player, "duration", None))
+                time_pos = n(prop("playback_time"))
+            duration = n(prop("duration"))
             if duration is None:
-                duration = self._num(getattr(self.player, "length", None))
-
-            file_path = getattr(self.player, "stream_open_filename", None)
-            if not file_path:
-                file_path = getattr(self.player, "path", None)
-            if not file_path:
-                file_path = getattr(self.player, "filename", None)
-
-            volume = self._num(getattr(self.player, "volume", None))
-
-            video_params = getattr(self.player, "video_params", None) or {}
-
-            video_info = {
-                "width": self._num(video_params.get("w")) or self._num(getattr(self.player, "width", None)),
-                "height": self._num(video_params.get("h")) or self._num(getattr(self.player, "height", None)),
-                "aspect": self._num(video_params.get("aspect")),
-                "pixelformat": video_params.get("pixelformat"),
-                "colormatrix": video_params.get("colormatrix"),
-                "colorlevels": video_params.get("colorlevels"),
-                "primaries": video_params.get("primaries"),
-                "gamma": video_params.get("gamma"),
-                "fps": self._num(getattr(self.player, "container_fps", None))
-                or self._num(getattr(self.player, "estimated_vf_fps", None)),
-                "codec": getattr(self.player, "video_codec", None),
-                "bitrate": self._num(getattr(self.player, "video_bitrate", None)),
-                "hw_decoding": getattr(self.player, "hwdec_current", None),
+                duration = n(prop("length"))
+            file_path = prop("stream_open_filename") or prop("path") or prop("filename")
+            volume = n(prop("volume"))
+            vp = prop("video_params") or {}
+            video = {
+                "width": n(vp.get("w")) or n(prop("width")),
+                "height": n(vp.get("h")) or n(prop("height")),
+                "aspect": n(vp.get("aspect")),
+                **{k: vp.get(k) for k in ("pixelformat", "colormatrix", "colorlevels", "primaries", "gamma")},
+                "fps": n(prop("container_fps")) or n(prop("estimated_vf_fps")),
+                "codec": prop("video_codec"),
+                "bitrate": n(prop("video_bitrate")),
+                "hw_decoding": prop("hwdec_current"),
             }
-
-            audio_info = {
-                "codec": getattr(self.player, "audio_codec", None),
-                "channels": getattr(self.player, "audio_params", {}).get("channels")
-                if getattr(self.player, "audio_params", None)
-                else None,
-                "samplerate": getattr(self.player, "audio_params", {}).get("samplerate")
-                if getattr(self.player, "audio_params", None)
-                else None,
-                "bitrate": self._num(getattr(self.player, "audio_bitrate", None)),
+            audio_codec = prop("audio_codec")
+            ap = prop("audio_params")
+            audio = {
+                "codec": audio_codec,
+                "channels": ap.get("channels") if ap else None,
+                "samplerate": ap.get("samplerate") if ap else None,
+                "bitrate": n(prop("audio_bitrate")),
             }
-
             return {
                 "pause": pause,
-                "playback_status": state,
+                "playback_status": "paused" if pause else "playing",
                 "file_path": file_path,
                 "time": time_pos,
                 "length": duration,
-                "playlist_pos": getattr(self.player, "playlist_pos", None),
+                "playlist_pos": prop("playlist_pos"),
                 "volume": volume,
-                "muted": getattr(self.player, "mute", None),
-                "speed": self._num(getattr(self.player, "speed", None)) or 1.0,
-                "fullscreen": getattr(self.player, "fullscreen", None),
-                "panscan": self._num(getattr(self.player, "panscan", None)),
-                "video": video_info,
-                "audio": audio_info,
+                "muted": prop("mute"),
+                "speed": n(prop("speed")) or 1.0,
+                "fullscreen": prop("fullscreen"),
+                "panscan": n(prop("panscan")),
+                "video": video,
+                "audio": audio,
             }
         except Exception as e:
             logger.error(f"Error getting status: {e}")
@@ -460,7 +309,6 @@ class MPVController:
     def get_playlist(self):
         if not self._ensure_connected():
             return None
-
         try:
             return self.player.playlist
         except Exception as e:
@@ -468,13 +316,12 @@ class MPVController:
             return None
 
     def playlist_clear(self):
-        """Clear all playlist items except the currently playing one"""
+        """Clear every playlist entry but the current one."""
         return self._mpv_command("playlist-clear")
 
     def get_track_list(self):
         if not self._ensure_connected():
             return None
-
         try:
             tracks = self.player.track_list
             return {
@@ -490,9 +337,8 @@ class MPVController:
         with self._connection_lock:
             try:
                 if self.player:
-                    for event_type in self.event_handlers:
-                        self.event_handlers[event_type].clear()
-
+                    for handlers in self.event_handlers.values():
+                        handlers.clear()
                     self.player.terminate()
                     time.sleep(0.1)
 

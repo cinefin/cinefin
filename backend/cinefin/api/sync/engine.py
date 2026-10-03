@@ -1,7 +1,5 @@
 """DB-backed sync engine: one worker thread per process draining sync-kind Job rows."""
 
-from __future__ import annotations
-
 import logging
 import os
 import threading
@@ -160,11 +158,7 @@ def _run_job(job) -> None:
 def _finish(job, state: str, error: str = "") -> None:
     from cinefin.api.models import Job
 
-    fields = {
-        "state": state,
-        "finished_at": timezone.now(),
-        "phase": dict(Job.STATES).get(state, state),
-    }
+    fields = {"state": state, "finished_at": timezone.now(), "phase": dict(Job.STATES).get(state, state)}
     if error:
         fields["error"] = error
     Job.objects.filter(pk=job.pk).update(**fields)

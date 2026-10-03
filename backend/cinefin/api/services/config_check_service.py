@@ -40,18 +40,6 @@ def test_tmdb_key(api_key: str | None = None) -> dict:
     return {"ok": False, "message": f"TMDB returned HTTP {resp.status_code}"}
 
 
-def test_ratings_provider(system: str | None = None) -> dict:
-    """Lightweight reachability probe of a system's rating provider (not a full lookup)."""
-    from cinefin.api import ratings
-
-    system = (system or "").strip() or Settings.get_ratings_system()
-    provider = ratings.get_provider(system)
-    if provider is None:
-        return {"ok": False, "message": f"No rating provider is registered for the {system} system"}
-    result = provider.check()
-    return {"ok": bool(result.get("ok")), "message": str(result.get("message", ""))}
-
-
 def test_printer(
     printer_type: str | None = None,
     device: str | None = None,

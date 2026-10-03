@@ -15,48 +15,49 @@ from cinefin.api.models import Bumper, Movie, Playlist, PlayoutHost, Programme, 
 from cinefin.api.mpv_service import mpv_service
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
 from cinefin.api.schemas.playout import PlayoutStatusDataSchema, ProgrammeInfoSchema
-from cinefin.api.services import playout_link, standby
+from cinefin.api.services import playout_discovery, playout_link, standby
 from cinefin.api.services.block_types import resolve_media_path
 from cinefin.api.services.playlist_utils import PlaylistUtils
 from cinefin.api.services.playout_agent_service import PROTOCOL, playout_agent_service
+from cinefin.api.services.playout_host_service import playout_host_service
 from cinefin.api.services.playout_service import perform, playout_status, programme_info, require
 
 logger = logging.getLogger(__name__)
 
 
 class PlaylistInfoSchema(Schema):
-    id: int = Field(..., description="Playlist ID")
-    item_count: int = Field(..., description="Number of items in playlist")
-    created: bool = Field(..., description="Whether playlist was newly created")
+    id: int
+    item_count: int
+    created: bool = Field(..., description="Whether this load (re)generated the playlist")
 
 
 class MPVStatusSchema(Schema):
-    paused: bool = Field(..., description="Whether playback is paused")
-    position: int = Field(..., description="Current playlist position")
-    playlist_count: int = Field(..., description="Total items in MPV playlist")
+    paused: bool
+    position: int
+    playlist_count: int
 
 
 class LoadProgrammeSchema(Schema):
-    programme_id: int = Field(..., description="ID of programme to load")
-    generate_playlist: bool | None = Field(True, description="Whether to generate playlist if missing")
+    programme_id: int
+    generate_playlist: bool | None = Field(True, description="Generate the playlist if missing or stale")
 
 
 class LoadProgrammeDataSchema(Schema):
-    programme: ProgrammeInfoSchema = Field(..., description="Programme information")
-    playlist: PlaylistInfoSchema = Field(..., description="Playlist information")
-    status: str = Field(..., description="Load status")
-    mpv_status: MPVStatusSchema = Field(..., description="MPV player status")
+    programme: ProgrammeInfoSchema
+    playlist: PlaylistInfoSchema
+    status: str
+    mpv_status: MPVStatusSchema
     warnings: list[str] = Field(
         default_factory=list, description="Pre-flight warnings: items whose media is unreachable"
     )
 
 
 class LoadProgrammeResponseSchema(SuccessResponseSchema):
-    data: LoadProgrammeDataSchema = Field(..., description="Programme load data")
+    data: LoadProgrammeDataSchema
 
 
 class PlayoutStatusResponseSchema(SuccessResponseSchema):
-    data: PlayoutStatusDataSchema = Field(..., description="The playout status")
+    data: PlayoutStatusDataSchema
 
 
 class ControlPlayoutSchema(Schema):
@@ -69,28 +70,28 @@ class ControlPlayoutSchema(Schema):
 
 
 class MPVPlaylistItemSchema(Schema):
-    index: int = Field(..., description="Index in MPV playlist")
-    title: str = Field(..., description="Item title")
-    type: str = Field(..., description="Item type")
-    file: str = Field(..., description="File path")
-    duration: float | None = Field(None, description="Item duration in seconds")
-    current: bool = Field(..., description="Whether this is the current item")
-    programme_position: int | None = Field(None, description="Position in programme (excluding pre-show)")
-    details: dict[str, Any] = Field(default_factory=dict, description="Additional item details and metadata")
+    index: int
+    title: str
+    type: str
+    file: str
+    duration: float | None = None
+    current: bool
+    programme_position: int | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlaylistDataSchema(Schema):
-    playlist: list[MPVPlaylistItemSchema] = Field(..., description="Playlist items")
-    current_index: int = Field(..., description="Current item index")
-    total_items: int = Field(..., description="Total number of items")
-    programme_offset: int = Field(..., description="Offset for programme items in MPV playlist")
-    total_duration: float = Field(..., description="Total playlist duration in seconds")
-    elapsed_time: float = Field(..., description="Elapsed time in seconds")
-    remaining_time: float = Field(..., description="Remaining time in seconds")
+    playlist: list[MPVPlaylistItemSchema]
+    current_index: int
+    total_items: int
+    programme_offset: int = Field(..., description="Player index of the programme's first item")
+    total_duration: float
+    elapsed_time: float
+    remaining_time: float
 
 
 class PlayoutPlaylistResponseSchema(SuccessResponseSchema):
-    data: PlaylistDataSchema = Field(..., description="Playlist information")
+    data: PlaylistDataSchema
 
 
 playout_api = Router()
@@ -109,14 +110,11 @@ playout_api = Router()
 )
 def load_programme(request: HttpRequest, data: LoadProgrammeSchema):
     """Cue a programme. Refused (409) while one is on air: end it first."""
-    try:
-        programme = Programme.objects.get(pk=data.programme_id)
-    except Programme.DoesNotExist:
-        raise NotFoundError("Programme not found") from None
+    programme = Programme.objects.filter(pk=data.programme_id).first()
+    if programme is None:
+        raise NotFoundError("Programme not found")
     require("cue")
 
-    # A missing playlist is generated, and a stale one (blocks changed since it
-    # was last built) is rebuilt, so playback always reflects the programme.
     playlist = Playlist.objects.filter(programme=programme).first()
     playlist_created = False
 
@@ -130,18 +128,14 @@ def load_programme(request: HttpRequest, data: LoadProgrammeSchema):
         playlist = Playlist.objects.get(programme=programme)
         playlist_created = True
     elif playlist is None:
-        raise ValidationError("Programme has no playlist. Set generate_playlist=true to create one.") from None
+        raise ValidationError("Programme has no playlist. Set generate_playlist=true to create one.")
 
     from cinefin.api.services.playlist_service import PlaylistService
 
     preflight_warnings = PlaylistService.verify_playlist_availability(playlist)
 
-    # If the playout agent manages the MPV process, make sure the player is
-    # up before loading (best-effort; no-op when the agent is disabled).
     playout_agent_service.ensure_mpv_running()
-
-    success = mpv_service.load_programme(programme)
-    if not success:
+    if not mpv_service.load_programme(programme):
         raise UnprocessableEntityError("Failed to load programme into playout system")
 
     snap = mpv_service.snapshot() or {}
@@ -297,25 +291,21 @@ def get_playlist(request: HttpRequest):
     )
 
 
-# ---------------------------------------------------------------------------
-# Playout agent (cinefin-playout) — manages the MPV *process* on the playout
-# host. Playback control stays on the IPC socket; these endpoints only start,
-# stop and inspect the player instance itself.
-# ---------------------------------------------------------------------------
+# The playout agent (cinefin-playout): start, stop and inspect the mpv process itself.
 
 
 class AgentStatusDataSchema(Schema):
-    enabled: bool = Field(description="Whether agent management is enabled in settings")
-    reachable: bool = Field(description="Whether the agent answered")
-    agent_version: str | None = Field(default=None, description="Agent version")
-    mpv_running: bool = Field(default=False, description="Whether an MPV instance is up")
-    mpv_mode: str | None = Field(default=None, description="child, external or stopped")
-    mpv_pid: int | None = Field(default=None, description="MPV process ID (child mode)")
-    uptime_seconds: float | None = Field(default=None, description="MPV uptime in seconds")
+    enabled: bool
+    reachable: bool
+    agent_version: str | None = None
+    mpv_running: bool = False
+    mpv_mode: str | None = None
+    mpv_pid: int | None = None
+    uptime_seconds: float | None = None
     restarts: int = Field(default=0, description="Crash-restarts performed by the agent")
-    socket_responding: bool = Field(default=False, description="MPV answering on the IPC socket")
-    autostart: bool | None = Field(default=None, description="Agent launches MPV at its own boot")
-    config_pushed_at: float | None = Field(default=None, description="Unix time of the last config push")
+    socket_responding: bool = False
+    autostart: bool | None = None
+    config_pushed_at: float | None = None
     error: str | None = Field(default=None, description="Why the agent is unreachable, if it is")
     warning: str | None = Field(
         default=None, description="A player problem to show: a local mpv too old, or a standby ident download failure"
@@ -323,17 +313,17 @@ class AgentStatusDataSchema(Schema):
 
 
 class AgentStatusResponseSchema(SuccessResponseSchema):
-    data: AgentStatusDataSchema = Field(..., description="Playout agent status")
+    data: AgentStatusDataSchema
 
 
 class AgentActionDataSchema(Schema):
-    ok: bool = Field(description="Whether the action succeeded")
-    action_message: str = Field(description="Agent's description of what happened")
-    mpv_running: bool = Field(description="Whether MPV is running after the action")
+    ok: bool
+    action_message: str
+    mpv_running: bool
 
 
 class AgentActionResponseSchema(SuccessResponseSchema):
-    data: AgentActionDataSchema = Field(..., description="Agent action result")
+    data: AgentActionDataSchema
 
 
 @playout_api.get("/agent/status", response={200: AgentStatusResponseSchema, 500: ErrorResponseSchema})
@@ -432,27 +422,17 @@ def _agent_action(action: str) -> AgentActionResponseSchema:
 
 @playout_api.post("/agent/start", response={200: AgentActionResponseSchema, 422: ErrorResponseSchema})
 def agent_start_mpv(request: HttpRequest):
-    """Start MPV via the playout agent (it comes up on standby)."""
     return Status(200, _agent_action("start"))
 
 
 @playout_api.post("/agent/stop", response={200: AgentActionResponseSchema, 422: ErrorResponseSchema})
 def agent_stop_mpv(request: HttpRequest):
-    """Stop MPV via the playout agent (graceful quit, then terminate)."""
     return Status(200, _agent_action("stop"))
 
 
 @playout_api.post("/agent/restart", response={200: AgentActionResponseSchema, 422: ErrorResponseSchema})
 def agent_restart_mpv(request: HttpRequest):
-    """Restart MPV via the playout agent (pushes the current launch config)."""
     return Status(200, _agent_action("restart"))
-
-
-# Playout hosts — manage cinefin-playout agent host(s) and proxy their
-# host-owned graphics/audio config + hardware enumeration.
-from cinefin.api.schemas.base import MessageResponseSchema  # noqa: E402
-from cinefin.api.services import playout_discovery  # noqa: E402
-from cinefin.api.services.playout_host_service import playout_host_service  # noqa: E402
 
 
 class PlayoutHostSchema(Schema):
@@ -469,7 +449,7 @@ class PlayoutHostSchema(Schema):
     needs_update: bool = Field(
         False, description="The agent is older than this Cinefin needs (recorded on pairing and refresh)"
     )
-    show_status: bool = Field(True, description="Whether the player shows its status over standby")
+    show_status: bool = True
     enabled: bool
     is_active: bool
     last_seen_at: str | None = None
@@ -486,13 +466,9 @@ class PlayoutHostResponse(SuccessResponseSchema):
     data: PlayoutHostSchema
 
 
-class HostConfigResponse(SuccessResponseSchema):
-    data: dict  # proxied opaquely — the agent owns the schema
-
-
 class HostGraphicsSchema(Schema):
     mode: str = Field("desktop", description='"desktop" (X/Wayland session) or "drm" (headless KMS)')
-    vo: str = Field("gpu-next", description="mpv video output driver")
+    vo: str = "gpu-next"
     gpu_api: str = Field("", description='"" = mpv default; e.g. "d3d11", "vulkan"')
     gpu_context: str = Field("", description='"" = auto; e.g. "displayvk", "drm"')
     hwdec: str = Field("auto", description="hardware decoding: auto / auto-safe / no / nvdec / vaapi / …")
@@ -525,7 +501,7 @@ class HostLaunchConfigResponse(SuccessResponseSchema):
 
 
 class HostConfigSavedSchema(Schema):
-    restart_required: bool = Field(False, description="the change applies on the next player restart")
+    restart_required: bool = False
 
 
 class HostConfigSavedResponse(SuccessResponseSchema):
@@ -572,7 +548,7 @@ class PlayoutHostInput(Schema):
     socket_path: str | None = None
     enabled: bool | None = None
     is_active: bool | None = None
-    show_status: bool | None = Field(default=None, description="Whether the player shows its status over standby")
+    show_status: bool | None = None
 
 
 class PairHostInput(Schema):
@@ -610,6 +586,13 @@ def _agent_url(raw: str) -> str:
     if parsed.port is None:
         url = f"{parsed.scheme}://{parsed.netloc}:{AGENT_DEFAULT_PORT}{parsed.path}"
     return url.rstrip("/")
+
+
+def _host_or_404(host_id: int, error_code: str | None = "HOST_NOT_FOUND") -> PlayoutHost:
+    host = PlayoutHost.objects.filter(pk=host_id).first()
+    if host is None:
+        raise NotFoundError("Playout host not found", error_code=error_code)
+    return host
 
 
 def _host_schema(host: PlayoutHost) -> PlayoutHostSchema:
@@ -734,10 +717,7 @@ def create_playout_host(request: HttpRequest, data: PlayoutHostInput):
     "/hosts/{host_id}", response={200: PlayoutHostResponse, 400: ErrorResponseSchema, 404: ErrorResponseSchema}
 )
 def update_playout_host(request: HttpRequest, host_id: int, data: PlayoutHostInput):
-    try:
-        host = PlayoutHost.objects.get(pk=host_id)
-    except PlayoutHost.DoesNotExist:
-        raise NotFoundError("Playout host not found") from None
+    host = _host_or_404(host_id, error_code=None)
     before = (host.name, host.show_status)
     if data.name is not None:
         host.name = data.name.strip() or host.name
@@ -769,10 +749,7 @@ def update_playout_host(request: HttpRequest, host_id: int, data: PlayoutHostInp
 
 @playout_api.post("/hosts/{host_id}/activate", response={200: PlayoutHostResponse, 404: ErrorResponseSchema})
 def activate_playout_host(request: HttpRequest, host_id: int):
-    try:
-        host = PlayoutHost.objects.get(pk=host_id)
-    except PlayoutHost.DoesNotExist:
-        raise NotFoundError("Playout host not found") from None
+    host = _host_or_404(host_id, error_code=None)
     # Switching hosts: unload the programme (it belongs to the old host's player)
     # and drop the control link, while the controller still points at the old host.
     current = PlayoutHost.get_active()
@@ -787,10 +764,7 @@ def activate_playout_host(request: HttpRequest, host_id: int):
 
 @playout_api.post("/hosts/{host_id}/refresh", response={200: PlayoutHostResponse, 404: ErrorResponseSchema})
 def refresh_playout_host(request: HttpRequest, host_id: int):
-    try:
-        host = PlayoutHost.objects.get(pk=host_id)
-    except PlayoutHost.DoesNotExist:
-        raise NotFoundError("Playout host not found") from None
+    host = _host_or_404(host_id, error_code=None)
     playout_host_service.refresh(host)
     host.refresh_from_db()
     return Status(200, PlayoutHostResponse(message="Playout host refreshed", data=_host_schema(host)))
@@ -798,10 +772,7 @@ def refresh_playout_host(request: HttpRequest, host_id: int):
 
 @playout_api.delete("/hosts/{host_id}", response={200: MessageResponseSchema, 404: ErrorResponseSchema})
 def delete_playout_host(request: HttpRequest, host_id: int):
-    try:
-        host = PlayoutHost.objects.get(pk=host_id)
-    except PlayoutHost.DoesNotExist:
-        raise NotFoundError("Playout host not found") from None
+    host = _host_or_404(host_id, error_code=None)
     was_active = host.is_active
     name = host.name
     if was_active:
@@ -822,13 +793,6 @@ def delete_playout_host(request: HttpRequest, host_id: int):
 
 # Host-owned graphics/audio config: addressed per host (belongs to the machine),
 # validated + persisted by the agent (its own copy is what it boots from).
-def _host_or_404(host_id: int) -> PlayoutHost:
-    host = PlayoutHost.objects.filter(pk=host_id).first()
-    if host is None:
-        raise NotFoundError("Playout host not found", error_code="HOST_NOT_FOUND")
-    return host
-
-
 @playout_api.get(
     "/hosts/{host_id}/config",
     response={200: HostLaunchConfigResponse, 404: ErrorResponseSchema, 422: ErrorResponseSchema},
@@ -866,7 +830,7 @@ class TestCardInput(Schema):
 
 class TestCardSchema(Schema):
     on: bool
-    off_in_s: int = Field(0, description="Seconds until the player hides it by itself")
+    off_in_s: int = 0
 
 
 class TestCardResponse(SuccessResponseSchema):
@@ -919,8 +883,3 @@ def restart_host(request: HttpRequest, host_id: int):
     host = _host_or_404(host_id)
     playout_agent_service.restart_host(host)
     return Status(200, MessageResponseSchema(message=f"{host.name} is restarting"))
-
-
-@playout_api.get("/host/config", response={200: HostConfigResponse, 422: ErrorResponseSchema})
-def get_host_config(request: HttpRequest):
-    return Status(200, HostConfigResponse(message="Host config", data=playout_agent_service.get_hostconfig()))

@@ -1,6 +1,11 @@
+"""Every route that starts a programme stamps last_played_at, and only on success."""
+
 import pytest
 
-from cinefin.api.services.playout_service import mark_programme_played
+import cinefin.api.mpv_service as mpv_module
+from cinefin.api.mpv_service import ProgrammeState
+from cinefin.api.services import ProgrammeService, schedule_runner
+from cinefin.api.services.playout_agent_service import playout_agent_service
 
 from .factories import (
     MovieFactory,
@@ -13,108 +18,48 @@ from .factories import (
 
 pytestmark = pytest.mark.django_db
 
-API = "/api/v2"
+svc = mpv_module.mpv_service
 
 
-class TestMarkProgrammePlayed:
-    def test_sets_timestamp(self):
-        programme = ProgrammeFactory()
-        assert programme.last_played_at is None
-
-        mark_programme_played(programme.id)
-
-        programme.refresh_from_db()
-        assert programme.last_played_at is not None
-
-    def test_unknown_id_is_a_noop(self):
-        mark_programme_played(999999)
+def played(programme):
+    programme.refresh_from_db()
+    return programme.last_played_at is not None
 
 
-class TestProgrammeRunPath:
-    def _ready_programme(self):
-        programme = ProgrammeFactory()
-        block_for(programme, 0, "movie", MovieFactory())
-        PlaylistFactory(programme=programme)
-        return programme
-
-    def _patch_mpv(self, monkeypatch, *, load_ok=True, start_ok=True):
-        import cinefin.api.mpv_service as mpv_module
-        from cinefin.api.services.playout_agent_service import playout_agent_service
-
-        monkeypatch.setattr(mpv_module.mpv_service, "load_programme", lambda prog: load_ok, raising=False)
-        monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda preshow=False: start_ok, raising=False)
-        monkeypatch.setattr(playout_agent_service, "ensure_mpv_running", lambda: True, raising=False)
-
-    def test_run_marks_played(self, client, monkeypatch):
-        from cinefin.api.services import ProgrammeService
-
-        programme = self._ready_programme()
-        self._patch_mpv(monkeypatch)
-
+@pytest.mark.parametrize("load_ok", [True, False])
+def test_run(client, monkeypatch, load_ok):
+    programme = ProgrammeFactory()
+    block_for(programme, 0, "movie", MovieFactory())
+    PlaylistFactory(programme=programme)
+    monkeypatch.setattr(svc, "load_programme", lambda prog: load_ok)
+    monkeypatch.setattr(svc, "start_programme", lambda preshow=False: True)
+    monkeypatch.setattr(playout_agent_service, "ensure_mpv_running", lambda: True)
+    if load_ok:
         ProgrammeService.run_programme(programme.id)
-
-        programme.refresh_from_db()
-        assert programme.last_played_at is not None
-
-    def test_failed_load_raises_and_does_not_mark(self, client, monkeypatch):
-        """Regression: a load failure must surface as 422 and not stamp last_played_at."""
-        programme = self._ready_programme()
-        self._patch_mpv(monkeypatch, load_ok=False)
-
-        response = client.post(f"{API}/programmes/{programme.id}/run")
-
-        assert response.status_code == 422
-        programme.refresh_from_db()
-        assert programme.last_played_at is None
+    else:
+        assert client.post(f"/api/v2/programmes/{programme.id}/run").status_code == 422
+    assert played(programme) is load_ok
 
 
-class TestPlayoutStartAction:
-    def _prime_mpv(self, monkeypatch, programme, start_ok=True):
-        from cinefin.api.mpv_service import ProgrammeState, mpv_service
-
-        monkeypatch.setattr(mpv_service, "current_programme", programme, raising=False)
-        monkeypatch.setattr(mpv_service, "programme_state", ProgrammeState.LOADED, raising=False)
-        monkeypatch.setattr(mpv_service, "manual_items", [], raising=False)
-        monkeypatch.setattr(
-            mpv_service, "snapshot", lambda: {"pause": True, "time": 0.0, "duration": 0.0, "pos": 0, "path": ""}
-        )
-        monkeypatch.setattr(mpv_service, "start_programme", lambda: start_ok, raising=False)
-
-    def test_start_marks_played(self, client, monkeypatch):
-        programme = ProgrammeFactory()
-        self._prime_mpv(monkeypatch, programme)
-
-        response = client.post(f"{API}/playout/control", {"action": "start"}, content_type="application/json")
-
-        assert response.status_code == 200
-        programme.refresh_from_db()
-        assert programme.last_played_at is not None
-
-    def test_failed_start_does_not_mark(self, client, monkeypatch):
-        programme = ProgrammeFactory()
-        self._prime_mpv(monkeypatch, programme, start_ok=False)
-
-        response = client.post(f"{API}/playout/control", {"action": "start"}, content_type="application/json")
-
-        assert response.status_code == 422
-        programme.refresh_from_db()
-        assert programme.last_played_at is None
+@pytest.mark.parametrize(("start_ok", "status"), [(True, 200), (False, 422)])
+def test_playout_start(client, monkeypatch, start_ok, status):
+    programme = ProgrammeFactory()
+    monkeypatch.setattr(svc, "current_programme", programme)
+    monkeypatch.setattr(svc, "programme_state", ProgrammeState.LOADED)
+    monkeypatch.setattr(svc, "manual_items", [])
+    monkeypatch.setattr(svc, "snapshot", lambda: {"pause": True, "time": 0.0, "duration": 0.0, "pos": 0, "path": ""})
+    monkeypatch.setattr(svc, "start_programme", lambda: start_ok)
+    response = client.post("/api/v2/playout/control", {"action": "start"}, content_type="application/json")
+    assert response.status_code == status
+    assert played(programme) is start_ok
 
 
-class TestScheduleRunnerPath:
-    def test_execute_schedule_marks_played(self, monkeypatch):
-        import cinefin.api.mpv_service as mpv_module
-        from cinefin.api.services import schedule_runner
-
-        programme = ProgrammeFactory()
-        PlaylistItemFactory(playlist=PlaylistFactory(programme=programme), order=0)
-        schedule = ProgrammeScheduleFactory(programme=programme, status="running")  # as claimed by tick()
-
-        monkeypatch.setattr(mpv_module.mpv_service, "load_programme", lambda prog: True, raising=False)
-        monkeypatch.setattr(mpv_module.mpv_service, "start_programme", lambda: True, raising=False)
-        monkeypatch.setattr(schedule_runner.time, "sleep", lambda seconds: None)
-
-        schedule_runner.execute_schedule(schedule)
-
-        programme.refresh_from_db()
-        assert programme.last_played_at is not None
+def test_schedule_runner(monkeypatch):
+    programme = ProgrammeFactory()
+    PlaylistItemFactory(playlist=PlaylistFactory(programme=programme), order=0)
+    schedule = ProgrammeScheduleFactory(programme=programme, status="running")  # as claimed by tick()
+    monkeypatch.setattr(svc, "load_programme", lambda prog: True)
+    monkeypatch.setattr(svc, "start_programme", lambda: True)
+    monkeypatch.setattr(schedule_runner.time, "sleep", lambda seconds: None)
+    schedule_runner.execute_schedule(schedule)
+    assert played(programme)

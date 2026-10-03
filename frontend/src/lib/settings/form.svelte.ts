@@ -1,13 +1,11 @@
-// SettingsStore — the Settings page's single source of truth.
-//
-// One sticky "Save changes" writes the main settings then the trailer settings.
-// Everything else (security, API keys, playout hosts, rating cards, web logo,
-// ticket designs) applies immediately and is NOT part of the draft/dirty tracking.
-// Numeric inputs are held as strings (what the <input>s bind) and parsed on save.
+// SettingsStore: the Settings page's draft behind its one Save bar (main settings, then trailer
+// settings). Everything else on the page applies at once. Numeric inputs are held as strings.
 import { api, unwrap, ApiError, toApiError } from '$lib/api/client';
 import { mutate } from '$lib/api/mutate';
 import { unwrapLoose } from '$lib/jobs';
-import type { TrailerSettingsData } from './types';
+import { showToast } from '$lib/toast.svelte';
+import type { components } from '$lib/api/types.gen';
+import type { CheckState } from './types';
 
 /** The built-in accent — the mark's blue channel. Keep in step with --color-accent in app.css. */
 export const DEFAULT_ACCENT = '#3a7bff';
@@ -20,121 +18,78 @@ export interface Bumper {
 	hold_point?: number | null;
 }
 
-/** Keys match the backend payload field names so field-level save errors map 1:1. */
-export interface MainDraft {
-	cinema_name: string;
-	ratings_system: string;
-	default_cinema_ident: string; // media item id, or '' = the System Ident
-	ticket_total_rows: string;
-	ticket_seats_per_row: string;
-	ticket_printer_type: string;
-	ticket_printer_device: string;
-	ticket_printer_host: string;
-	ticket_printer_port: string;
-	ticket_printer_timeout: string;
-	ticket_feed_lines: string;
-	ticket_cut: string;
-	ticket_image_mode: string;
-	ticket_paper_width: string;
-	subtitle_font_size: string;
-	subtitle_color: string;
-	subtitle_border_style: string;
-	subtitle_back_color: string;
-	subtitle_position: string;
-	subtitle_margin_y: string;
-	subtitle_use_margins: boolean;
-	subtitle_bold: boolean;
-	playout_server_url: string;
-	accent_color: string;
-	display_time_format: string;
-	kiosk_layout: string;
-	kiosk_rotate_minutes: string;
-	kiosk_countdown_minutes: string;
-	kiosk_header: boolean;
-	kiosk_clock: boolean;
-	kiosk_takeover: boolean;
-	kiosk_night: boolean;
-	kiosk_night_start: string;
-	kiosk_night_end: string;
-	kiosk_content_source: string;
-	kiosk_show_showtimes: boolean;
+/** The draft of the saved settings. Keys match the backend payload field names so field-level
+ *  save errors map 1:1. */
+function mainDraft(s: components['schemas']['SettingsDataSchema']) {
+	return {
+		cinema_name: s.cinema_name,
+		ratings_system: s.ratings_system ?? 'BBFC',
+		default_cinema_ident:
+			s.default_cinema_ident_id != null ? String(s.default_cinema_ident_id) : '',
+		ticket_total_rows: String(s.ticket_total_rows),
+		ticket_seats_per_row: String(s.ticket_seats_per_row),
+		ticket_printer_type: (s.ticket_printer_type === 'network' ? 'network' : 'file') as string,
+		ticket_printer_device: s.ticket_printer_device,
+		ticket_printer_host: s.ticket_printer_host ?? '',
+		ticket_printer_port: String(s.ticket_printer_port ?? 9100),
+		ticket_printer_timeout: String(s.ticket_printer_timeout ?? 30),
+		ticket_feed_lines: String(s.ticket_feed_lines ?? 2),
+		ticket_cut: s.ticket_cut || 'off',
+		ticket_image_mode: s.ticket_image_mode || 'raster',
+		ticket_paper_width: (s.ticket_paper_width === 576 ? '576' : '384') as string,
+		subtitle_font_size: String(s.subtitle_font_size ?? 55),
+		subtitle_color: s.subtitle_color || '#FFFFFF',
+		subtitle_border_style: s.subtitle_border_style || 'outline-and-shadow',
+		subtitle_back_color: s.subtitle_back_color || '#000000',
+		subtitle_position: String(s.subtitle_position ?? 100),
+		subtitle_margin_y: String(s.subtitle_margin_y ?? 22),
+		subtitle_use_margins: !!s.subtitle_use_margins,
+		subtitle_bold: !!s.subtitle_bold,
+		playout_server_url: s.playout_server_url ?? '',
+		accent_color: s.accent_color || DEFAULT_ACCENT,
+		display_time_format: (s.display_time_format === '12h' ? '12h' : '24h') as string,
+		kiosk_layout: s.kiosk_layout ?? 'wall',
+		kiosk_rotate_minutes: String(s.kiosk_rotate_minutes ?? 0),
+		kiosk_countdown_minutes: String(s.kiosk_countdown_minutes ?? 30),
+		kiosk_header: !!s.kiosk_header,
+		kiosk_clock: !!s.kiosk_clock,
+		kiosk_takeover: !!s.kiosk_takeover,
+		kiosk_night: !!s.kiosk_night,
+		kiosk_night_start: s.kiosk_night_start ?? '01:00',
+		kiosk_night_end: s.kiosk_night_end ?? '08:00',
+		kiosk_content_source: s.kiosk_content_source ?? 'flagged',
+		kiosk_show_showtimes: !!s.kiosk_show_showtimes
+	};
 }
+export type MainDraft = ReturnType<typeof mainDraft>;
 
-export interface TrailerDraft {
-	tmdb_api_key: string;
-	download_quality: string;
-	upcoming_months_ahead: string;
-	filename_template: string;
-	folder_template: string;
-	rating_lookup_enabled: boolean;
+function trailerDraft(t: components['schemas']['TrailerSettingsSchema']) {
+	return {
+		tmdb_api_key: t.tmdb_api_key || '',
+		download_quality: t.download_quality || '1080',
+		upcoming_months_ahead: String(t.upcoming_months_ahead ?? 6),
+		filename_template: t.filename_template || '',
+		folder_template: t.folder_template || '',
+		rating_lookup_enabled: t.rating_lookup_enabled !== false
+	};
 }
 
 /** Which nav section a save-rejected field lives in (to reveal it). */
-const FIELD_SECTIONS: Record<string, string> = {
-	cinema_name: 'cinema',
-	ratings_system: 'cinema',
-	default_cinema_ident: 'playout',
-	subtitle_font_size: 'playout',
-	subtitle_color: 'playout',
-	subtitle_border_style: 'playout',
-	subtitle_back_color: 'playout',
-	subtitle_position: 'playout',
-	subtitle_margin_y: 'playout',
-	playout_server_url: 'playout',
-	accent_color: 'appearance',
-	display_time_format: 'appearance'
-};
-
-function emptyMain(): MainDraft {
-	return {
-		cinema_name: '',
-		ratings_system: 'BBFC',
-		default_cinema_ident: '',
-		ticket_total_rows: '10',
-		ticket_seats_per_row: '20',
-		ticket_printer_type: 'file',
-		ticket_printer_device: '',
-		ticket_printer_host: '',
-		ticket_printer_port: '9100',
-		ticket_printer_timeout: '30',
-		ticket_feed_lines: '2',
-		ticket_cut: 'off',
-		ticket_image_mode: 'raster',
-		ticket_paper_width: '384',
-		subtitle_font_size: '55',
-		subtitle_color: '#FFFFFF',
-		subtitle_border_style: 'outline-and-shadow',
-		subtitle_back_color: '#000000',
-		subtitle_position: '100',
-		subtitle_margin_y: '22',
-		subtitle_use_margins: true,
-		subtitle_bold: false,
-		playout_server_url: '',
-		accent_color: DEFAULT_ACCENT,
-		display_time_format: '24h',
-		kiosk_layout: 'wall',
-		kiosk_rotate_minutes: '0',
-		kiosk_countdown_minutes: '30',
-		kiosk_header: true,
-		kiosk_clock: true,
-		kiosk_takeover: true,
-		kiosk_night: false,
-		kiosk_night_start: '01:00',
-		kiosk_night_end: '08:00',
-		kiosk_content_source: 'flagged',
-		kiosk_show_showtimes: true
+function sectionOf(field: string): string | undefined {
+	const named: Record<string, string> = {
+		cinema_name: 'cinema',
+		ratings_system: 'cinema',
+		default_cinema_ident: 'playout',
+		playout_server_url: 'playout',
+		accent_color: 'appearance',
+		display_time_format: 'appearance'
 	};
-}
-
-function emptyTrailers(): TrailerDraft {
-	return {
-		tmdb_api_key: '',
-		download_quality: '1080',
-		upcoming_months_ahead: '6',
-		filename_template: '',
-		folder_template: '',
-		rating_lookup_enabled: true
+	const byPrefix: Record<string, string> = {
+		kiosk: 'kiosk',
+		ticket: 'tickets',
+		subtitle: 'playout'
 	};
+	return named[field] ?? byPrefix[field.split('_')[0]];
 }
 
 export type SaveResult =
@@ -144,13 +99,14 @@ export class SettingsStore {
 	loading = $state(true);
 	error = $state<ApiError | null>(null);
 
-	main = $state<MainDraft>(emptyMain());
-	trailers = $state<TrailerDraft>(emptyTrailers());
+	// Filled by load(); the page renders no section before it succeeds.
+	main = $state<MainDraft>({} as MainDraft);
+	// Kept when the trailer settings can't be read.
+	trailers = $state(trailerDraft({}));
 	/** True when no custom accent is saved or picked ('' saves = reset). */
 	accentCleared = $state(false);
 
 	bumpers = $state<Bumper[]>([]);
-	namingTokens = $state<{ token: string; description: string }[]>([]);
 	webLogoUrl = $state<string | null>(null);
 	updatedAt = $state('');
 	saving = $state(false);
@@ -167,34 +123,15 @@ export class SettingsStore {
 		});
 	}
 
-	/** Save a few fields at once, outside the page's Save bar (for surfaces that auto-save, like the
-	 *  ticket designer), and fold them into the baseline so they never show as unsaved changes. */
-	async saveFields(fields: Partial<MainDraft>, body: Record<string, unknown>): Promise<void> {
-		await mutate(api.POST('/api/v2/settings/', { body }));
-		Object.assign(this.main, fields);
-		if (!this.#baseline) return;
-		const base = JSON.parse(this.#baseline);
-		Object.assign(base.m, $state.snapshot(fields));
-		this.#baseline = JSON.stringify(base);
-	}
-
 	get dirtyKeys(): string[] {
 		if (!this.#baseline) return [];
-		const base = JSON.parse(this.#baseline) as {
-			m: Record<string, unknown>;
-			t: Record<string, unknown>;
-			a: boolean;
-		};
-		const keys: string[] = [];
-		for (const [k, v] of Object.entries(this.main)) {
-			if (JSON.stringify(v) !== JSON.stringify(base.m[k])) keys.push(k);
-		}
-		for (const [k, v] of Object.entries(this.trailers)) {
-			if (JSON.stringify(v) !== JSON.stringify(base.t[k])) keys.push(`trailers.${k}`);
-		}
-		if (this.accentCleared !== base.a && !keys.includes('accent_color')) {
-			keys.push('accent_color');
-		}
+		const base = JSON.parse(this.#baseline);
+		const changed = (now: object, was: Record<string, unknown>, prefix = '') =>
+			Object.entries(now)
+				.filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(was[k]))
+				.map(([k]) => prefix + k);
+		const keys = [...changed(this.main, base.m), ...changed(this.trailers, base.t, 'trailers.')];
+		if (this.accentCleared !== base.a && !keys.includes('accent_color')) keys.push('accent_color');
 		return keys;
 	}
 
@@ -217,64 +154,17 @@ export class SettingsStore {
 		try {
 			const [data, trailerData] = await Promise.all([
 				unwrap(api.GET('/api/v2/settings/')),
-				unwrapLoose<TrailerSettingsData>(api.GET('/api/v2/trailers/settings')).catch(() => null)
+				unwrapLoose<{ settings?: components['schemas']['TrailerSettingsSchema'] }>(
+					api.GET('/api/v2/trailers/settings')
+				).catch(() => null)
 			]);
 			const s = data.settings;
 			this.bumpers = data.bumpers;
 			this.webLogoUrl = s.cinema_web_logo_url ?? null;
 			this.updatedAt = s.updated_at;
 			this.accentCleared = !s.accent_color;
-			this.main = {
-				cinema_name: s.cinema_name,
-				ratings_system: s.ratings_system ?? 'BBFC',
-				default_cinema_ident:
-					s.default_cinema_ident_id != null ? String(s.default_cinema_ident_id) : '',
-				ticket_total_rows: String(s.ticket_total_rows),
-				ticket_seats_per_row: String(s.ticket_seats_per_row),
-				ticket_printer_type: s.ticket_printer_type === 'network' ? 'network' : 'file',
-				ticket_printer_device: s.ticket_printer_device,
-				ticket_printer_host: s.ticket_printer_host ?? '',
-				ticket_printer_port: String(s.ticket_printer_port ?? 9100),
-				ticket_printer_timeout: String(s.ticket_printer_timeout ?? 30),
-				ticket_feed_lines: String(s.ticket_feed_lines ?? 2),
-				ticket_cut: s.ticket_cut || 'off',
-				ticket_image_mode: s.ticket_image_mode || 'raster',
-				ticket_paper_width: s.ticket_paper_width === 576 ? '576' : '384',
-				subtitle_font_size: String(s.subtitle_font_size ?? 55),
-				subtitle_color: s.subtitle_color || '#FFFFFF',
-				subtitle_border_style: s.subtitle_border_style || 'outline-and-shadow',
-				subtitle_back_color: s.subtitle_back_color || '#000000',
-				subtitle_position: String(s.subtitle_position ?? 100),
-				subtitle_margin_y: String(s.subtitle_margin_y ?? 22),
-				subtitle_use_margins: !!s.subtitle_use_margins,
-				subtitle_bold: !!s.subtitle_bold,
-				playout_server_url: s.playout_server_url ?? '',
-				accent_color: s.accent_color || DEFAULT_ACCENT,
-				display_time_format: s.display_time_format === '12h' ? '12h' : '24h',
-				kiosk_layout: s.kiosk_layout ?? 'wall',
-				kiosk_rotate_minutes: String(s.kiosk_rotate_minutes ?? 0),
-				kiosk_countdown_minutes: String(s.kiosk_countdown_minutes ?? 30),
-				kiosk_header: !!s.kiosk_header,
-				kiosk_clock: !!s.kiosk_clock,
-				kiosk_takeover: !!s.kiosk_takeover,
-				kiosk_night: !!s.kiosk_night,
-				kiosk_night_start: s.kiosk_night_start ?? '01:00',
-				kiosk_night_end: s.kiosk_night_end ?? '08:00',
-				kiosk_content_source: s.kiosk_content_source ?? 'flagged',
-				kiosk_show_showtimes: !!s.kiosk_show_showtimes
-			};
-			if (trailerData) {
-				const t = trailerData.settings ?? {};
-				this.namingTokens = trailerData.naming_tokens ?? [];
-				this.trailers = {
-					tmdb_api_key: t.tmdb_api_key || '',
-					download_quality: t.download_quality || '1080',
-					upcoming_months_ahead: String(t.upcoming_months_ahead ?? 6),
-					filename_template: t.filename_template || '',
-					folder_template: t.folder_template || '',
-					rating_lookup_enabled: t.rating_lookup_enabled !== false
-				};
-			}
+			this.main = mainDraft(s);
+			if (trailerData) this.trailers = trailerDraft(trailerData.settings ?? {});
 			this.fieldError = null;
 			this.snapshot();
 		} catch (e) {
@@ -362,7 +252,7 @@ export class SettingsStore {
 					ok: false,
 					message: field.message,
 					field: field.field,
-					section: FIELD_SECTIONS[field.field] ?? this.#sectionFromPrefix(field.field)
+					section: sectionOf(field.field)
 				};
 			}
 			return { ok: false, message: err.message || 'Failed to save settings' };
@@ -387,35 +277,14 @@ export class SettingsStore {
 		}
 		return null;
 	}
-
-	#sectionFromPrefix(field: string): string | undefined {
-		if (field.startsWith('kiosk_')) return 'kiosk';
-		if (field.startsWith('ticket_')) return 'tickets';
-		if (field.startsWith('subtitle_')) return 'playout';
-		return undefined;
-	}
 }
 
 /** Django's date:"M j, Y H:i" (e.g. "Aug 15, 2026 14:03"), in local time. */
 export function formatStamp(iso: string): string {
 	const d = new Date(iso);
 	if (Number.isNaN(d.getTime())) return '-';
-	const months = [
-		'Jan',
-		'Feb',
-		'Mar',
-		'Apr',
-		'May',
-		'Jun',
-		'Jul',
-		'Aug',
-		'Sep',
-		'Oct',
-		'Nov',
-		'Dec'
-	];
 	const pad = (n: number) => String(n).padStart(2, '0');
-	return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+	return `${d.toLocaleString('en-US', { month: 'short' })} ${d.getDate()}, ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** ISO → locale date-time, '—' for blank/invalid ('never' is the caller's call). */
@@ -450,4 +319,30 @@ export async function raw<T>(
 		throw toApiError(result.error, result.response);
 	}
 	return result.data;
+}
+
+/** Run an action; on failure toast its message (else `fail`). Resolves whether it succeeded. */
+export async function attempt(fn: () => Promise<unknown>, fail: string): Promise<boolean> {
+	try {
+		await fn();
+		return true;
+	} catch (e) {
+		showToast(errorText(e, fail), 'error');
+		return false;
+	}
+}
+
+export const errorText = (e: unknown, fallback: string) =>
+	(e instanceof Error && e.message) || fallback;
+
+/** Run a check endpoint ({ ok, message }) and read its answer as a CheckState. */
+export async function runCheck(
+	fn: () => Promise<{ ok: boolean; message: string }>
+): Promise<CheckState> {
+	try {
+		const res = await fn();
+		return { state: res.ok ? 'ok' : 'error', message: res.message };
+	} catch (e) {
+		return { state: 'error', message: errorText(e, 'Test failed') };
+	}
 }

@@ -3,11 +3,11 @@
 	import { api, unwrap } from '$lib/api/client';
 	import { uploadWithProgress } from '$lib/upload';
 	import { showToast } from '$lib/toast.svelte';
-	import { DEFAULT_ACCENT, type SettingsStore } from '$lib/settings/form.svelte';
+	import { DEFAULT_ACCENT, attempt, type SettingsStore } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
 	import Field from '$lib/settings/Field.svelte';
+	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
 	import { display } from '$lib/display.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -23,7 +23,7 @@
 		const file = logoInput?.files?.[0];
 		if (logoInput) logoInput.value = '';
 		if (!file) return;
-		try {
+		await attempt(async () => {
 			const res = await uploadWithProgress<{ logo_url?: string | null }>(
 				'/api/v2/settings/branding/logo',
 				file,
@@ -33,28 +33,30 @@
 			);
 			store.webLogoUrl = res?.logo_url ?? null;
 			showToast('Web logo uploaded', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to upload logo', 'error');
-		}
+		}, 'Failed to upload logo');
 	}
 
 	async function removeLogo() {
-		if (
-			!(await confirm(
-				'Remove the web logo? The login screen returns to the theater name / default mark.',
-				{ confirmLabel: 'Remove' }
-			))
-		) {
-			return;
-		}
-		try {
+		const ok = await confirm(
+			'Remove the web logo? The login screen returns to the theater name / default mark.',
+			{ confirmLabel: 'Remove' }
+		);
+		if (!ok) return;
+		await attempt(async () => {
 			await unwrap(api.DELETE('/api/v2/settings/branding/logo'));
 			store.webLogoUrl = null;
 			showToast('Web logo removed', 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to remove logo', 'error');
-		}
+		}, 'Failed to remove logo');
 	}
+
+	const CLOCK = storeField('display_time_format', 'Clock format', 'set-display-time-format', {
+		hint: 'Applies to showtimes and clocks across the web UI. Tickets have their own format setting.',
+		input: 'max-w-sm',
+		options: [
+			['24h', '24-hour (19:30)'],
+			['12h', '12-hour (7:30 PM)']
+		]
+	});
 
 	const SWATCHES: { color: string; label: string }[] = [
 		{ color: DEFAULT_ACCENT, label: 'Cinefin blue (default)' },
@@ -85,11 +87,9 @@
 	$effect(() => {
 		display.applyAccent(store.accentCleared ? null : store.main.accent_color, { cache: false });
 	});
-	$effect(() => {
-		return () => {
-			if (store.isDirty('accent_color')) display.restoreCachedAccent();
-			else display.applyAccent(store.accentCleared ? null : store.main.accent_color);
-		};
+	$effect(() => () => {
+		if (store.isDirty('accent_color')) display.restoreCachedAccent();
+		else display.applyAccent(store.accentCleared ? null : store.main.accent_color);
 	});
 </script>
 
@@ -132,8 +132,8 @@
 			<Field
 				label="Accent colour"
 				hint="Re-tints buttons, links and highlights across the app on every device. Saved with the other settings."
-				dirty={store.isDirty('accent_color')}
-				error={store.errorFor('accent_color')}
+				{store}
+				field="accent_color"
 			>
 				<div class="flex flex-wrap items-center gap-2">
 					{#each SWATCHES as sw (sw.color)}
@@ -172,22 +172,7 @@
 				</div>
 			</Field>
 
-			<Field
-				label="Clock format"
-				forId="set-display-time-format"
-				hint="Applies to showtimes and clocks across the web UI. Tickets have their own format setting."
-				dirty={store.isDirty('display_time_format')}
-				error={store.errorFor('display_time_format')}
-			>
-				<Select
-					id="set-display-time-format"
-					bind:value={store.main.display_time_format}
-					class="max-w-sm"
-				>
-					<option value="24h">24-hour (19:30)</option>
-					<option value="12h">12-hour (7:30 PM)</option>
-				</Select>
-			</Field>
+			<StoreField {store} {...CLOCK} />
 		</div>
 	</Card>
 </div>

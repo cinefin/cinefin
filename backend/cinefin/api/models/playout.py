@@ -53,14 +53,8 @@ class PlaylistItem(models.Model):
     def content_object(self):
         if self.content_type == "movie":
             return self.movie_playback
-        if self.content_type == "trailer":
-            return self.trailer
-        if self.content_type == "bumper":
-            return self.bumper
-        if self.content_type == "command":
-            return self.command
-        if self.content_type == "certification":
-            return self.certification
+        if self.content_type in ("trailer", "bumper", "command", "certification"):
+            return getattr(self, self.content_type)
         return None
 
     def __str__(self):

@@ -1,18 +1,8 @@
 <script lang="ts">
 	/**
-	 * The detail drawer: one library item (a film, a trailer, a media clip) beside the list it came
-	 * from. Mount it only while an item is open; the host owns which item that is.
-	 *
-	 * - xl and up: docked to the right edge between the top bar and the playout bar, and NOT modal —
-	 *   the page's <main> gives up the width (html.side-panel-open, app.css) so the list reflows and
-	 *   stays clickable; clicking another item swaps the drawer's contents in place.
-	 * - Below xl: slides over the page on a scrim, full width on a phone; the page behind stops
-	 *   scrolling and focus stays inside.
-	 * - `history` (default on): opening pushes a history entry, so Back — the phone's back button or
-	 *   swipe — closes the drawer instead of leaving the page. Hosts that keep the open item in their
-	 *   own shallow-routing state (the library) pass `history={false}`.
-	 * - The item open in the host's list carries `data-panel-item={id}` and, when it's this one,
-	 *   `data-panel-current`: the drawer keeps it scrolled into view as you step through.
+	 * The detail drawer beside the list it came from (mount only while an item is open). Docked
+	 * and non-modal from xl (html.side-panel-open reflows <main>), overlaid on a scrim below.
+	 * `history` pushes an entry so Back closes it; the host's open item is `data-panel-current`.
 	 */
 	import type { Snippet } from 'svelte';
 	import { onMount } from 'svelte';
@@ -59,7 +49,6 @@
 	const prevId = $derived(position > 0 ? ids[position - 1] : null);
 	const nextId = $derived(position !== -1 && position < ids.length - 1 ? ids[position + 1] : null);
 
-	// ── History: Back closes ────────────────────────────────────────────────
 	let pushed = false;
 	// A drawer opened while a navigation is still landing (a deep link followed from another page —
 	// the film drawer's "Trailer in library") must wait for it: pushing mid-navigation gets our entry
@@ -94,7 +83,6 @@
 		else onclose();
 	}
 
-	// ── Layout: docked reflows the page; overlay locks it ───────────────────
 	onMount(() => {
 		const root = document.documentElement;
 		const opener = document.activeElement as HTMLElement | null;
@@ -122,7 +110,6 @@
 			?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 	});
 
-	// ── Keys and focus ──────────────────────────────────────────────────────
 	const dialogOpen = () => document.querySelector('dialog[open]') !== null;
 
 	function onkeydown(e: KeyboardEvent) {
@@ -155,6 +142,19 @@
 	}
 </script>
 
+{#snippet stepButton(name: string, key: string, target: number | null, Icon: typeof ChevronLeft)}
+	<button
+		type="button"
+		class="rounded-sm p-2 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-30"
+		title="{name} ({key})"
+		aria-label={name}
+		disabled={target === null}
+		onclick={() => target !== null && onstep?.(target)}
+	>
+		<Icon size={16} />
+	</button>
+{/snippet}
+
 <svelte:window {onkeydown} />
 <svelte:document {onfocusin} />
 
@@ -181,26 +181,8 @@
 	>
 		<header class="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2">
 			{#if ids.length > 1}
-				<button
-					type="button"
-					class="rounded-sm p-2 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-30"
-					title="Previous (←)"
-					aria-label="Previous"
-					disabled={prevId === null}
-					onclick={() => prevId !== null && onstep?.(prevId)}
-				>
-					<ChevronLeft size={16} />
-				</button>
-				<button
-					type="button"
-					class="rounded-sm p-2 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-30"
-					title="Next (→)"
-					aria-label="Next"
-					disabled={nextId === null}
-					onclick={() => nextId !== null && onstep?.(nextId)}
-				>
-					<ChevronRight size={16} />
-				</button>
+				{@render stepButton('Previous', '←', prevId, ChevronLeft)}
+				{@render stepButton('Next', '→', nextId, ChevronRight)}
 				{#if position !== -1}
 					<span class="ml-1 font-mono text-xs text-faint">{position + 1} of {ids.length}</span>
 				{/if}

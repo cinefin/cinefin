@@ -4,7 +4,7 @@ import pytest
 
 from cinefin.api.models import PlaylistItem
 from cinefin.api.mpv_controller import title_option
-from cinefin.api.mpv_service import item_title, manual_title
+from cinefin.api.mpv_service import item_title
 
 from .factories import BumperFactory
 
@@ -34,8 +34,3 @@ def test_item_title_prefers_the_linked_content():
     bumper = BumperFactory(title="Coming Soon")
     item = PlaylistItem(content_type="bumper", bumper=bumper, metadata={"bumper_title": "Old name"})
     assert item_title(item) == "User Media: Coming Soon"
-
-
-def test_manual_title():
-    assert manual_title("media", "Intro") == "User Media: Intro"
-    assert manual_title("url", "clip.mp4") == "URL: clip.mp4"

@@ -14,22 +14,22 @@ Action = Literal["cue", "start", "pause", "resume", "previous", "next", "seek", 
 
 
 class ProgrammeFeatureSchema(Schema):
-    id: int = Field(..., description="Movie ID")
-    title: str = Field(..., description="Movie title")
-    year: int | None = Field(None, description="Release year")
+    id: int
+    title: str
+    year: int | None = None
     certification: str | None = Field(None, description="Certificate for the active ratings system")
-    runtime_minutes: int | None = Field(None, description="Runtime in minutes")
-    thumbnail_url: str | None = Field(None, description="Poster URL")
+    runtime_minutes: int | None = None
+    thumbnail_url: str | None = None
 
 
 class ProgrammeInfoSchema(Schema):
-    id: int = Field(..., description="Programme ID")
-    name: str = Field(..., description="Programme name")
-    description: str = Field(..., description="Programme description")
-    runtime_minutes: int = Field(..., description="Total runtime in minutes")
-    runtime_formatted: str = Field(..., description="Formatted runtime string")
-    block_count: int = Field(..., description="Number of blocks in programme")
-    created_at: str | None = Field(None, description="ISO timestamp of programme creation")
+    id: int
+    name: str
+    description: str
+    runtime_minutes: int
+    runtime_formatted: str
+    block_count: int
+    created_at: str | None = None
     features: list[ProgrammeFeatureSchema] = Field(
         default_factory=list, description="The programme's feature films, in running order"
     )
@@ -40,23 +40,23 @@ class PlaylistStatusSchema(Schema):
     total_items: int = Field(..., description="Items in the running order (the end sentinel not counted)")
     mpv_position: int | None = Field(None, description="The player's playlist index")
     offset: int = Field(..., description="Player index of programme item 0 (1, or 2 with a title card)")
-    programme_total_duration: float = Field(..., description="Length of the whole programme in seconds")
-    programme_elapsed_time: float = Field(..., description="Seconds of the programme played")
-    programme_remaining_time: float = Field(..., description="Seconds of the programme left")
+    programme_total_duration: float
+    programme_elapsed_time: float
+    programme_remaining_time: float
 
 
 class ItemSchema(Schema):
     type: str = Field(..., description="Item type (movie, trailer, title, ...)")
     position: int = Field(..., description="Programme position; -1 for the title card")
-    title: str | None = Field(None, description="Display title")
+    title: str | None = None
     duration: float | None = Field(None, description="Length in seconds, when known")
     details: dict[str, Any] = Field(default_factory=dict, description="content_id and per-type metadata")
 
 
 class PlaybackStatusSchema(Schema):
     position: float = Field(..., description="Seconds into the item on screen (a hold's own clock during a hold)")
-    duration: float = Field(..., description="Length of the item on screen in seconds")
-    remaining: float = Field(..., description="Seconds left in the item")
+    duration: float
+    remaining: float
     percentage: float = Field(..., description="Progress through the item, 0 to 100")
 
 
@@ -67,7 +67,7 @@ class ManualItemSchema(Schema):
 
 class ManualQueueSchema(Schema):
     items: list[ManualItemSchema]
-    position: int | None = Field(None, description="Index of the item on screen")
+    position: int | None = None
 
 
 class PlayerSchema(Schema):
@@ -81,10 +81,10 @@ class PlayerSchema(Schema):
 
 
 class NextScreeningSchema(Schema):
-    id: int = Field(..., description="Schedule ID")
+    id: int
     programme_id: int
     programme_name: str
-    start_time: datetime = Field(..., description="When the programme plays")
+    start_time: datetime
     cue_time: datetime = Field(..., description="When its lead-in cues it")
 
 
@@ -92,12 +92,12 @@ class PlayoutStatusDataSchema(Schema):
     phase: Phase = Field(..., description="What the player is doing, worked out once for every surface")
     screen: str = Field("", description="What the audience sees, e.g. 'System Ident', 'Title card', 'Alien'")
     label: str = Field("", description="One line for the phase, e.g. 'Cued · Friday Night: Alien'")
-    actions: list[Action] = Field(default_factory=list, description="The actions allowed now")
+    actions: list[Action] = Field(default_factory=list)
     player: PlayerSchema | None = Field(None, description="The active player, if one is set up")
-    next_screening: NextScreeningSchema | None = Field(None, description="The next scheduled screening")
-    programme: ProgrammeInfoSchema | None = Field(None, description="The loaded programme")
-    playlist: PlaylistStatusSchema | None = Field(None, description="Where the programme is")
+    next_screening: NextScreeningSchema | None = None
+    programme: ProgrammeInfoSchema | None = None
+    playlist: PlaylistStatusSchema | None = None
     current_item: ItemSchema | None = Field(None, description="The item on screen (the title card in the pre-show)")
-    next_item: ItemSchema | None = Field(None, description="The item after it")
-    playback: PlaybackStatusSchema | None = Field(None, description="The clock of the item on screen")
-    manual: ManualQueueSchema | None = Field(None, description="The manual queue, while one plays")
+    next_item: ItemSchema | None = None
+    playback: PlaybackStatusSchema | None = None
+    manual: ManualQueueSchema | None = None

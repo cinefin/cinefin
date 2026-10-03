@@ -40,22 +40,20 @@ const BOOT_RETRY_MS = 15000; // fast retry until the first display fetch lands
 const START_GRACE_MS = 90000; // "Starting now" dwell before a missed start gives up
 const AUTO_SPLIT_MS = 2 * 3600000; // auto layout: split when a showing is this close
 
-function defaultPrefs(): KioskPrefs {
-	return {
-		layout: 'wall',
-		rotate: 0,
-		clock: true,
-		header: true,
-		takeover: true,
-		countdown: 30,
-		night: false,
-		nightStart: '01:00',
-		nightEnd: '08:00',
-		spotlightSecs: 12,
-		wallPageSecs: 20,
-		showtimes: true
-	};
-}
+const DEFAULT_PREFS: KioskPrefs = {
+	layout: 'wall',
+	rotate: 0,
+	clock: true,
+	header: true,
+	takeover: true,
+	countdown: 30,
+	night: false,
+	nightStart: '01:00',
+	nightEnd: '08:00',
+	spotlightSecs: 12,
+	wallPageSecs: 20,
+	showtimes: true
+};
 
 function normalizeLayout(value: string): string {
 	return LEGACY_LAYOUTS[value] || value;
@@ -95,14 +93,13 @@ export class KioskController {
 	layout = $state('wall');
 	rotateChoice = $state<string | null>(null);
 	autoChoice = $state('wall');
-	prefs = $state<KioskPrefs>(defaultPrefs());
+	prefs = $state<KioskPrefs>({ ...DEFAULT_PREFS });
 
 	#serverSettings: Partial<KioskSettings> = {};
 	#overrides: Partial<KioskPrefs> = loadOverrides();
 	#bootReloadKey = ''; // deploy stamp the page booted with — held fixed
 	#lastDisplayJSON = '';
-	#timers: ReturnType<typeof setInterval>[] = [];
-	#realtimeStops: (() => void)[] = [];
+	#stops: (() => void)[] = [];
 	#bootRetryTimer: ReturnType<typeof setTimeout> | null = null;
 	#rotateTimer: ReturnType<typeof setInterval> | null = null;
 	#destroyed = false;
@@ -171,14 +168,10 @@ export class KioskController {
 		this.recomputePrefs();
 		this.layout = this.prefs.layout;
 
-		this.#timers.push(
-			setInterval(() => {
-				this.now = Date.now();
-			}, 1000)
-		);
-
+		const tick = setInterval(() => (this.now = Date.now()), 1000);
 		// Server state over the shared socket, no polling.
-		this.#realtimeStops.push(
+		this.#stops.push(
+			() => clearInterval(tick),
 			realtime.subscribe({
 				channel: 'playout',
 				onMessage: (msg: RealtimeMessage) => this.#adoptPlayoutStatus(msg.data as PlayoutStatus)
@@ -196,16 +189,11 @@ export class KioskController {
 
 	destroy(): void {
 		this.#destroyed = true;
-		this.#timers.forEach((t) => clearInterval(t));
-		this.#timers = [];
-		this.#realtimeStops.forEach((stop) => stop());
-		this.#realtimeStops = [];
+		this.#stops.forEach((stop) => stop());
+		this.#stops = [];
 		if (this.#bootRetryTimer) clearTimeout(this.#bootRetryTimer);
 		if (this.#rotateTimer) clearInterval(this.#rotateTimer);
 		this.#releaseWakeLock();
-		document.removeEventListener('visibilitychange', this.#onVisibility);
-		window.removeEventListener('pagehide', this.#onPageHide);
-		window.removeEventListener('pageshow', this.#onPageShow);
 	}
 
 	/** The display payload's server settings (snake_case) as pref candidates. */
@@ -240,21 +228,18 @@ export class KioskController {
 		};
 		const layout = normalizeLayout(params.get('layout') || '');
 		if (layout && LAYOUTS.includes(layout)) out.layout = layout;
-		if (params.has('rotate') && mins(params.get('rotate')) !== null)
-			out.rotate = mins(params.get('rotate'))!;
-		if (params.has('header')) out.header = bool(params.get('header'));
-		if (params.has('clock')) out.clock = bool(params.get('clock'));
-		if (params.has('takeover')) out.takeover = bool(params.get('takeover'));
-		if (params.has('countdown') && mins(params.get('countdown')) !== null)
-			out.countdown = mins(params.get('countdown'))!;
-		if (params.has('night')) out.night = bool(params.get('night'));
+		const rotate = mins(params.get('rotate'));
+		if (rotate !== null) out.rotate = rotate;
+		const countdown = mins(params.get('countdown'));
+		if (countdown !== null) out.countdown = countdown;
+		for (const key of ['header', 'clock', 'takeover', 'night', 'showtimes'] as const)
+			if (params.has(key)) out[key] = bool(params.get(key));
 		if (hhmm(params.get('nightstart'))) out.nightStart = params.get('nightstart')!;
 		if (hhmm(params.get('nightend'))) out.nightEnd = params.get('nightend')!;
 		const spot = mins(params.get('spotlight'));
 		if (spot !== null && spot >= 5) out.spotlightSecs = spot;
 		const page = mins(params.get('wallpage'));
 		if (page !== null && page >= 5) out.wallPageSecs = page;
-		if (params.has('showtimes')) out.showtimes = bool(params.get('showtimes'));
 		return out;
 	}
 
@@ -262,7 +247,7 @@ export class KioskController {
 	recomputePrefs(): void {
 		Object.assign(
 			this.prefs,
-			defaultPrefs(),
+			DEFAULT_PREFS,
 			this.#serverPrefs(),
 			this.#overrides,
 			this.#urlPrefs()
@@ -462,8 +447,19 @@ export class KioskController {
 
 	/** Every feature of a screening (older payloads only carry the first). */
 	screeningFeatures(screening: KioskScreening): KioskFilm[] {
-		if (screening.features && screening.features.length) return screening.features;
+		if (screening.features?.length) return screening.features;
 		return screening.feature ? [screening.feature] : [];
+	}
+
+	/** A screening's bill: its features, the headline and the line beneath it. */
+	bill(s: KioskScreening | null) {
+		const feats = s ? this.screeningFeatures(s) : [];
+		const single = feats.length === 1 ? feats[0] : null;
+		const title = single ? single.title : (s?.programme ?? '');
+		let sub = '';
+		if (single) sub = single.title !== s?.programme ? (s?.programme ?? '') : '';
+		else if (feats.length > 1) sub = feats.map((f) => f.title).join('  +  ');
+		return { feats, single, title, sub };
 	}
 
 	/** The next screening whose bill includes this film (for showtime lines). */
@@ -476,17 +472,10 @@ export class KioskController {
 
 	/** Every film on the upcoming bills, soonest first, de-duplicated. */
 	screeningFilms(): KioskFilm[] {
-		const films: KioskFilm[] = [];
-		const seen = new Set<number>();
-		this.activeScreenings.forEach((s) =>
-			this.screeningFeatures(s).forEach((f) => {
-				if (!seen.has(f.id)) {
-					seen.add(f.id);
-					films.push(f);
-				}
-			})
-		);
-		return films;
+		const films = new Map<number, KioskFilm>();
+		for (const s of this.activeScreenings)
+			for (const f of this.screeningFeatures(s)) if (!films.has(f.id)) films.set(f.id, f);
+		return [...films.values()];
 	}
 
 	/** The bill the takeover shows: the payload's features, else display art. */
@@ -539,24 +528,22 @@ export class KioskController {
 	}
 
 	#releaseWakeLock(): void {
-		if (this.#wakeLock) {
-			void this.#wakeLock.release();
-			this.#wakeLock = null;
-		}
+		void this.#wakeLock?.release();
+		this.#wakeLock = null;
 	}
-
-	#onVisibility = () => {
-		// Hidden → the browser already released the lock; visible → retake it.
-		if (document.visibilityState === 'visible') void this.#acquireWakeLock();
-	};
-	#onPageHide = () => this.#releaseWakeLock();
-	#onPageShow = () => void this.#acquireWakeLock();
 
 	#bindWakeLock(): void {
 		if (!('wakeLock' in navigator)) return;
-		document.addEventListener('visibilitychange', this.#onVisibility);
-		window.addEventListener('pagehide', this.#onPageHide);
-		window.addEventListener('pageshow', this.#onPageShow);
+		const listen = (target: Document | Window, type: string, fn: () => void) => {
+			target.addEventListener(type, fn);
+			this.#stops.push(() => target.removeEventListener(type, fn));
+		};
+		// Hidden → the browser already released the lock; visible → retake it.
+		listen(document, 'visibilitychange', () => {
+			if (document.visibilityState === 'visible') void this.#acquireWakeLock();
+		});
+		listen(window, 'pagehide', () => this.#releaseWakeLock());
+		listen(window, 'pageshow', () => void this.#acquireWakeLock());
 		void this.#acquireWakeLock();
 	}
 }

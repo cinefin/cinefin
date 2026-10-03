@@ -1,37 +1,23 @@
-"""
-The single real-time WebSocket — one connection per client carrying everything
-that used to be three Server-Sent-Event streams (playout status, and the sync +
-trailer job feeds).
+"""The single real-time WebSocket (/ws/events): one connection per client carrying the playout
+status, the sync and trailer job feeds, and resource invalidations.
 
-Why a WebSocket: browsers cap ~6 concurrent HTTP/1.1 connections per host and a
-held SSE eats one each, so three always-on SSE per tab exhausted the budget at
-two tabs and the app hung. A WebSocket doesn't draw from that pool, so one
-multiplexed socket lets the app run across many tabs/devices.
-
-Design: served under ASGI (cinefin.asgi), but the real work — the in-process
-playout bus and DB polling — is BLOCKING, so it runs in a daemon *producer
-thread* that hands finished messages to the coroutine over an asyncio.Queue; the
-coroutine only awaits the queue and sends. Single-process (workers=1, the MPV
-singleton rule) means the in-process bus reaches every client — no Redis. The
-producer reuses the existing SSE helpers rather than duplicating them.
+A WebSocket because browsers cap ~6 HTTP/1.1 connections per host and held SSE streams ate
+that budget. The work (the in-process playout bus, DB polling) is blocking, so a daemon producer
+thread hands finished messages to the coroutine over an asyncio.Queue. Single process means the
+in-process bus reaches every client.
 
 Message envelope (JSON text frames):
     {"channel": "playout", "data": {...status...}}
     {"channel": "job", "event": "state|progress|log|complete", "data": {...}}
     {"channel": "invalidate", "keys": ["schedules", "movies", ...]}
 
-The "invalidate" channel is a change-signal, not data: the producer watches cheap
-DB fingerprints (COUNT/MAX aggregates) plus a few probe-style timers and emits the
-resource keys that just changed, so clients refetch through their normal REST
-queries instead of interval-polling. This lets one mechanism retire every
-client-side poll for server state without a bespoke push payload per consumer.
+"invalidate" is a change signal: the producer watches cheap DB fingerprints (COUNT/MAX
+aggregates) plus probe-style timers and names the resources that changed, so clients refetch
+over REST instead of polling.
 
-Per-channel privacy: the socket accepts every connection (kiosk/wall units are
-auth-exempt and have no session), but the "job" channel — which carries live
-operation logs — is streamed only to an authenticated session. "playout" and
-"invalidate" are public: playout is the same read-only state the kiosk already
-gets from /playout/status, and invalidate carries only resource *names* (the data
-behind each stays REST-auth-gated, so a key a kiosk can't fetch is a no-op to it).
+Every connection is accepted (kiosks are auth-exempt), but the "job" channel, which carries
+live operation logs, goes only to an authenticated session. "playout" is the public status and
+"invalidate" carries only resource names.
 """
 
 from __future__ import annotations
@@ -232,9 +218,8 @@ def _poll_invalidations(
 
 
 def _poll_jobs(put, log_cursor: dict[int, int], last_state: dict[int, str]) -> None:
-    """Emit state/progress/log for active jobs of any kind and complete for jobs
-    that just finished — the kind-agnostic form of job_sse's loop (one socket,
-    all jobs). First sighting sends a recent log tail, not the whole history."""
+    """Emit state/progress/log for active jobs and complete for jobs that just finished.
+    A first sighting sends a recent log tail, not the whole history."""
     from cinefin.api.models import Job
 
     active = list(Job.objects.filter(state__in=Job.ACTIVE_STATES))

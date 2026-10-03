@@ -16,7 +16,7 @@ interface SyncJobBrief {
 	percentage?: number;
 }
 
-export interface SyncSourceBrief {
+interface SyncSourceBrief {
 	id: number;
 	name: string;
 	enabled: boolean;
@@ -25,7 +25,6 @@ export interface SyncSourceBrief {
 
 interface SourceList {
 	sources: SyncSourceBrief[];
-	count: number;
 }
 
 export class DashboardData {
@@ -60,16 +59,13 @@ export class DashboardData {
 
 	movies = $derived(this.recentMovies.data?.items ?? []);
 
-	/** The library's one source. */
 	get source(): SyncSourceBrief | null {
 		return this.sources.data?.sources[0] ?? null;
 	}
 
 	get lastSync(): string | null {
-		const stamps = (this.sources.data?.sources ?? [])
-			.map((s) => s.last_sync)
-			.filter(Boolean) as string[];
-		return stamps.length ? (stamps.sort().at(-1) ?? null) : null;
+		const stamps = (this.sources.data?.sources ?? []).map((s) => s.last_sync).filter(Boolean);
+		return (stamps.sort().at(-1) as string | undefined) ?? null;
 	}
 
 	start(): () => void {
@@ -85,10 +81,6 @@ export class DashboardData {
 		return () => stops.forEach((stop) => stop());
 	}
 
-	refreshLibrary() {
-		invalidate(['movies']);
-	}
-
 	programmeFor(id: number | undefined | null): ProgrammeListItem | null {
 		if (id == null) return null;
 		return this.programmes.data?.programmes.find((p) => p.id === id) ?? null;
@@ -97,12 +89,7 @@ export class DashboardData {
 	#watchSync(): () => void {
 		const adopt = (p: JobEvent) => {
 			this.activeSync = jobIsActive(p.state)
-				? {
-						state: p.state,
-						is_active: true,
-						current: p.current,
-						percentage: p.percentage
-					}
+				? { state: p.state, is_active: true, current: p.current, percentage: p.percentage }
 				: null;
 		};
 		const stream = new JobStream(
@@ -160,13 +147,7 @@ export function untilLabel(when: Date | string): string {
 }
 
 export function isToday(when: Date | string): boolean {
-	const d = typeof when === 'string' ? new Date(when) : when;
-	const now = new Date();
-	return (
-		d.getFullYear() === now.getFullYear() &&
-		d.getMonth() === now.getMonth() &&
-		d.getDate() === now.getDate()
-	);
+	return new Date(when).toDateString() === new Date().toDateString();
 }
 
 export const SCHEDULE_BADGE: Record<

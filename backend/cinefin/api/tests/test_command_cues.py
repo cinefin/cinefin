@@ -1,3 +1,4 @@
+import time
 from unittest.mock import MagicMock, call
 
 import pytest
@@ -11,219 +12,89 @@ from .factories import CommandFactory, PlaylistFactory, PlaylistItemFactory, Pro
 pytestmark = pytest.mark.django_db
 
 
-def make_service():
-    service = MPVService()
-    service.controller = MagicMock()
-    service._lazy_initialized = True
-    return service
-
-
 def running_service(item_types, offset=1):
     programme = ProgrammeFactory()
     playlist = PlaylistFactory(programme=programme)
     for order, content_type in enumerate(item_types):
         PlaylistItemFactory(playlist=playlist, order=order, content_type=content_type)
-    service = make_service()
-    service.current_programme = programme
-    service.current_playlist = playlist
-    service.playlist_offset = offset
-    service.programme_state = ProgrammeState.RUNNING
+    service = MPVService()
+    service.controller = MagicMock()
+    service._lazy_initialized = True
+    service.current_programme, service.current_playlist = programme, playlist
+    service.playlist_offset, service.programme_state = offset, ProgrammeState.RUNNING
     return service, playlist
 
 
-class TestCueFiring:
-    def _capture_sequential(self, monkeypatch):
-        fired = []
-        monkeypatch.setattr(
-            command_runner, "execute_many_sequential", lambda commands, trigger: fired.append((list(commands), trigger))
-        )
-        return fired
+def test_cues_refire_on_replay_skip_deleted_commands_and_persist_the_cursor(monkeypatch):
+    # Forward and backward jumps run end to end in test_playout_simulation.
+    fired = []
+    monkeypatch.setattr(
+        command_runner, "execute_many_sequential", lambda commands, trigger: fired.append(list(commands))
+    )
+    service, playlist = running_service(["bumper", "movie", "system"])
+    command = CommandFactory(name="Dim lights")
+    PlaylistCue.objects.create(playlist=playlist, command=command, command_name=command.name, fires_before_order=1)
+    PlaylistCue.objects.create(playlist=playlist, command=None, command_name="Gone", fires_before_order=0)
 
-    def test_cue_fires_when_its_item_starts(self, monkeypatch):
-        fired = self._capture_sequential(monkeypatch)
-        service, playlist = running_service(["bumper", "movie", "system"])
-        command = CommandFactory(name="Dim lights")
-        PlaylistCue.objects.create(playlist=playlist, command=command, command_name=command.name, fires_before_order=1)
-
-        service._handle_playlist_change(1)
-        assert fired == []
-
-        service._handle_playlist_change(2)
-        assert len(fired) == 1
-        commands, trigger = fired[0]
-        assert commands == [command]
-        assert trigger == "block"
-
-    def test_forward_jump_fires_every_passed_cue_in_order(self, monkeypatch):
-        fired = self._capture_sequential(monkeypatch)
-        service, playlist = running_service(["bumper", "movie", "bumper", "system"])
-        first = CommandFactory(name="First")
-        second = CommandFactory(name="Second")
-        PlaylistCue.objects.create(playlist=playlist, command=first, command_name=first.name, fires_before_order=1)
-        PlaylistCue.objects.create(playlist=playlist, command=second, command_name=second.name, fires_before_order=2)
-
-        service._handle_playlist_change(1)
-        service._handle_playlist_change(3)
-
-        assert len(fired) == 1
-        assert fired[0][0] == [first, second]
-
-    def test_backward_jump_fires_nothing_then_refires_on_replay(self, monkeypatch):
-        fired = self._capture_sequential(monkeypatch)
-        service, playlist = running_service(["bumper", "movie", "system"])
-        command = CommandFactory(name="Dim lights")
-        PlaylistCue.objects.create(playlist=playlist, command=command, command_name=command.name, fires_before_order=1)
-
-        service._handle_playlist_change(2)
-        service._handle_playlist_change(1)
-        assert len(fired) == 1
-
-        service._handle_playlist_change(2)
-        assert len(fired) == 2
-
-    def test_cue_for_deleted_command_is_skipped(self, monkeypatch):
-        fired = self._capture_sequential(monkeypatch)
-        service, playlist = running_service(["bumper", "system"])
-        PlaylistCue.objects.create(playlist=playlist, command=None, command_name="Gone", fires_before_order=0)
-
-        service._handle_playlist_change(1)
-        assert fired == []
-
-    def test_cursor_survives_in_session(self, monkeypatch):
-        self._capture_sequential(monkeypatch)
-        service, _ = running_service(["bumper", "movie", "system"])
-        service._handle_playlist_change(2)
-
-        assert PlayoutSession.load().programme_cursor == 1
+    service._handle_playlist_change(1)
+    assert fired == []  # the deleted command's cue is skipped
+    service._handle_playlist_change(2)
+    service._handle_playlist_change(1)
+    service._handle_playlist_change(2)
+    assert fired == [[command], [command]]
+    assert PlayoutSession.load().programme_cursor == 1
 
 
-class TestHoldItems:
-    def test_hold_item_fires_loops_and_advances(self, monkeypatch):
-        executed = []
-        monkeypatch.setattr(
-            command_runner, "execute", lambda command, trigger, **kw: executed.append((command, trigger))
-        )
+def _hold(monkeypatch, duration, run_for=0.0, playlist_pos=1, command=True):
+    executed = []
 
-        service, playlist = running_service(["command", "system"])
-        command = CommandFactory(name="Close curtains", duration=0.5)
-        item = playlist.items.get(order=0)
-        item.command = command
-        item.save()
+    def execute(cmd, trigger, **kw):
+        time.sleep(run_for)
+        executed.append((cmd.name, trigger))
 
-        service.controller.get_property.side_effect = lambda name: {"playlist_pos": 1, "pause": False}[name]
-        service.controller.set_property.return_value = True
-
-        service._run_hold_item(item, 1)
-
-        assert executed == [(command, "block")]
-        assert call("loop-file", "inf") in service.controller.set_property.call_args_list
-        assert call("loop-file", "no") in service.controller.set_property.call_args_list
-        service.controller.next.assert_called_once()
-
-    def test_hold_aborts_without_advancing_when_operator_skips(self, monkeypatch):
-        monkeypatch.setattr(command_runner, "execute", lambda *a, **kw: None)
-
-        service, playlist = running_service(["command", "system"])
-        command = CommandFactory(name="Close curtains", duration=5)
-        item = playlist.items.get(order=0)
-        item.command = command
-        item.save()
-
-        service.controller.get_property.side_effect = lambda name: {"playlist_pos": 2, "pause": False}[name]
-        service.controller.set_property.return_value = True
-
-        service._run_hold_item(item, 1)
-
-        service.controller.next.assert_not_called()
-        assert call("loop-file", "no") in service.controller.set_property.call_args_list
-
-    def test_hold_outlasts_command_slower_than_duration(self, monkeypatch):
-        import time as time_module
-
-        executed = []
-
-        def slow_execute(command, trigger, **kw):
-            time_module.sleep(1.0)
-            executed.append("finished")
-
-        monkeypatch.setattr(command_runner, "execute", slow_execute)
-
-        service, playlist = running_service(["command", "system"])
-        command = CommandFactory(name="Slow scene", duration=0.25)
-        item = playlist.items.get(order=0)
-        item.command = command
-        item.save()
-
-        service.controller.get_property.side_effect = lambda name: {"playlist_pos": 1, "pause": False}[name]
-        service.controller.set_property.return_value = True
-
-        service._run_hold_item(item, 1)
-
-        assert executed == ["finished"]
-        service.controller.next.assert_called_once()
-
-    def test_zero_duration_holds_until_command_completes(self, monkeypatch):
-        import time as time_module
-
-        executed = []
-
-        def slow_execute(command, trigger, **kw):
-            time_module.sleep(0.5)
-            executed.append("finished")
-
-        monkeypatch.setattr(command_runner, "execute", slow_execute)
-
-        service, playlist = running_service(["command", "system"])
-        command = CommandFactory(name="Instant-ish", duration=0)
-        item = playlist.items.get(order=0)
-        item.command = command
-        item.save()
-
-        service.controller.get_property.side_effect = lambda name: {"playlist_pos": 1, "pause": False}[name]
-        service.controller.set_property.return_value = True
-
-        service._run_hold_item(item, 1)
-
-        assert executed == ["finished"]
-        assert call("loop-file", "inf") in service.controller.set_property.call_args_list
-        assert call("loop-file", "no") in service.controller.set_property.call_args_list
-        service.controller.next.assert_called_once()
-
-    def test_deleted_command_without_duration_plays_black_once(self, monkeypatch):
-        service, playlist = running_service(["command", "system"])
-        item = playlist.items.get(order=0)
-        item.command = None
-        item.save()
-
-        service._run_hold_item(item, 1)
-
-        service.controller.set_property.assert_not_called()
-        service.controller.next.assert_not_called()
+    monkeypatch.setattr(command_runner, "execute", execute)
+    service, playlist = running_service(["command", "system"])
+    item = playlist.items.get(order=0)
+    item.command = CommandFactory(name="Curtains", duration=duration) if command else None
+    item.save()
+    c = service.controller
+    c.get_property.side_effect = lambda name: {"playlist_pos": playlist_pos, "pause": False}[name]
+    c.set_property.return_value = True
+    service._run_hold_item(item, 1)
+    return c, executed
 
 
-class TestHoldAdvanceGuard:
-    def test_stale_hold_does_not_advance_past_successor(self):
-        """Regression: a stale hold thread's final next() must not fire and cut the next hold short."""
-        from unittest.mock import MagicMock
+@pytest.mark.parametrize(
+    ("duration", "run_for"),
+    [(0.5, 0.0), (0.25, 1.0), (0, 0.5)],
+    ids=["waits-out-its-duration", "outlasts-a-slow-command", "zero-duration-waits-for-the-command"],
+)
+def test_a_hold_item_fires_loops_and_advances(monkeypatch, duration, run_for):
+    c, executed = _hold(monkeypatch, duration, run_for)
+    assert executed == [("Curtains", "block")]
+    assert call("loop-file", "inf") in c.set_property.call_args_list
+    assert call("loop-file", "no") in c.set_property.call_args_list
+    c.next.assert_called_once()
 
-        service, _ = running_service(["bumper", "system"])
-        command = CommandFactory(name="Guarded", duration=1)
-        item = MagicMock()
-        item.command = command
-        item.id = 1
 
-        calls = {"n": 0}
+def test_a_hold_the_operator_skipped_does_not_advance(monkeypatch):
+    c, _ = _hold(monkeypatch, 5, playlist_pos=2)
+    c.next.assert_not_called()
+    assert call("loop-file", "no") in c.set_property.call_args_list
 
-        def get_property(name):
-            if name == "pause":
-                return False
-            if name == "playlist_pos":
-                calls["n"] += 1
-                return 1 if calls["n"] <= 3 else 2
-            return None
 
-        service.controller.get_property.side_effect = get_property
-        service.controller.set_property.return_value = True
+def test_a_stale_hold_does_not_advance_past_its_successor():
+    service, _ = running_service(["bumper", "system"])
+    item = MagicMock(command=CommandFactory(duration=1), id=1)
+    reads = {"n": 0}
 
-        service._run_hold_item(item, 1)
-        service.controller.next.assert_not_called()
+    def get_property(name):
+        if name == "playlist_pos":
+            reads["n"] += 1
+            return 1 if reads["n"] <= 3 else 2
+        return False if name == "pause" else None
+
+    service.controller.get_property.side_effect = get_property
+    service.controller.set_property.return_value = True
+    service._run_hold_item(item, 1)
+    service.controller.next.assert_not_called()

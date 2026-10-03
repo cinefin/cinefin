@@ -1,19 +1,14 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
 	import { ExternalLink } from '@lucide/svelte';
 	import { base } from '$app/paths';
 	import type { SettingsStore } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
-	import Tabs from '$lib/components/ui/Tabs.svelte';
-	import Field from '$lib/settings/Field.svelte';
-	import Toggle from '$lib/components/ui/Toggle.svelte';
+	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
+	import StoreToggle from '$lib/settings/StoreToggle.svelte';
+	import SectionTabs from './SectionTabs.svelte';
+	import TabPanel from './TabPanel.svelte';
 
-	interface Props {
-		store: SettingsStore;
-	}
-	let { store }: Props = $props();
+	let { store }: { store: SettingsStore } = $props();
 
 	const TABS = [
 		{ id: 'layout', label: 'Layout' },
@@ -21,6 +16,41 @@
 		{ id: 'takeovers', label: 'Takeovers' }
 	];
 	let tab = $state('layout');
+	const timeCls =
+		'h-9 w-full rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim';
+
+	const LAYOUT = [
+		storeField('kiosk_layout', 'Layout', 'set-kiosk-layout', {
+			options: [
+				['wall', 'Poster wall'],
+				['spotlight', 'Spotlight'],
+				['split', 'Split (spotlight + showings)'],
+				['board', 'Schedule board'],
+				['tonight', 'Tonight (next showing only)'],
+				['auto', 'Auto (picks by schedule)']
+			]
+		}),
+		storeField('kiosk_rotate_minutes', 'Rotate layouts', 'set-kiosk-rotate', {
+			hint: 'Cycles the ambient layouts (wall, spotlight, split). Ignored while the layout is Auto.',
+			options: [
+				['0', 'Off'],
+				...[2, 5, 10, 15, 30].map((n) => [String(n), `Every ${n} minutes`] as const),
+				['60', 'Every hour']
+			]
+		}),
+		storeField('kiosk_content_source', 'Movies shown', 'set-kiosk-source', {
+			hint: "Flag movies from the library's kiosk toggle.",
+			options: [
+				['flagged', 'Movies flagged for the kiosk'],
+				['all', 'The whole library'],
+				['scheduled', 'Only movies with upcoming showings']
+			]
+		})
+	];
+	const NIGHT = [
+		storeField('kiosk_night_start', 'Quiet from', 'set-kiosk-night-start'),
+		storeField('kiosk_night_end', 'Until', 'set-kiosk-night-end')
+	];
 </script>
 
 <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -32,161 +62,51 @@
 	</p>
 </div>
 
-<Tabs
-	tabs={TABS}
-	value={tab}
-	label="Kiosk settings"
-	onselect={(id) => (tab = id)}
-	panelId={(id) => `kt-${id}`}
-/>
+<SectionTabs tabs={TABS} bind:value={tab} label="Kiosk settings" prefix="kt" />
 
 {#if tab === 'layout'}
-	<div
-		role="tabpanel"
-		id="kt-layout"
-		aria-labelledby="tab-layout"
-		class="mt-4 grid gap-4 sm:grid-cols-2"
-		in:fade={{ duration: 120 }}
-	>
-		<Field
-			label="Layout"
-			forId="set-kiosk-layout"
-			dirty={store.isDirty('kiosk_layout')}
-			error={store.errorFor('kiosk_layout')}
-		>
-			<Select id="set-kiosk-layout" bind:value={store.main.kiosk_layout} class="w-full">
-				<option value="wall">Poster wall</option>
-				<option value="spotlight">Spotlight</option>
-				<option value="split">Split (spotlight + showings)</option>
-				<option value="board">Schedule board</option>
-				<option value="tonight">Tonight (next showing only)</option>
-				<option value="auto">Auto (picks by schedule)</option>
-			</Select>
-		</Field>
-		<Field
-			label="Rotate layouts"
-			forId="set-kiosk-rotate"
-			hint="Cycles the ambient layouts (wall, spotlight, split). Ignored while the layout is Auto."
-			dirty={store.isDirty('kiosk_rotate_minutes')}
-			error={store.errorFor('kiosk_rotate_minutes')}
-		>
-			<Select id="set-kiosk-rotate" bind:value={store.main.kiosk_rotate_minutes} class="w-full">
-				<option value="0">Off</option>
-				<option value="2">Every 2 minutes</option>
-				<option value="5">Every 5 minutes</option>
-				<option value="10">Every 10 minutes</option>
-				<option value="15">Every 15 minutes</option>
-				<option value="30">Every 30 minutes</option>
-				<option value="60">Every hour</option>
-			</Select>
-		</Field>
-		<Field
-			label="Movies shown"
-			forId="set-kiosk-source"
-			hint="Flag movies from the library's kiosk toggle."
-			dirty={store.isDirty('kiosk_content_source')}
-			error={store.errorFor('kiosk_content_source')}
-		>
-			<Select id="set-kiosk-source" bind:value={store.main.kiosk_content_source} class="w-full">
-				<option value="flagged">Movies flagged for the kiosk</option>
-				<option value="all">The whole library</option>
-				<option value="scheduled">Only movies with upcoming showings</option>
-			</Select>
-		</Field>
-	</div>
+	<TabPanel prefix="kt" tab="layout" class="mt-4 grid gap-4 sm:grid-cols-2">
+		{#each LAYOUT as f (f.id)}
+			<StoreField {store} {...f} input="w-full" />
+		{/each}
+	</TabPanel>
 {:else if tab === 'chrome'}
-	<div
-		role="tabpanel"
-		id="kt-chrome"
-		aria-labelledby="tab-chrome"
-		class="mt-4 max-w-xl space-y-2.5"
-		in:fade={{ duration: 120 }}
-	>
-		<Toggle
-			label="Theater name / logo header"
-			bind:checked={store.main.kiosk_header}
-			dirty={store.isDirty('kiosk_header')}
-		/>
-		<Toggle
-			label="Clock"
-			bind:checked={store.main.kiosk_clock}
-			dirty={store.isDirty('kiosk_clock')}
-		/>
-		<Toggle
-			label="Showtimes on poster-wall tiles"
-			bind:checked={store.main.kiosk_show_showtimes}
-			dirty={store.isDirty('kiosk_show_showtimes')}
-		/>
-	</div>
+	<TabPanel prefix="kt" tab="chrome" class="mt-4 max-w-xl space-y-2.5">
+		<StoreToggle {store} field="kiosk_header" label="Theater name / logo header" />
+		<StoreToggle {store} field="kiosk_clock" label="Clock" />
+		<StoreToggle {store} field="kiosk_show_showtimes" label="Showtimes on poster-wall tiles" />
+	</TabPanel>
 {:else if tab === 'takeovers'}
-	<div
-		role="tabpanel"
-		id="kt-takeovers"
-		aria-labelledby="tab-takeovers"
-		class="mt-4 max-w-xl space-y-4"
-		in:fade={{ duration: 120 }}
-	>
-		<Toggle
+	<TabPanel prefix="kt" tab="takeovers" class="mt-4 max-w-xl space-y-4">
+		<StoreToggle
+			{store}
+			field="kiosk_takeover"
 			label="Now Showing takeover"
 			hint="While a programme is live the kiosk switches to a full-screen Now Showing card - the programme's name and artwork - then returns to its layout when the show ends."
-			bind:checked={store.main.kiosk_takeover}
-			dirty={store.isDirty('kiosk_takeover')}
 		/>
-		<Field
+		<StoreField
+			{store}
+			field="kiosk_countdown_minutes"
 			label="Countdown threshold (min)"
-			forId="set-kiosk-countdown"
+			id="set-kiosk-countdown"
 			hint="Full-screen countdown when the next showing is this close. 0 turns it off."
-			dirty={store.isDirty('kiosk_countdown_minutes')}
-			error={store.errorFor('kiosk_countdown_minutes')}
-		>
-			<Input
-				id="set-kiosk-countdown"
-				type="number"
-				bind:value={store.main.kiosk_countdown_minutes}
-				class="max-w-32"
-			/>
-		</Field>
+			type="number"
+			input="max-w-32"
+		/>
 
 		<div class="mt-6 border-t border-border pt-5">
 			<h3 class="mb-3 text-[0.78125rem] font-medium text-muted">Night hours</h3>
 			<div class="space-y-4">
-				<Toggle
-					label="Dim to a clock overnight"
-					bind:checked={store.main.kiosk_night}
-					dirty={store.isDirty('kiosk_night')}
-				/>
+				<StoreToggle {store} field="kiosk_night" label="Dim to a clock overnight" />
 				<div class="grid max-w-md gap-4 sm:grid-cols-2">
-					<Field
-						label="Quiet from"
-						forId="set-kiosk-night-start"
-						dirty={store.isDirty('kiosk_night_start')}
-						error={store.errorFor('kiosk_night_start')}
-					>
-						<input
-							id="set-kiosk-night-start"
-							type="time"
-							bind:value={store.main.kiosk_night_start}
-							class="h-9 w-full rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim"
-						/>
-					</Field>
-					<Field
-						label="Until"
-						forId="set-kiosk-night-end"
-						dirty={store.isDirty('kiosk_night_end')}
-						error={store.errorFor('kiosk_night_end')}
-					>
-						<input
-							id="set-kiosk-night-end"
-							type="time"
-							bind:value={store.main.kiosk_night_end}
-							class="h-9 w-full rounded-md border border-border-strong bg-surface-2 px-3 text-sm text-text focus:border-accent-dim"
-						/>
-					</Field>
+					{#each NIGHT as f (f.id)}
+						<StoreField {store} {...f} type="time" input={timeCls} />
+					{/each}
 				</div>
 				<p class="text-xs text-faint">
 					A live programme or an imminent showing wakes the display regardless.
 				</p>
 			</div>
 		</div>
-	</div>
+	</TabPanel>
 {/if}

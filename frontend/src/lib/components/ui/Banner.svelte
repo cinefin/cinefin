@@ -1,15 +1,6 @@
 <script lang="ts">
-	/**
-	 * A persistent, page-level notice bar — the standard surface for a state
-	 * the operator needs to keep seeing (playout host unreachable, a stale
-	 * playlist, missing media). NOT for transient action feedback: that is a
-	 * toast (lib/toast + components/Toasts). One look for all of them, by
-	 * severity, so a warning reads the same on every page.
-	 *
-	 * Body text is the default children; `title` is rendered bold inline before
-	 * it. Trailing links/buttons go in the `actions` snippet. The severity
-	 * colours only the icon (and border/tint) — the body stays readable text.
-	 */
+	/** A persistent page-level notice for a state the operator needs to keep seeing (not action
+	 *  feedback — that's a toast). Severity colours only the icon, border and tint. */
 	import { Info, TriangleAlert, CircleCheck } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
 

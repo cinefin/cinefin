@@ -18,11 +18,7 @@ DEFAULT_USERNAME = "admin"
 
 def has_usable_account() -> bool:
     """Whether at least one active User with a usable password exists (the fail-open check)."""
-    User = get_user_model()
-    for user in User.objects.filter(is_active=True).only("password"):
-        if user.has_usable_password():
-            return True
-    return False
+    return any(u.has_usable_password() for u in get_user_model().objects.filter(is_active=True).only("password"))
 
 
 def auth_is_active(_request=None) -> bool:
@@ -30,8 +26,7 @@ def auth_is_active(_request=None) -> bool:
     if not bool(Settings.get("security.auth_enabled")):
         return False
     if not has_usable_account():
-        # Fail open. This is a misconfiguration (flag set without going through
-        # the proper flow), not a normal state — warn loudly but stay usable.
+        # Fail open: a misconfiguration (flag set outside the proper flow) — warn loudly but stay usable.
         logger.warning(
             "security.auth_enabled is True but no usable account exists — "
             "treating auth as DISABLED so you are not locked out. Set a "
@@ -61,27 +56,12 @@ def is_kiosk_public_request(request) -> bool:
     if not bool(Settings.get("security.kiosk_public")):
         return False
     path = getattr(request, "path", "")
-    if any(path.startswith(p) for p in KIOSK_PUBLIC_API_PATHS):
-        return True
-    return bool(KIOSK_PUBLIC_API_PATTERN.match(path))
+    return path.startswith(KIOSK_PUBLIC_API_PATHS) or bool(KIOSK_PUBLIC_API_PATTERN.match(path))
 
 
 def get_single_user():
     """Return the single account (first active User), or None if there is none."""
-    User = get_user_model()
-    return User.objects.filter(is_active=True).order_by("id").first()
-
-
-def _bearer_token(request) -> str | None:
-    """The token from an ``Authorization: Bearer <token>`` header, or None."""
-    if request is None:
-        return None
-    header = request.META.get("HTTP_AUTHORIZATION", "") if hasattr(request, "META") else ""
-    prefix = "Bearer "
-    if header.startswith(prefix):
-        token = header[len(prefix) :].strip()
-        return token or None
-    return None
+    return get_user_model().objects.filter(is_active=True).order_by("id").first()
 
 
 def api_key_user(request):
@@ -92,14 +72,13 @@ def api_key_user(request):
     if cached is not False:
         return cached
 
-    user = None
-    token = _bearer_token(request)
-    if token:
-        from cinefin.api.models import APIKey
+    from cinefin.api.models import APIKey
 
-        key = APIKey.resolve(token)
-        if key is not None:
-            user = get_single_user()
+    user = None
+    header = request.META.get("HTTP_AUTHORIZATION", "") if hasattr(request, "META") else ""
+    token = header.removeprefix("Bearer ").strip() if header.startswith("Bearer ") else ""
+    if token and APIKey.resolve(token) is not None:
+        user = get_single_user()
     try:
         request._cinefin_api_key_user = user
     except (AttributeError, TypeError):
@@ -118,13 +97,11 @@ def set_password(new_password: str, username: str | None = None):
     desired_username = (username or "").strip() or (user.username if user else DEFAULT_USERNAME)
 
     if user is None:
-        user = User.objects.create_superuser(username=desired_username, password=password)
-    else:
-        if desired_username != user.username:
-            user.username = desired_username
-        user.set_password(password)
-        user.is_active = True
-        user.save()
+        return User.objects.create_superuser(username=desired_username, password=password)
+    user.username = desired_username
+    user.set_password(password)
+    user.is_active = True
+    user.save()
     return user
 
 

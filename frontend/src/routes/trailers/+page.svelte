@@ -1,6 +1,5 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		Clapperboard,
 		CloudUpload,
@@ -21,14 +20,19 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import { page } from '$app/state';
-	import { ApiError, api, getCsrfToken, unwrap } from '$lib/api/client';
+	import { ApiError, api, unwrap } from '$lib/api/client';
+	import { uploadWithProgress } from '$lib/upload';
 	import { query } from '$lib/api/query.svelte';
 	import { liveRefresh } from '$lib/live.svelte';
 	import { sortIndicator, toggleSort, type FilterControl, type SortSpec } from '$lib/filters';
 	import { formatSize, formatTime } from '$lib/format';
+	import type { components } from '$lib/api/types.gen';
 	import { replaceState } from '$app/navigation';
-	import { JobStream, unwrapLoose, type ApiJob, type JobEvent, jobIsActive } from '$lib/jobs';
-	import { showToast } from '$lib/toast.svelte';
+	import { unwrapLoose, type JobEvent } from '$lib/jobs';
+	import { TrailerJob } from '$lib/trailers/job.svelte';
+	import { showToast, toastFailure } from '$lib/toast.svelte';
+	import { act } from '$lib/media/actions';
+	import { Selection } from '$lib/selection.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
@@ -75,27 +79,16 @@
 		associated_movie?: { id: number; title: string; year?: number | null } | null;
 	}
 
-	interface LibraryStats {
-		total: number;
-		with_file: number;
-		missing: number;
-		rating_issues: number;
-	}
-
-	interface LibraryFacets {
-		ratings: string[];
-		genres: string[];
-		valid_ratings: string[];
-		trailer_tags: TrailerTag[];
-	}
-
 	interface LibraryData {
 		trailers: Trailer[];
 		total: number;
-		limit: number;
-		offset: number;
-		stats: LibraryStats;
-		facets: LibraryFacets;
+		stats: { total: number; with_file: number; missing: number; rating_issues: number };
+		facets: {
+			ratings: string[];
+			genres: string[];
+			valid_ratings: string[];
+			trailer_tags: TrailerTag[];
+		};
 	}
 
 	interface TmdbResult {
@@ -106,6 +99,9 @@
 		has_trailer: boolean;
 		in_library: boolean;
 	}
+
+	/** A request as openapi-fetch hands it back. */
+	type Pending = PromiseLike<{ data?: unknown; error?: unknown; response: Response }>;
 
 	const ISSUES = '__issues__';
 	const LIMIT = 60;
@@ -122,26 +118,23 @@
 	let items = $state<Trailer[]>([]);
 	let total = $state(0);
 	let offset = $state(0);
-	let stats = $state<LibraryStats | null>(null);
-	let facets = $state<LibraryFacets | null>(null);
-	let facetsLoaded = false;
+	let stats = $state<LibraryData['stats'] | null>(null);
+	let facets = $state<LibraryData['facets'] | null>(null);
 	let loading = $state(true);
 	let loadError = $state<ApiError | null>(null);
 	let loadingMore = $state(false);
+	// Declared before the init reload(), which clears it.
+	const selected = new Selection(() => items);
 
 	let view = $state<'grid' | 'list'>(localStorage.getItem('tl_view') === 'list' ? 'list' : 'grid');
-	// Declared here (not with the bulk code below): init reload() clears it; a later const would be in its TDZ.
-	const selected = new SvelteSet<number>();
+
+	const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 	const ratingIssue = $derived(rating === ISSUES);
 	const filtersActive = $derived(Boolean(q || genre || rating || missing || year || tag));
 
 	function buildParams() {
-		const params: Record<string, string | number | boolean> = {
-			limit: LIMIT,
-			offset,
-			sort
-		};
+		const params: Record<string, string | number | boolean> = { limit: LIMIT, offset, sort };
 		if (q) params.q = q;
 		if (genre) params.genre = genre;
 		if (rating && !ratingIssue) params.rating = rating;
@@ -152,43 +145,42 @@
 		return params;
 	}
 
+	/**
+	 * reset: the first page, visibly; more: the next page; refresh: everything shown, silently
+	 * (a background refresh keeps what's on screen when it fails).
+	 */
 	let loadSeq = 0;
-	async function loadLibrary(reset: boolean) {
+	async function loadLibrary(mode: 'reset' | 'more' | 'refresh') {
+		if (mode === 'refresh' && (loading || loadingMore)) return;
 		const seq = ++loadSeq;
-		if (reset) {
+		if (mode === 'reset') {
 			offset = 0;
 			loading = true;
 			loadError = null;
-		} else {
-			loadingMore = true;
-		}
+		} else if (mode === 'more') loadingMore = true;
+		const params = buildParams();
+		if (mode === 'refresh')
+			Object.assign(params, { offset: 0, limit: Math.max(LIMIT, items.length) });
 		try {
 			const data = await unwrapLoose<LibraryData>(
-				api.GET('/api/v2/trailers/library', {
-					params: { query: buildParams() }
-				})
+				api.GET('/api/v2/trailers/library', { params: { query: params } })
 			);
 			if (seq !== loadSeq) return;
+			items = mode === 'more' ? [...items, ...data.trailers] : data.trailers;
 			total = data.total;
 			stats = data.stats;
-			if (reset) {
-				items = data.trailers;
-				if (!facetsLoaded) {
-					facets = data.facets;
-					facetsLoaded = true;
-				} else if (facets) {
-					facets.trailer_tags = data.facets.trailer_tags;
-					facets.valid_ratings = data.facets.valid_ratings;
-				}
-			} else {
-				items = [...items, ...data.trailers];
-			}
 			offset = items.length;
 			loadError = null;
+			// Genre/rating facets load once; tags and valid ratings follow every fetch.
+			if (!facets) facets = data.facets;
+			else {
+				facets.trailer_tags = data.facets.trailer_tags;
+				facets.valid_ratings = data.facets.valid_ratings;
+			}
 		} catch (e) {
 			if (seq !== loadSeq) return;
-			if (reset) loadError = e instanceof ApiError ? e : new ApiError(String(e), 0);
-			else showToast(`Failed to load more: ${e instanceof Error ? e.message : e}`, 'error');
+			if (mode === 'reset') loadError = e instanceof ApiError ? e : new ApiError(String(e), 0);
+			else if (mode === 'more') toastFailure('Failed to load more', e);
 		} finally {
 			if (seq === loadSeq) {
 				loading = false;
@@ -197,44 +189,17 @@
 		}
 	}
 
+	const refreshLibrary = () => loadLibrary('refresh');
+
 	function reload() {
 		selected.clear();
-		void loadLibrary(true);
-	}
-
-	async function refreshLibrary() {
-		if (loading || loadingMore) return;
-		const seq = ++loadSeq;
-		try {
-			const data = await unwrapLoose<LibraryData>(
-				api.GET('/api/v2/trailers/library', {
-					params: {
-						query: { ...buildParams(), offset: 0, limit: Math.max(LIMIT, items.length) }
-					}
-				})
-			);
-			if (seq !== loadSeq) return;
-			items = data.trailers;
-			total = data.total;
-			offset = items.length;
-			stats = data.stats;
-			if (facets) {
-				facets.trailer_tags = data.facets.trailer_tags;
-				facets.valid_ratings = data.facets.valid_ratings;
-			}
-			loadError = null;
-		} catch {
-			/* background refresh — keep what's on screen */
-		}
+		void loadLibrary('reset');
 	}
 
 	$effect(() => liveRefresh(() => void refreshLibrary()));
 
 	function clearFilters() {
-		q = '';
-		genre = '';
-		rating = '';
-		tag = '';
+		q = genre = rating = tag = '';
 		missing = false;
 		year = null;
 		reload();
@@ -265,10 +230,19 @@
 	});
 
 	const countText = $derived(
-		offset < total
-			? `Showing ${offset} of ${total} trailers`
-			: `${total} trailer${total === 1 ? '' : 's'}`
+		offset < total ? `Showing ${offset} of ${total} trailers` : plural(total, 'trailer')
 	);
+
+	/** An onchange that sets one filter and reloads. */
+	function on<T>(set: (v: T) => void) {
+		return (v: T) => {
+			set(v);
+			reload();
+		};
+	}
+
+	const options = (values: string[] | undefined) =>
+		(values ?? []).map((v) => ({ value: v, label: v }));
 
 	const filterControls = $derived<FilterControl[]>([
 		{
@@ -276,11 +250,8 @@
 			label: 'Genre',
 			allLabel: 'All genres',
 			value: genre,
-			options: (facets?.genres ?? []).map((g) => ({ value: g, label: g })),
-			onchange: (v) => {
-				genre = v;
-				reload();
-			}
+			options: options(facets?.genres),
+			onchange: on((v: string) => (genre = v))
 		},
 		{
 			id: 'rating',
@@ -288,13 +259,10 @@
 			allLabel: 'All ratings',
 			value: rating,
 			options: [
-				...(facets?.ratings ?? []).map((r) => ({ value: r, label: r })),
+				...options(facets?.ratings),
 				{ value: ISSUES, label: 'Rating problems', count: stats?.rating_issues || undefined }
 			],
-			onchange: (v) => {
-				rating = v;
-				reload();
-			}
+			onchange: on((v: string) => (rating = v))
 		},
 		...(facets?.trailer_tags.length
 			? ([
@@ -308,10 +276,7 @@
 							label: t.name,
 							count: t.trailer_count
 						})),
-						onchange: (v: string) => {
-							tag = v;
-							reload();
-						}
+						onchange: on((v: string) => (tag = v))
 					}
 				] as FilterControl[])
 			: []),
@@ -322,20 +287,14 @@
 			value: year ? String(year) : '',
 			options: [],
 			chipOnly: true,
-			onchange: (v) => {
-				year = v ? Number(v) : null;
-				reload();
-			}
+			onchange: on((v: string) => (year = v ? Number(v) : null))
 		},
 		{
 			kind: 'toggle',
 			id: 'missing',
 			label: 'Missing file',
 			value: missing,
-			onchange: (v) => {
-				missing = v;
-				reload();
-			}
+			onchange: on((v: boolean) => (missing = v))
 		}
 	]);
 
@@ -350,10 +309,7 @@
 			{ value: '-content_rating', label: 'Rating (high-low)' }
 		],
 		default: DEFAULT_SORT,
-		onchange: (v) => {
-			sort = v;
-			reload();
-		}
+		onchange: on((v: string) => (sort = v))
 	});
 
 	const ratingsOptions = query(() => unwrap(api.GET('/api/v2/movies/ratings-options')));
@@ -363,77 +319,57 @@
 		const ordered = ratingsOptions.data?.ratings?.length
 			? ratingsOptions.data.ratings
 			: (facets?.valid_ratings ?? []);
-		const opts: { value: string; label: string }[] = [{ value: '', label: '- none -' }];
+		const opts = [{ value: '', label: '- none -' }];
 		if (current && !ordered.includes(current)) {
 			opts.push({ value: current, label: `${current} (not ${ratingsSystem})` });
 		}
-		for (const r of ordered) opts.push({ value: r, label: r });
-		return opts;
+		return [...opts, ...options(ordered)];
 	}
 
-	function filterYear(y: number) {
-		year = y;
+	/** Narrow the list from a clicked fact (year, genre, director…) and close the drawer. */
+	function filterBy(set: () => void) {
+		set();
 		closeDetail();
 		reload();
 	}
-	function filterGenre(g: string) {
-		genre = g;
-		closeDetail();
-		reload();
-	}
-	function filterDirector(d: string) {
-		q = d;
-		closeDetail();
-		reload();
-	}
-	function filterRating(r: string) {
-		rating = r;
-		closeDetail();
-		reload();
-	}
-	function filterTag(id: number) {
-		tag = String(id);
-		closeDetail();
-		reload();
-	}
+	const filterYear = (y: number) => filterBy(() => (year = y));
+	const filterGenre = (g: string) => filterBy(() => (genre = g));
+	const filterDirector = (d: string) => filterBy(() => (q = d));
 
-	const allSelected = $derived(items.length > 0 && items.every((t) => selected.has(t.id)));
-
-	function toggleAll(on: boolean) {
-		if (on) items.forEach((t) => selected.add(t.id));
-		else selected.clear();
-	}
+	/** A click handler that doesn't also open the card it sits on. */
+	const stop = (fn: () => void) => (e: Event) => {
+		e.stopPropagation();
+		fn();
+	};
 
 	let confirmDialog: ConfirmDialog;
+
+	/** After a change: refetch what's shown, and tell other pages the trailers changed. */
+	function changed() {
+		void refreshLibrary();
+		invalidate('trailers');
+	}
 
 	async function bulkDeleteSelected() {
 		const ids = [...selected];
 		if (!ids.length) return;
 		const ok = await confirmDialog.confirm(
-			`Remove ${ids.length} trailer${ids.length === 1 ? '' : 's'} from the library? This deletes the records AND the files on disk.`
+			`Remove ${plural(ids.length, 'trailer')} from the library? This deletes the records AND the files on disk.`
 		);
 		if (!ok) return;
-		try {
+		await act('Bulk delete failed', async () => {
 			const res = await unwrapLoose<{ deleted: number; file_errors?: string[] }>(
-				api.POST('/api/v2/trailers/library/bulk-delete', {
-					body: { ids, delete_files: true }
-				})
+				api.POST('/api/v2/trailers/library/bulk-delete', { body: { ids, delete_files: true } })
 			);
 			selected.clear();
 			items = items.filter((x) => !ids.includes(x.id));
 			total -= res.deleted;
 			const errs = res.file_errors?.length
-				? ` (${res.file_errors.length} file${res.file_errors.length === 1 ? '' : 's'} could not be removed)`
+				? ` (${plural(res.file_errors.length, 'file')} could not be removed)`
 				: '';
-			showToast(
-				`Removed ${res.deleted} trailer${res.deleted === 1 ? '' : 's'}${errs}`,
-				errs ? 'warning' : 'success'
-			);
-			void refreshLibrary();
-			invalidate('trailers');
-		} catch (e) {
-			showToast(`Bulk delete failed: ${e instanceof Error ? e.message : e}`, 'error');
-		}
+			showToast(`Removed ${plural(res.deleted, 'trailer')}${errs}`, errs ? 'warning' : 'success');
+			changed();
+		});
 	}
 
 	let bulkTagOpen = $state(false);
@@ -448,29 +384,18 @@
 
 	async function applyBulkTag() {
 		const name = bulkTagName.trim();
-		if (!name) {
-			showToast('Enter a tag name', 'error');
-			return;
-		}
+		if (!name) return showToast('Enter a tag name', 'error');
 		bulkTagBusy = true;
-		try {
+		await act('Tagging failed', async () => {
 			const res = await unwrapLoose<{ tagged: number; tag: TrailerTag }>(
-				api.POST('/api/v2/trailers/library/bulk-tag', {
-					body: { ids: [...selected], name }
-				})
+				api.POST('/api/v2/trailers/library/bulk-tag', { body: { ids: [...selected], name } })
 			);
 			bulkTagOpen = false;
-			showToast(
-				`Tagged ${res.tagged} trailer${res.tagged === 1 ? '' : 's'} with "${res.tag.name}"`,
-				'success'
-			);
+			showToast(`Tagged ${plural(res.tagged, 'trailer')} with "${res.tag.name}"`, 'success');
 			selected.clear();
 			void refreshLibrary();
-		} catch (e) {
-			showToast(`Tagging failed: ${e instanceof Error ? e.message : e}`, 'error');
-		} finally {
-			bulkTagBusy = false;
-		}
+		});
+		bulkTagBusy = false;
 	}
 
 	const sortCols: { key: string; label: string; defaultDesc?: boolean }[] = [
@@ -498,15 +423,12 @@
 		detailLoading = true;
 		try {
 			const data = await unwrapLoose<{ trailer: Trailer }>(
-				api.GET('/api/v2/trailers/library/{trailer_id}', {
-					params: { path: { trailer_id: id } }
-				})
+				api.GET('/api/v2/trailers/library/{trailer_id}', { params: { path: { trailer_id: id } } })
 			);
-			if (selectedId !== id) return;
-			detail = data.trailer;
+			if (selectedId === id) detail = data.trailer;
 		} catch (e) {
-			if (selectedId !== id) return;
-			detailError = e instanceof Error ? e.message : 'Failed to load trailer';
+			if (selectedId === id)
+				detailError = e instanceof Error ? e.message : 'Failed to load trailer';
 		} finally {
 			if (selectedId === id) detailLoading = false;
 		}
@@ -524,66 +446,55 @@
 
 	const knownTags = $derived(facets?.trailer_tags ?? []);
 
-	function syncItemTags(id: number, tags: TrailerTag[]) {
-		const item = items.find((x) => x.id === id);
-		if (item) item.trailer_tags = tags;
-	}
-
 	function refreshTagFacet() {
 		unwrapLoose<{ tags: TrailerTag[] }>(api.GET('/api/v2/trailers/tags'))
 			.then((res) => {
 				if (facets) facets.trailer_tags = res.tags ?? [];
 			})
-			.catch(() => {
-				/* facet refresh is cosmetic */
-			});
+			.catch(() => {}); // facet refresh is cosmetic
 	}
 
 	let detailTagInput = $state('');
 
-	async function detailAddTag(t: Trailer) {
+	function editTags(t: Trailer, verb: 'add' | 'remove', req: Pending) {
+		void act(`Could not ${verb} tag`, async () => {
+			const res = await unwrapLoose<{ trailer_tags: TrailerTag[] }>(req);
+			t.trailer_tags = res.trailer_tags;
+			const item = items.find((x) => x.id === t.id);
+			if (item) item.trailer_tags = res.trailer_tags;
+			if (verb === 'add') detailTagInput = '';
+			void refreshLibrary();
+		});
+	}
+
+	function detailAddTag(t: Trailer) {
 		const name = detailTagInput.trim();
 		if (!name) return;
-		try {
-			const res = await unwrapLoose<{ trailer_tags: TrailerTag[] }>(
-				api.POST('/api/v2/trailers/library/{trailer_id}/tags', {
-					params: { path: { trailer_id: t.id } },
-					body: { name }
-				})
-			);
-			t.trailer_tags = res.trailer_tags;
-			syncItemTags(t.id, res.trailer_tags);
-			detailTagInput = '';
-			void refreshLibrary();
-		} catch (e) {
-			showToast(`Could not add tag: ${e instanceof Error ? e.message : e}`, 'error');
-		}
+		const path = { trailer_id: t.id };
+		editTags(
+			t,
+			'add',
+			api.POST('/api/v2/trailers/library/{trailer_id}/tags', { params: { path }, body: { name } })
+		);
 	}
 
-	async function detailRemoveTag(t: Trailer, tagId: number) {
-		try {
-			const res = await unwrapLoose<{ trailer_tags: TrailerTag[] }>(
-				api.DELETE('/api/v2/trailers/library/{trailer_id}/tags/{tag_id}', {
-					params: { path: { trailer_id: t.id, tag_id: tagId } }
-				})
-			);
-			t.trailer_tags = res.trailer_tags;
-			syncItemTags(t.id, res.trailer_tags);
-			void refreshLibrary();
-		} catch (e) {
-			showToast(`Could not remove tag: ${e instanceof Error ? e.message : e}`, 'error');
-		}
+	function detailRemoveTag(t: Trailer, tagId: number) {
+		const path = { trailer_id: t.id, tag_id: tagId };
+		editTags(
+			t,
+			'remove',
+			api.DELETE('/api/v2/trailers/library/{trailer_id}/tags/{tag_id}', { params: { path } })
+		);
 	}
 
-	async function updateRating(id: number, value: string) {
-		try {
-			const data = await unwrapLoose<{ trailer: Trailer }>(
+	function updateRating(id: number, value: string) {
+		void act('Update failed', async () => {
+			const { trailer: updated } = await unwrapLoose<{ trailer: Trailer }>(
 				api.PATCH('/api/v2/trailers/library/{trailer_id}', {
 					params: { path: { trailer_id: id } },
 					body: { content_rating: value }
 				})
 			);
-			const updated = data.trailer;
 			const i = items.findIndex((x) => x.id === id);
 			if (i >= 0) items[i] = updated;
 			if (ratingIssue && updated.rating_ok) {
@@ -595,19 +506,14 @@
 			}
 			showToast('Certification updated', 'success');
 			void refreshLibrary();
-		} catch (e) {
-			showToast(`Update failed: ${e instanceof Error ? e.message : e}`, 'error');
-		}
+		});
 	}
 
 	let playOpen = $state(false);
 	let playing = $state<Trailer | null>(null);
 
 	function playTrailer(t: Trailer | undefined | null) {
-		if (!t || !t.file_exists) {
-			showToast('File is missing on disk', 'error');
-			return;
-		}
+		if (!t || !t.file_exists) return showToast('File is missing on disk', 'error');
 		playing = t;
 		playOpen = true;
 	}
@@ -620,7 +526,7 @@
 			`Remove "${t.title}" from the library? This deletes the record AND the file on disk.`
 		);
 		if (!ok) return;
-		try {
+		await act('Delete failed', async () => {
 			await unwrapLoose(
 				api.DELETE('/api/v2/trailers/library/{trailer_id}', {
 					params: { path: { trailer_id: t.id }, query: { delete_file: true } }
@@ -631,11 +537,8 @@
 			selected.delete(t.id);
 			if (fromDetail) closeDetail();
 			showToast('Trailer removed', 'success');
-			void refreshLibrary();
-			invalidate('trailers');
-		} catch (e) {
-			showToast(`Delete failed: ${e instanceof Error ? e.message : e}`, 'error');
-		}
+			changed();
+		});
 	}
 
 	const OP_LABEL: Record<string, string> = {
@@ -648,51 +551,10 @@
 		rename: 'Rename trailers'
 	};
 
-	let trailerJob = $state<ApiJob | null>(null);
-	let jobActive = $state(false);
-
-	$effect(() => {
-		void reattachJob();
-	});
-
-	$effect(() => {
-		const stream = new JobStream(
-			{ kind: 'trailer' },
-			{
-				onState: onJobEvent,
-				onProgress: onJobEvent,
-				onComplete: (p) => {
-					if (!jobActive && trailerJob && p.job_id !== trailerJob.id) return;
-					onJobComplete(p);
-				},
-				onOpen: () => void reattachJob()
-			}
-		);
-		stream.open();
-		return () => stream.close();
-	});
-
-	async function reattachJob() {
-		try {
-			const data = await unwrapLoose<{ job: ApiJob | null }>(
-				api.GET('/api/v2/trailers/jobs/current')
-			);
-			if (data.job) {
-				trailerJob = data.job;
-				jobActive = data.job.is_active;
-			}
-		} catch {
-			/* no current job */
-		}
-	}
-
-	function onJobEvent(p: JobEvent) {
-		jobActive = jobIsActive(p.state);
-		if (jobIsActive(p.state) && (!trailerJob || trailerJob.id !== p.job_id)) void reattachJob();
-	}
+	const job = new TrailerJob(onJobComplete);
+	$effect(() => job.follow());
 
 	function onJobComplete(p: JobEvent) {
-		jobActive = false;
 		const parts = Object.entries(p.counts ?? {})
 			.filter(([, v]) => typeof v === 'number' && v)
 			.map(([k, v]) => `${k}: ${v}`);
@@ -700,29 +562,9 @@
 			? `${OP_LABEL[p.operation] || 'Job'} ${p.state}: ${String(p.error).split('\n')[0]}`
 			: `${OP_LABEL[p.operation] || 'Job'} ${p.state}${parts.length ? ' - ' + parts.join(', ') : ''}`;
 		showToast(summary, p.state === 'success' ? 'success' : p.state === 'failed' ? 'error' : 'info');
-		void refreshLibrary();
-		invalidate('trailers');
+		changed();
 		if (sResults?.length) void runTitleSearch();
 		if (selectedId !== null) void openDetail(selectedId);
-	}
-
-	async function startJob(
-		run: () => PromiseLike<{ data?: unknown; error?: unknown; response: Response }>
-	) {
-		try {
-			const data = await unwrapLoose<{ job: ApiJob }>(run());
-			trailerJob = data.job;
-			jobActive = true;
-			showToast('Job started', 'success');
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e);
-			if (/already running/i.test(msg)) {
-				showToast('A trailer job is already running', 'info');
-				await reattachJob();
-			} else {
-				showToast(`Failed: ${msg}`, 'error');
-			}
-		}
 	}
 
 	let fetchOpen = $state(false);
@@ -734,35 +576,51 @@
 		{ id: 'verify', label: 'Verify' },
 		{ id: 'ratings', label: 'Ratings' }
 	];
-	let fetchTab = $state<'search' | 'discover' | 'upload' | 'library' | 'verify' | 'ratings'>(
-		'search'
-	);
+	let fetchTab = $state('search');
 	let keyMissing = $state(false);
 
-	let fYearFrom = $state('');
-	let fYearTo = $state('');
-	let fLimit = $state('50');
-	let fSort = $state('popularity.desc');
-	let fMinRating = $state('');
-	let fCert = $state('');
+	// Discover's criteria; the keys name their inputs' ids (`f<Key>`).
+	const disc = $state({
+		YearFrom: '',
+		YearTo: '',
+		Limit: '50',
+		Sort: 'popularity.desc',
+		MinRating: '',
+		Cert: ''
+	});
+	const DISC_HINTS: Record<string, string> = {
+		YearFrom: 'e.g. 2024',
+		YearTo: 'e.g. 2026',
+		MinRating: 'e.g. 6.0'
+	};
 
 	function openFetchDialog() {
 		fetchOpen = true;
-		void reattachJob();
+		void job.reattach();
 		unwrapLoose<{ settings: { tmdb_api_key?: string } }>(api.GET('/api/v2/trailers/settings'))
 			.then((data) => {
 				keyMissing = !(data.settings?.tmdb_api_key || '').trim();
 			})
-			.catch(() => {
-				/* leave the notice hidden */
-			});
+			.catch(() => {}); // leave the notice hidden
 	}
+
+	function debounced(ms: number, fn: () => void) {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		return () => {
+			clearTimeout(timer);
+			timer = setTimeout(fn, ms);
+		};
+	}
+
+	const tmdbSearch = (q: string, limit?: number) =>
+		unwrapLoose<{ results: TmdbResult[]; api_key_configured: boolean }>(
+			api.GET('/api/v2/trailers/tmdb-search', { params: { query: limit ? { q, limit } : { q } } })
+		);
 
 	let sQuery = $state('');
 	let sResults = $state<TmdbResult[] | null>(null);
 	let sSearching = $state(false);
 	let sNoKey = $state(false);
-	let sTimer: ReturnType<typeof setTimeout> | undefined;
 
 	async function runTitleSearch() {
 		const term = sQuery.trim();
@@ -772,38 +630,25 @@
 		}
 		sSearching = true;
 		try {
-			const res = await unwrapLoose<{ results: TmdbResult[]; api_key_configured: boolean }>(
-				api.GET('/api/v2/trailers/tmdb-search', { params: { query: { q: term, limit: 10 } } })
-			);
+			const res = await tmdbSearch(term, 10);
 			sNoKey = !res.api_key_configured;
 			sResults = res.results;
 		} catch (e) {
 			sResults = null;
-			showToast(`Search failed: ${e instanceof Error ? e.message : e}`, 'error');
+			toastFailure('Search failed', e);
 		} finally {
 			sSearching = false;
 		}
 	}
 
-	function onTitleSearchInput() {
-		clearTimeout(sTimer);
-		sTimer = setTimeout(() => void runTitleSearch(), 300);
-	}
+	const onTitleSearchInput = debounced(300, () => void runTitleSearch());
 
-	function fetchSingle(r: TmdbResult) {
-		void startJob(() =>
-			api.POST('/api/v2/trailers/fetch', {
-				// limit/sort_by/months_ahead carry schema defaults the backend ignores for a single-title fetch.
-				body: {
-					type: 'single',
-					tmdbid: r.tmdbid,
-					replace: false,
-					months_ahead: 6,
-					limit: 50,
-					sort_by: 'popularity.desc'
-				}
-			})
-		);
+	// months_ahead/limit/sort_by carry schema defaults the backend ignores outside discover.
+	const FETCH_DEFAULTS = { months_ahead: 6, limit: 50, sort_by: 'popularity.desc', replace: false };
+
+	function fetchSingle(tmdbid: number, extra: { video_key?: string; replace?: boolean } = {}) {
+		const body = { ...FETCH_DEFAULTS, type: 'single' as const, tmdbid, ...extra };
+		void job.start(() => api.POST('/api/v2/trailers/fetch', { body }));
 	}
 
 	interface TmdbVideo {
@@ -815,16 +660,12 @@
 		published_at: string;
 	}
 	let vpOpen = $state(false);
-	let vpTitle = $state('');
-	let vpTmdbid = $state(0);
-	let vpReplace = $state(false);
+	let vp = $state({ title: '', tmdbid: 0, replace: false });
 	let vpVideos = $state<TmdbVideo[] | null>(null);
 	let vpError = $state<string | null>(null);
 
 	async function openVideoPicker(tmdbid: number, title: string, replace: boolean) {
-		vpTmdbid = tmdbid;
-		vpTitle = title;
-		vpReplace = replace;
+		vp = { title, tmdbid, replace };
 		vpVideos = null;
 		vpError = null;
 		vpOpen = true;
@@ -840,59 +681,30 @@
 
 	function fetchVideo(v: TmdbVideo) {
 		vpOpen = false;
-		void startJob(() =>
-			api.POST('/api/v2/trailers/fetch', {
-				body: {
-					type: 'single',
-					tmdbid: vpTmdbid,
-					video_key: v.key,
-					replace: vpReplace,
-					months_ahead: 6,
-					limit: 50,
-					sort_by: 'popularity.desc'
-				}
-			})
-		);
+		fetchSingle(vp.tmdbid, { video_key: v.key, replace: vp.replace });
 	}
 
+	// Unset fields stay undefined, so JSON drops them.
 	function buildFetchParams() {
-		const p: {
-			year_from?: number;
-			year_to?: number;
-			limit: number;
-			sort_by: string;
-			min_rating?: number;
-			certification?: string;
-		} = { sort_by: fSort, limit: parseInt(fLimit, 10) || 50 };
-		if (fYearFrom) p.year_from = parseInt(fYearFrom, 10);
-		if (fYearTo) p.year_to = parseInt(fYearTo, 10);
-		if (fMinRating) p.min_rating = parseFloat(fMinRating);
-		if (fCert) p.certification = fCert;
-		return p;
+		const int = (v: string) => (v ? parseInt(v, 10) : undefined);
+		return {
+			sort_by: disc.Sort,
+			limit: int(disc.Limit) || 50,
+			year_from: int(disc.YearFrom),
+			year_to: int(disc.YearTo),
+			min_rating: disc.MinRating ? parseFloat(disc.MinRating) : undefined,
+			certification: disc.Cert || undefined
+		};
 	}
 
-	type Preview = {
-		trailers: {
-			title: string;
-			year: number | null;
-			genres: string[];
-			rating: number | null;
-			already_downloaded: boolean;
-		}[];
-		total_found: number;
-		will_fetch: number;
-		already_have: number;
-	};
-	let preview = $state<Preview | null>(null);
+	let preview = $state<components['schemas']['PreviewTrailersDataSchema'] | null>(null);
 	let previewMsg = $state<string | null>(null);
 
 	async function runPreview() {
 		preview = null;
 		previewMsg = 'Querying TMDB…';
 		try {
-			preview = (await unwrap(
-				api.POST('/api/v2/trailers/preview', { body: buildFetchParams() })
-			)) as Preview;
+			preview = await unwrap(api.POST('/api/v2/trailers/preview', { body: buildFetchParams() }));
 			previewMsg = null;
 		} catch (e) {
 			previewMsg = `Preview failed: ${e instanceof Error ? e.message : e}`;
@@ -900,23 +712,8 @@
 	}
 
 	function runFetch(type: 'discover' | 'library') {
-		// months_ahead/limit/sort_by carry schema defaults the backend ignores for a plain library fetch.
-		const base = { type, months_ahead: 6, replace: false };
-		const body =
-			type === 'discover'
-				? { ...base, ...buildFetchParams() }
-				: { ...base, limit: 50, sort_by: 'popularity.desc' };
-		void startJob(() => api.POST('/api/v2/trailers/fetch', { body }));
-	}
-
-	function runVerify() {
-		void startJob(() => api.POST('/api/v2/trailers/verify'));
-	}
-
-	function runRatings() {
-		void startJob(() =>
-			api.POST('/api/v2/trailers/ratings/update', { body: { scope: 'trailers' } })
-		);
+		const body = { ...FETCH_DEFAULTS, type, ...(type === 'discover' ? buildFetchParams() : {}) };
+		void job.start(() => api.POST('/api/v2/trailers/fetch', { body }));
 	}
 
 	interface RenameChange {
@@ -929,17 +726,15 @@
 	let renameMsg = $state<string | null>(null);
 	let renameBusy = $state(false);
 
+	const renameRun = <T,>(dry_run: boolean) =>
+		unwrapLoose<T>(api.POST('/api/v2/trailers/library/rename', { params: { query: { dry_run } } }));
+
 	async function openRename() {
 		renamePlan = null;
 		renameMsg = 'Computing preview…';
 		renameOpen = true;
 		try {
-			const res = await unwrapLoose<{ plan: { total: number; changes: RenameChange[] } }>(
-				api.POST('/api/v2/trailers/library/rename', {
-					params: { query: { dry_run: true } }
-				})
-			);
-			renamePlan = res.plan;
+			renamePlan = (await renameRun<{ plan: NonNullable<typeof renamePlan> }>(true)).plan;
 			renameMsg = null;
 		} catch (e) {
 			renameMsg = `Failed: ${e instanceof Error ? e.message : e}`;
@@ -953,65 +748,36 @@
 
 	async function applyRename() {
 		renameBusy = true;
-		try {
-			const res = await unwrapLoose<{ counts: Record<string, number> }>(
-				api.POST('/api/v2/trailers/library/rename', {
-					params: { query: { dry_run: false } }
-				})
-			);
+		await act('Rename failed', async () => {
+			const res = await renameRun<{ counts: Record<string, number> }>(false);
 			showToast(`Renamed ${res.counts?.renamed || 0} file(s)`, 'success');
 			renameOpen = false;
 			void refreshLibrary();
-		} catch (e) {
-			showToast(`Rename failed: ${e instanceof Error ? e.message : e}`, 'error');
-		} finally {
-			renameBusy = false;
-		}
+		});
+		renameBusy = false;
 	}
 
 	let matchOpen = $state(false);
 	let matchSearch = $state('');
 	let matchResults = $state<{ id: number; title: string; year: number | null }[]>([]);
-	type MatchData = {
-		movie_title: string | null;
-		matched: number;
-		requested: number;
-		trailers: {
-			id: number;
-			title: string;
-			year: number | null;
-			content_rating: string;
-			will_play: boolean;
-		}[];
-	};
-	let matchData = $state<MatchData | null>(null);
+	let matchData = $state<components['schemas']['MatchTestDataSchema'] | null>(null);
 	let matchMsg = $state<string | null>(null);
-	let matchTimer: ReturnType<typeof setTimeout> | undefined;
 
-	function openMatchTest() {
-		matchOpen = true;
-	}
-
-	function onMatchSearchInput() {
-		clearTimeout(matchTimer);
-		matchTimer = setTimeout(async () => {
-			const term = matchSearch.trim();
-			if (term.length < 2) {
-				matchResults = [];
-				return;
-			}
-			try {
-				const data = await unwrap(
-					api.GET('/api/v2/movies/list', {
-						params: { query: { search: term, per_page: 8 } }
-					})
-				);
-				matchResults = data.items.map((m) => ({ id: m.id, title: m.title, year: m.year ?? null }));
-			} catch {
-				matchResults = [];
-			}
-		}, 250);
-	}
+	const onMatchSearchInput = debounced(250, async () => {
+		const term = matchSearch.trim();
+		if (term.length < 2) {
+			matchResults = [];
+			return;
+		}
+		try {
+			const data = await unwrap(
+				api.GET('/api/v2/movies/list', { params: { query: { search: term, per_page: 8 } } })
+			);
+			matchResults = data.items.map((m) => ({ id: m.id, title: m.title, year: m.year ?? null }));
+		} catch {
+			matchResults = [];
+		}
+	});
 
 	async function runMatchTest(movieId: number) {
 		matchResults = [];
@@ -1019,176 +785,193 @@
 		matchData = null;
 		matchMsg = 'Matching…';
 		try {
-			matchData = (await unwrap(
-				api.GET('/api/v2/trailers/match-test', {
-					params: { query: { movie_id: movieId } }
-				})
-			)) as MatchData;
+			matchData = await unwrap(
+				api.GET('/api/v2/trailers/match-test', { params: { query: { movie_id: movieId } } })
+			);
 			matchMsg = null;
 		} catch {
 			matchMsg = 'Could not run the match test.';
 		}
 	}
 
-	let upFile = $state<File | null>(null);
-	let upTitle = $state('');
-	let upTmdb = $state<TmdbResult | null>(null);
-	let upTmdbSearch = $state('');
-	let upTmdbResults = $state<TmdbResult[] | null>(null);
-	let upTmdbNoKey = $state(false);
-	let upTagNames = $state<string[]>([]);
-	let upTagInput = $state('');
-	let upBusy = $state(false);
-	let upPct = $state(0);
+	const blankUpload = () => ({
+		file: null as File | null,
+		title: '',
+		tmdb: null as TmdbResult | null,
+		tmdbSearch: '',
+		tmdbResults: null as TmdbResult[] | null,
+		tmdbNoKey: false,
+		tags: [] as string[],
+		tagInput: '',
+		busy: false,
+		pct: 0
+	});
+	let up = $state(blankUpload());
 	let upDragOver = $state(false);
 	let upFileInput = $state<HTMLInputElement | undefined>();
-	let upTmdbTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function resetUploadForm() {
-		upFile = null;
-		upTitle = '';
-		upTmdb = null;
-		upTmdbSearch = '';
-		upTmdbResults = null;
-		upTmdbNoKey = false;
-		upTagNames = [];
-		upTagInput = '';
-		upBusy = false;
-		upPct = 0;
+		up = blankUpload();
 		refreshTagFacet();
 	}
 
 	function setUploadFile(f: File) {
-		upFile = f;
-		if (!upTitle.trim() && !upTmdb) upTitle = f.name.replace(/\.[^.]+$/, '');
+		up.file = f;
+		if (!up.title.trim() && !up.tmdb) up.title = f.name.replace(/\.[^.]+$/, '');
 	}
 
-	function onUploadDrop(e: DragEvent) {
+	function onUploadDrag(e: DragEvent) {
 		e.preventDefault();
-		upDragOver = false;
-		const f = e.dataTransfer?.files?.[0];
+		upDragOver = e.type !== 'dragleave' && e.type !== 'drop';
+		const f = e.type === 'drop' ? e.dataTransfer?.files?.[0] : undefined;
 		if (f) setUploadFile(f);
 	}
 
-	function onTmdbSearchInput() {
-		clearTimeout(upTmdbTimer);
-		upTmdbTimer = setTimeout(async () => {
-			const term = upTmdbSearch.trim();
-			if (term.length < 2) {
-				upTmdbResults = null;
-				return;
-			}
-			try {
-				const res = await unwrapLoose<{ results: TmdbResult[]; api_key_configured: boolean }>(
-					api.GET('/api/v2/trailers/tmdb-search', { params: { query: { q: term } } })
-				);
-				upTmdbNoKey = !res.api_key_configured;
-				upTmdbResults = res.results;
-			} catch {
-				upTmdbResults = null;
-			}
-		}, 300);
-	}
+	const onTmdbSearchInput = debounced(300, async () => {
+		const term = up.tmdbSearch.trim();
+		if (term.length < 2) {
+			up.tmdbResults = null;
+			return;
+		}
+		try {
+			const res = await tmdbSearch(term);
+			up.tmdbNoKey = !res.api_key_configured;
+			up.tmdbResults = res.results;
+		} catch {
+			up.tmdbResults = null;
+		}
+	});
 
 	function selectTmdb(r: TmdbResult) {
-		upTmdb = r;
-		upTmdbSearch = '';
-		upTmdbResults = null;
-		upTitle = r.title;
+		up.tmdb = r;
+		up.tmdbSearch = '';
+		up.tmdbResults = null;
+		up.title = r.title;
 	}
 
 	function toggleUploadTag(name: string) {
-		upTagNames = upTagNames.includes(name)
-			? upTagNames.filter((n) => n !== name)
-			: [...upTagNames, name];
+		up.tags = up.tags.includes(name) ? up.tags.filter((n) => n !== name) : [...up.tags, name];
 	}
 
 	function addUploadTag() {
-		const name = upTagInput.trim();
+		const name = up.tagInput.trim();
 		if (!name) return;
-		if (!upTagNames.includes(name)) upTagNames = [...upTagNames, name];
-		upTagInput = '';
+		if (!up.tags.includes(name)) up.tags = [...up.tags, name];
+		up.tagInput = '';
 	}
 
-	const uploadTagChoices = $derived([...new Set([...knownTags.map((t) => t.name), ...upTagNames])]);
-
-	// XHR because fetch has no upload progress; CSRF/credentials match client.ts.
-	function uploadTrailerFile(
-		file: File,
-		fields: Record<string, string>,
-		onProgress: (pct: number) => void
-	): Promise<void> {
-		return new Promise((resolve, reject) => {
-			const fd = new FormData();
-			fd.append('file', file);
-			for (const [k, v] of Object.entries(fields)) fd.append(k, v);
-			const xhr = new XMLHttpRequest();
-			xhr.open('POST', '/api/v2/trailers/upload');
-			xhr.withCredentials = true;
-			xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-			const token = getCsrfToken();
-			if (token) xhr.setRequestHeader('X-CSRFToken', token);
-			xhr.upload.onprogress = (e) => {
-				if (e.lengthComputable) onProgress((e.loaded / e.total) * 100);
-			};
-			xhr.onload = () => {
-				if (xhr.status >= 200 && xhr.status < 300) {
-					resolve();
-					return;
-				}
-				let message = `Upload failed (${xhr.status})`;
-				try {
-					const env = JSON.parse(xhr.responseText) as { error?: string; message?: string };
-					message = env.error || env.message || message;
-				} catch {
-					/* non-JSON error body */
-				}
-				reject(new ApiError(message, xhr.status));
-			};
-			xhr.onerror = () => reject(new ApiError('Upload failed (network)', 0));
-			xhr.send(fd);
-		});
-	}
+	const uploadTagChoices = $derived([...new Set([...knownTags.map((t) => t.name), ...up.tags])]);
 
 	async function submitUpload() {
-		if (upBusy) return;
-		if (!upFile) {
-			showToast('Choose a trailer file first', 'error');
-			return;
-		}
-		const title = upTitle.trim();
-		if (!upTmdb && !title) {
-			showToast('Enter a title or link a TMDB movie', 'error');
-			return;
-		}
+		if (up.busy) return;
+		if (!up.file) return showToast('Choose a trailer file first', 'error');
+		const title = up.title.trim();
+		if (!up.tmdb && !title) return showToast('Enter a title or link a TMDB movie', 'error');
 		const fields: Record<string, string> = {};
 		if (title) fields.title = title;
-		if (upTmdb) fields.tmdbid = String(upTmdb.tmdbid);
-		if (upTagNames.length) fields.tags = upTagNames.join(',');
+		if (up.tmdb) fields.tmdbid = String(up.tmdb.tmdbid);
+		if (up.tags.length) fields.tags = up.tags.join(',');
 
-		upBusy = true;
-		upPct = 0;
-		try {
-			await uploadTrailerFile(upFile, fields, (pct) => (upPct = pct));
-			showToast(`Trailer "${title || upTmdb!.title}" uploaded`, 'success');
+		up.busy = true;
+		up.pct = 0;
+		const file = up.file;
+		await act('Upload failed', async () => {
+			await uploadWithProgress(
+				'/api/v2/trailers/upload',
+				file,
+				fields,
+				(e) => (up.pct = e.percent)
+			);
+			showToast(`Trailer "${title || up.tmdb!.title}" uploaded`, 'success');
 			fetchOpen = false;
-			void refreshLibrary();
-			invalidate('trailers');
-		} catch (e) {
-			showToast(`Upload failed: ${e instanceof Error ? e.message : e}`, 'error');
-		} finally {
-			upBusy = false;
-		}
+			changed();
+		});
+		up.busy = false;
 	}
 </script>
 
 <svelte:window onkeydown={onWindowKeydown} />
 
+{#snippet fact(label: string, value: string, cls: string)}
+	<div class="flex justify-between gap-2">
+		<dt class="text-muted">{label}</dt>
+		<dd class={cls}>{value}</dd>
+	</div>
+{/snippet}
+
+{#snippet fileLamp(t: Trailer)}
+	{#if t.file_exists}
+		<StatusLamp colour="green" quiet>On disk</StatusLamp>
+	{:else}
+		<StatusLamp colour="amber">Missing</StatusLamp>
+	{/if}
+{/snippet}
+
+{#snippet link(text: string | number, onclick: (e: Event) => void, title?: string)}
+	<button type="button" class="hover:text-accent" {title} {onclick}>{text}</button>
+{/snippet}
+
+<!-- A fact on a card that narrows the list to it. -->
+{#snippet facet(text: string | number, set: () => void, title: string)}
+	{@render link(
+		text,
+		stop(() => filterBy(set)),
+		title
+	)}
+{/snippet}
+
+{#snippet playButton(t: Trailer, cls: string)}
+	<button
+		type="button"
+		class="{cls} text-muted hover:text-accent disabled:opacity-40"
+		title="Play"
+		disabled={!t.file_exists}
+		onclick={stop(() => playTrailer(t))}
+	>
+		<Play size={13} />
+	</button>
+{/snippet}
+
+{#snippet head(cols: string[])}
+	<thead>
+		<tr class="border-b border-border bg-surface-2 text-left font-medium text-muted">
+			{#each cols as c (c)}<th class="px-2 py-1.5">{c}</th>{/each}
+		</tr>
+	</thead>
+{/snippet}
+
+{#snippet deleteButton(t: Trailer)}
+	<button
+		type="button"
+		class="rounded-sm p-1 text-faint hover:text-danger"
+		title="Remove"
+		aria-label="Delete"
+		onclick={stop(() => void deleteTrailer(t))}
+	>
+		<Trash2 size={13} />
+	</button>
+{/snippet}
+
+{#snippet poster(r: TmdbResult, cls: string, icon: number)}
+	{#if r.poster_url}
+		<img src={r.poster_url} alt="" loading="lazy" class="{cls} shrink-0 rounded-xs object-cover" />
+	{:else}
+		<span
+			class="flex {cls} shrink-0 items-center justify-center rounded-xs bg-surface-3 text-faint"
+		>
+			<Film size={icon} />
+		</span>
+	{/if}
+{/snippet}
+
 <ConfirmDialog bind:this={confirmDialog} confirmLabel="Delete" />
 
 <PageHeader title="Trailer library" {actions} />
 {#snippet actions()}
-	<Button onclick={openMatchTest} title="See which trailers a trailer rule would pick for a movie">
+	<Button
+		onclick={() => (matchOpen = true)}
+		title="See which trailers a trailer rule would pick for a movie"
+	>
 		<Crosshair size={14} /> Test matching…
 	</Button>
 	<Button onclick={openRename} title="Rename trailer files to the naming scheme">
@@ -1218,10 +1001,7 @@
 		value: q,
 		placeholder: 'Search title or director…',
 		debounce: 250,
-		onchange: (v) => {
-			q = v;
-			reload();
-		}
+		onchange: on((v: string) => (q = v))
 	}}
 	filters={filterControls}
 	sort={sortSpec}
@@ -1236,7 +1016,7 @@
 		{#if loading}
 			<Spinner label="Loading trailers…" />
 		{:else if loadError}
-			<ErrorState error={loadError} retry={() => void loadLibrary(true)} />
+			<ErrorState error={loadError} retry={() => void loadLibrary('reset')} />
 		{:else if !items.length}
 			{#if filtersActive}
 				<EmptyState
@@ -1274,48 +1054,28 @@
 						tabindex="0"
 						onclick={() => openDetail(t.id)}
 						onkeydown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') {
-								e.preventDefault();
-								openDetail(t.id);
-							}
+							if (e.key !== 'Enter' && e.key !== ' ') return;
+							e.preventDefault();
+							openDetail(t.id);
 						}}
 					>
 						<div class="mb-2 flex items-center justify-between gap-2">
+							{@render playButton(t, 'rounded-md border border-border-strong bg-surface-2 p-1.5')}
 							<button
 								type="button"
-								class="rounded-md border border-border-strong bg-surface-2 p-1.5 text-muted
-									hover:text-accent disabled:opacity-40"
-								title="Play"
-								disabled={!t.file_exists}
-								onclick={(e) => {
-									e.stopPropagation();
-									playTrailer(t);
-								}}
-							>
-								<Play size={13} />
-							</button>
-							<button
-								type="button"
-								class="font-mono text-xs {t.content_rating
-									? t.rating_ok
-										? 'text-muted hover:text-accent'
-										: 'text-warning'
+								class="font-mono text-xs {t.content_rating && t.rating_ok
+									? 'text-muted hover:text-accent'
 									: 'text-warning'}"
 								title={!t.content_rating
 									? 'No rating'
 									: t.rating_ok
 										? 'Show this rating only'
 										: 'Rating not in configured set - click to show'}
-								onclick={(e) => {
-									e.stopPropagation();
-									if (t.content_rating) filterRating(t.content_rating);
-								}}
+								onclick={stop(
+									() => t.content_rating && filterBy(() => (rating = t.content_rating!))
+								)}
 							>
-								{#if t.content_rating}
-									{t.content_rating}{t.rating_ok ? '' : ' !'}
-								{:else}
-									no rating
-								{/if}
+								{t.content_rating ? `${t.content_rating}${t.rating_ok ? '' : ' !'}` : 'no rating'}
 							</button>
 						</div>
 						<p class="truncate text-sm font-medium group-hover:text-accent" title={t.title}>
@@ -1323,39 +1083,19 @@
 						</p>
 						<p class="truncate text-xs text-muted">
 							{#if t.year}
-								<button
-									type="button"
-									class="hover:text-accent"
-									title="Show {t.year} trailers"
-									onclick={(e) => {
-										e.stopPropagation();
-										filterYear(t.year!);
-									}}>{t.year}</button
-								>
+								{@render facet(t.year, () => (year = t.year), `Show ${t.year} trailers`)}
 							{/if}
 							{#if t.director}
-								{t.year ? ' · ' : ''}<button
-									type="button"
-									class="hover:text-accent"
-									title="Show trailers by {t.director}"
-									onclick={(e) => {
-										e.stopPropagation();
-										filterDirector(t.director!);
-									}}>{t.director}</button
-								>
+								{t.year ? ' · ' : ''}{@render facet(
+									t.director,
+									() => (q = t.director!),
+									`Show trailers by ${t.director}`
+								)}
 							{/if}
 						</p>
 						<p class="truncate text-xs text-faint">
 							{#each (t.genres ?? []).slice(0, 3) as g, i (g)}
-								{i ? ' · ' : ''}<button
-									type="button"
-									class="hover:text-accent"
-									title="Show {g} trailers"
-									onclick={(e) => {
-										e.stopPropagation();
-										filterGenre(g);
-									}}>{g}</button
-								>
+								{i ? ' · ' : ''}{@render facet(g, () => (genre = g), `Show ${g} trailers`)}
 							{/each}
 						</p>
 						{#if t.trailer_tags?.length}
@@ -1366,10 +1106,7 @@
 										class="inline-flex items-center gap-1 rounded-sm bg-surface-3 px-1.5 py-0.5
 											text-[10px] text-muted hover:text-accent"
 										title="Show trailers tagged {tg.name}"
-										onclick={(e) => {
-											e.stopPropagation();
-											filterTag(tg.id);
-										}}
+										onclick={stop(() => filterBy(() => (tag = String(tg.id))))}
 									>
 										<Tag size={9} />{tg.name}
 									</button>
@@ -1377,23 +1114,8 @@
 							</p>
 						{/if}
 						<div class="mt-2 flex items-center justify-between">
-							{#if t.file_exists}
-								<StatusLamp colour="green" quiet>On disk</StatusLamp>
-							{:else}
-								<StatusLamp colour="amber">Missing</StatusLamp>
-							{/if}
-							<button
-								type="button"
-								class="rounded-sm p-1 text-faint hover:text-danger"
-								title="Remove"
-								aria-label="Delete"
-								onclick={(e) => {
-									e.stopPropagation();
-									void deleteTrailer(t);
-								}}
-							>
-								<Trash2 size={13} />
-							</button>
+							{@render fileLamp(t)}
+							{@render deleteButton(t)}
 						</div>
 					</div>
 				{/each}
@@ -1416,8 +1138,9 @@
 									type="checkbox"
 									aria-label="Select all"
 									class="accent-accent"
-									checked={allSelected}
-									onchange={(e) => toggleAll((e.currentTarget as HTMLInputElement).checked)}
+									checked={selected.allVisible}
+									onchange={(e) =>
+										e.currentTarget.checked ? selected.setVisible(true) : selected.clear()}
 								/>
 							</th>
 							<th class="w-9 px-3 py-2"></th>
@@ -1454,26 +1177,10 @@
 										class="accent-accent"
 										checked={selected.has(t.id)}
 										onclick={(e) => e.stopPropagation()}
-										onchange={(e) => {
-											if ((e.currentTarget as HTMLInputElement).checked) selected.add(t.id);
-											else selected.delete(t.id);
-										}}
+										onchange={(e) => selected.set(t.id, e.currentTarget.checked)}
 									/>
 								</td>
-								<td class="px-3 py-1.5">
-									<button
-										type="button"
-										class="rounded-sm p-1 text-muted hover:text-accent disabled:opacity-40"
-										title="Play"
-										disabled={!t.file_exists}
-										onclick={(e) => {
-											e.stopPropagation();
-											playTrailer(t);
-										}}
-									>
-										<Play size={13} />
-									</button>
-								</td>
+								<td class="px-3 py-1.5">{@render playButton(t, 'rounded-sm p-1')}</td>
 								<td class="max-w-64 truncate px-3 py-1.5">{t.title}</td>
 								<td class="px-3 py-1.5 font-mono text-xs">{t.year ?? ''}</td>
 								<td class="px-3 py-1.5 font-mono text-xs">
@@ -1499,27 +1206,8 @@
 										</span>
 									{/if}
 								</td>
-								<td class="px-3 py-1.5">
-									{#if t.file_exists}
-										<StatusLamp colour="green" quiet>On disk</StatusLamp>
-									{:else}
-										<StatusLamp colour="amber">Missing</StatusLamp>
-									{/if}
-								</td>
-								<td class="px-3 py-1.5">
-									<button
-										type="button"
-										class="rounded-sm p-1 text-faint hover:text-danger"
-										title="Remove"
-										aria-label="Delete"
-										onclick={(e) => {
-											e.stopPropagation();
-											void deleteTrailer(t);
-										}}
-									>
-										<Trash2 size={13} />
-									</button>
-								</td>
+								<td class="px-3 py-1.5">{@render fileLamp(t)}</td>
+								<td class="px-3 py-1.5">{@render deleteButton(t)}</td>
 							</tr>
 						{/each}
 					</tbody>
@@ -1529,7 +1217,7 @@
 
 		{#if !loading && !loadError && offset < total}
 			<div class="mt-4 text-center">
-				<Button disabled={loadingMore} onclick={() => void loadLibrary(false)}>
+				<Button disabled={loadingMore} onclick={() => void loadLibrary('more')}>
 					{loadingMore ? 'Loading…' : 'Load more'}
 				</Button>
 			</div>
@@ -1554,13 +1242,9 @@
 						<div class="flex justify-between gap-2">
 							<dt class="text-muted">Year</dt>
 							<dd>
-								{#if t.year}
-									<button
-										type="button"
-										class="hover:text-accent"
-										onclick={() => filterYear(t.year!)}>{t.year}</button
-									>
-								{/if}{t.month ? ` · month ${t.month}` : ''}
+								{#if t.year}{@render link(t.year, () => filterYear(t.year!))}{/if}{t.month
+									? ` · month ${t.month}`
+									: ''}
 							</dd>
 						</div>
 					{/if}
@@ -1586,32 +1270,13 @@
 					{#if t.director}
 						<div class="flex justify-between gap-2">
 							<dt class="text-muted">Director</dt>
-							<dd>
-								<button
-									type="button"
-									class="hover:text-accent"
-									onclick={() => filterDirector(t.director!)}>{t.director}</button
-								>
-							</dd>
+							<dd>{@render link(t.director, () => filterDirector(t.director!))}</dd>
 						</div>
 					{/if}
-					{#if t.duration}
-						<div class="flex justify-between gap-2">
-							<dt class="text-muted">Duration</dt>
-							<dd class="font-mono">{Math.round(t.duration)}s</dd>
-						</div>
-					{/if}
-					{#if t.tmdbid}
-						<div class="flex justify-between gap-2">
-							<dt class="text-muted">TMDB id</dt>
-							<dd class="font-mono">{t.tmdbid}</dd>
-						</div>
-					{/if}
-					{#if (t.rating_lookups ?? {})[ratingsSystem]}
-						<div class="flex justify-between gap-2">
-							<dt class="text-muted">Rating lookup</dt>
-							<dd class="min-w-0 truncate">{(t.rating_lookups ?? {})[ratingsSystem]}</dd>
-						</div>
+					{#if t.duration}{@render fact('Duration', `${Math.round(t.duration)}s`, 'font-mono')}{/if}
+					{#if t.tmdbid}{@render fact('TMDB id', String(t.tmdbid), 'font-mono')}{/if}
+					{#if t.rating_lookups?.[ratingsSystem]}
+						{@render fact('Rating lookup', t.rating_lookups[ratingsSystem], 'min-w-0 truncate')}
 					{/if}
 					<div class="flex justify-between gap-2">
 						<dt class="text-muted">Linked movie</dt>
@@ -1684,13 +1349,7 @@
 					</div>
 					<div class="flex justify-between gap-2">
 						<dt class="text-muted">File</dt>
-						<dd>
-							{#if t.file_exists}
-								<StatusLamp colour="green" quiet>On disk</StatusLamp>
-							{:else}
-								<StatusLamp colour="amber">Missing</StatusLamp>
-							{/if}
-						</dd>
+						<dd>{@render fileLamp(t)}</dd>
 					</div>
 				</dl>
 				<p class="mt-4 font-mono text-[10px] break-all text-faint" title={t.file_path ?? ''}>
@@ -1711,7 +1370,7 @@
 					{#if t.tmdbid}
 						<Button
 							size="sm"
-							disabled={jobActive}
+							disabled={job.active}
 							title="Pick a different video from TMDB and replace this file"
 							onclick={() => openVideoPicker(t.tmdbid!, t.title, true)}
 						>
@@ -1795,32 +1454,17 @@
 					<ul class="divide-y divide-border">
 						{#each sResults as r (r.tmdbid)}
 							<li class="flex items-center gap-3 px-3 py-2">
-								{#if r.poster_url}
-									<img
-										src={r.poster_url}
-										alt=""
-										loading="lazy"
-										class="h-12 w-8 shrink-0 rounded-xs object-cover"
-									/>
-								{:else}
-									<span
-										class="flex h-12 w-8 shrink-0 items-center justify-center rounded-xs bg-surface-3 text-faint"
-									>
-										<Film size={14} />
-									</span>
-								{/if}
+								{@render poster(r, 'h-12 w-8', 14)}
 								<span class="min-w-0 flex-1">
 									<span class="block truncate text-sm">{r.title}</span>
 									<span class="font-mono text-xs text-muted">{r.year ?? ''}</span>
 								</span>
-								{#if r.in_library}
-									<Badge>In library</Badge>
-								{/if}
+								{#if r.in_library}<Badge>In library</Badge>{/if}
 								{#if r.has_trailer}
 									<StatusLamp colour="green">Trailer downloaded</StatusLamp>
 									<Button
 										size="sm"
-										disabled={jobActive}
+										disabled={job.active}
 										title="Pick a different video and replace the downloaded trailer"
 										onclick={() => openVideoPicker(r.tmdbid, r.title, true)}
 									>
@@ -1829,7 +1473,7 @@
 								{:else}
 									<Button
 										size="sm"
-										disabled={jobActive}
+										disabled={job.active}
 										title="Choose which of the movie's videos to download"
 										onclick={() => openVideoPicker(r.tmdbid, r.title, false)}
 									>
@@ -1838,8 +1482,8 @@
 									<Button
 										size="sm"
 										variant="primary"
-										disabled={jobActive}
-										onclick={() => fetchSingle(r)}
+										disabled={job.active}
+										onclick={() => fetchSingle(r.tmdbid)}
 									>
 										<Download size={13} /> Download
 									</Button>
@@ -1854,44 +1498,34 @@
 		<p class="mb-3 text-sm text-muted">
 			Search TMDB by date range, rating and certificate, and download the matching trailers.
 		</p>
+		{#snippet discField(key: keyof typeof disc, label: string, choices?: [string, string][])}
+			<div>
+				<label class="mb-1 block text-xs text-muted" for="f{key}">{label}</label>
+				{#if choices}
+					<Select id="f{key}" bind:value={disc[key]} class="w-full">
+						{#each choices as [value, text] (value)}<option {value}>{text}</option>{/each}
+					</Select>
+				{:else}
+					<Input id="f{key}" type="number" bind:value={disc[key]} placeholder={DISC_HINTS[key]} />
+				{/if}
+			</div>
+		{/snippet}
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-			<div>
-				<label class="mb-1 block text-xs text-muted" for="fYearFrom">Year from</label>
-				<Input id="fYearFrom" type="number" bind:value={fYearFrom} placeholder="e.g. 2024" />
-			</div>
-			<div>
-				<label class="mb-1 block text-xs text-muted" for="fYearTo">Year to</label>
-				<Input id="fYearTo" type="number" bind:value={fYearTo} placeholder="e.g. 2026" />
-			</div>
-			<div>
-				<label class="mb-1 block text-xs text-muted" for="fLimit">Limit</label>
-				<Input id="fLimit" type="number" bind:value={fLimit} />
-			</div>
-			<div>
-				<label class="mb-1 block text-xs text-muted" for="fSort">Sort by</label>
-				<Select id="fSort" bind:value={fSort} class="w-full">
-					<option value="popularity.desc">Popularity (high - low)</option>
-					<option value="popularity.asc">Popularity (low - high)</option>
-					<option value="release_date.desc">Release date (newest)</option>
-					<option value="release_date.asc">Release date (oldest)</option>
-					<option value="vote_average.desc">Rating (high - low)</option>
-				</Select>
-			</div>
-			<div>
-				<label class="mb-1 block text-xs text-muted" for="fMinRating">Min TMDB rating</label>
-				<Input id="fMinRating" type="number" bind:value={fMinRating} placeholder="e.g. 6.0" />
-			</div>
-			<div>
-				<label class="mb-1 block text-xs text-muted" for="fCert">Certification (GB)</label>
-				<Select id="fCert" bind:value={fCert} class="w-full">
-					<option value="">Any</option>
-					<option value="U">U</option>
-					<option value="PG">PG</option>
-					<option value="12A">12A</option>
-					<option value="15">15</option>
-					<option value="18">18</option>
-				</Select>
-			</div>
+			{@render discField('YearFrom', 'Year from')}
+			{@render discField('YearTo', 'Year to')}
+			{@render discField('Limit', 'Limit')}
+			{@render discField('Sort', 'Sort by', [
+				['popularity.desc', 'Popularity (high - low)'],
+				['popularity.asc', 'Popularity (low - high)'],
+				['release_date.desc', 'Release date (newest)'],
+				['release_date.asc', 'Release date (oldest)'],
+				['vote_average.desc', 'Rating (high - low)']
+			])}
+			{@render discField('MinRating', 'Min TMDB rating')}
+			{@render discField('Cert', 'Certification (GB)', [
+				['', 'Any'],
+				...['U', 'PG', '12A', '15', '18'].map((c): [string, string] => [c, c])
+			])}
 		</div>
 		<div class="mt-3 flex gap-2">
 			<Button size="sm" onclick={runPreview}>Preview (dry run)</Button>
@@ -1916,15 +1550,7 @@
 				</p>
 				<div class="mt-2 max-h-56 overflow-y-auto border border-border">
 					<table class="w-full text-xs">
-						<thead>
-							<tr class="border-b border-border bg-surface-2 text-left font-medium text-muted">
-								<th class="px-2 py-1.5">Title</th>
-								<th class="px-2 py-1.5">Year</th>
-								<th class="px-2 py-1.5">Genres</th>
-								<th class="px-2 py-1.5">Rating</th>
-								<th class="px-2 py-1.5">Status</th>
-							</tr>
-						</thead>
+						{@render head(['Title', 'Year', 'Genres', 'Rating', 'Status'])}
 						<tbody class="divide-y divide-border">
 							{#each preview.trailers as pt, i (i)}
 								<tr>
@@ -1962,19 +1588,10 @@
 				text-center transition-colors
 				{upDragOver ? 'border-accent bg-accent/5' : 'border-border-strong hover:border-accent-dim'}"
 				onclick={() => upFileInput?.click()}
-				ondragover={(e) => {
-					e.preventDefault();
-					upDragOver = true;
-				}}
-				ondragenter={(e) => {
-					e.preventDefault();
-					upDragOver = true;
-				}}
-				ondragleave={(e) => {
-					e.preventDefault();
-					upDragOver = false;
-				}}
-				ondrop={onUploadDrop}
+				ondragover={onUploadDrag}
+				ondragenter={onUploadDrag}
+				ondragleave={onUploadDrag}
+				ondrop={onUploadDrag}
 			>
 				<CloudUpload size={22} class="text-faint" />
 				<span class="text-sm"><strong>Drag a trailer file here</strong> or click to browse</span>
@@ -1992,27 +1609,27 @@
 				}}
 			/>
 
-			{#if upFile}
+			{#if up.file}
 				<p class="flex items-center gap-2 text-xs text-muted">
 					<Film size={13} />
-					<span class="min-w-0 truncate" title={upFile.name}>{upFile.name}</span>
-					<span class="shrink-0 font-mono">{(upFile.size / (1024 * 1024)).toFixed(1)} MB</span>
+					<span class="min-w-0 truncate" title={up.file.name}>{up.file.name}</span>
+					<span class="shrink-0 font-mono">{(up.file.size / (1024 * 1024)).toFixed(1)} MB</span>
 				</p>
 			{/if}
 
 			<div>
-				<label class="mb-1 block text-xs text-muted" for="upTmdbSearch">
+				<label class="mb-1 block text-xs text-muted" for="up.tmdbSearch">
 					Link to TMDB <span class="text-faint">(optional)</span>
 				</label>
 				<Input
-					id="upTmdbSearch"
-					bind:value={upTmdbSearch}
+					id="up.tmdbSearch"
+					bind:value={up.tmdbSearch}
 					oninput={onTmdbSearchInput}
 					placeholder="Search TMDB by title…"
 				/>
-				{#if upTmdbResults !== null}
+				{#if up.tmdbResults !== null}
 					<div class="mt-1 max-h-44 overflow-y-auto rounded-md border border-border bg-surface-2">
-						{#if upTmdbNoKey}
+						{#if up.tmdbNoKey}
 							<p class="px-3 py-2 text-xs text-muted">
 								No TMDB API key configured -
 								<a href="{base}/settings?tab=library" class="text-accent underline"
@@ -2020,29 +1637,16 @@
 								>
 								to link uploads. Unlinked uploads work fine.
 							</p>
-						{:else if !upTmdbResults.length}
-							<p class="px-3 py-2 text-xs text-muted">No TMDB matches for "{upTmdbSearch}"</p>
+						{:else if !up.tmdbResults.length}
+							<p class="px-3 py-2 text-xs text-muted">No TMDB matches for "{up.tmdbSearch}"</p>
 						{:else}
-							{#each upTmdbResults as r (r.tmdbid)}
+							{#each up.tmdbResults as r (r.tmdbid)}
 								<button
 									type="button"
 									class="flex w-full items-center gap-2 px-2 py-1.5 text-left hover:bg-surface-3"
 									onclick={() => selectTmdb(r)}
 								>
-									{#if r.poster_url}
-										<img
-											src={r.poster_url}
-											alt=""
-											loading="lazy"
-											class="h-10 w-7 shrink-0 rounded-xs object-cover"
-										/>
-									{:else}
-										<span
-											class="flex h-10 w-7 shrink-0 items-center justify-center rounded-xs bg-surface-3 text-faint"
-										>
-											<Film size={12} />
-										</span>
-									{/if}
+									{@render poster(r, 'h-10 w-7', 12)}
 									<span class="min-w-0 flex-1 truncate text-sm">{r.title}</span>
 									<span class="shrink-0 font-mono text-xs text-muted">{r.year ?? ''}</span>
 								</button>
@@ -2050,18 +1654,18 @@
 						{/if}
 					</div>
 				{/if}
-				{#if upTmdb}
+				{#if up.tmdb}
 					<p class="mt-1.5 flex items-center gap-2 text-xs">
 						<span class="min-w-0 truncate"
-							>{upTmdb.title}{upTmdb.year ? ` (${upTmdb.year})` : ''}</span
+							>{up.tmdb.title}{up.tmdb.year ? ` (${up.tmdb.year})` : ''}</span
 						>
-						<Badge variant="accent"><LinkIcon size={9} /> TMDB {upTmdb.tmdbid}</Badge>
+						<Badge variant="accent"><LinkIcon size={9} /> TMDB {up.tmdb.tmdbid}</Badge>
 						<button
 							type="button"
 							class="text-faint hover:text-danger"
 							title="Clear TMDB link"
 							aria-label="Clear TMDB link"
-							onclick={() => (upTmdb = null)}
+							onclick={() => (up.tmdb = null)}
 						>
 							<X size={12} />
 						</button>
@@ -2074,8 +1678,8 @@
 			</div>
 
 			<div>
-				<label class="mb-1 block text-xs text-muted" for="upTitle">Title</label>
-				<Input id="upTitle" bind:value={upTitle} placeholder="Trailer title" />
+				<label class="mb-1 block text-xs text-muted" for="up.title">Title</label>
+				<Input id="up.title" bind:value={up.title} placeholder="Trailer title" />
 			</div>
 
 			<div>
@@ -2083,7 +1687,7 @@
 				{#if uploadTagChoices.length}
 					<div class="mb-1.5 flex flex-wrap gap-1">
 						{#each uploadTagChoices as name (name)}
-							{@const on = upTagNames.includes(name)}
+							{@const on = up.tags.includes(name)}
 							<button
 								type="button"
 								class="inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs
@@ -2101,7 +1705,7 @@
 					class="h-9 w-full rounded-md border border-border-strong bg-surface-2 px-3 text-sm
 					placeholder:text-faint focus:border-accent-dim"
 					placeholder="New tag - press Enter to add…"
-					bind:value={upTagInput}
+					bind:value={up.tagInput}
 					onkeydown={(e) => {
 						if (e.key === 'Enter') {
 							e.preventDefault();
@@ -2111,22 +1715,22 @@
 				/>
 			</div>
 
-			{#if upBusy}
+			{#if up.busy}
 				<div>
 					<div class="h-1.5 overflow-hidden rounded-xs bg-surface-3">
 						<div
 							class="h-full bg-accent transition-[width]"
-							style="width: {Math.round(upPct)}%"
+							style="width: {Math.round(up.pct)}%"
 						></div>
 					</div>
 					<p class="mt-1 text-xs text-muted">
-						{upPct >= 100 ? 'Processing…' : `${Math.round(upPct)}%`}
+						{up.pct >= 100 ? 'Processing…' : `${Math.round(up.pct)}%`}
 					</p>
 				</div>
 			{/if}
 		</div>
 		<div class="mt-3">
-			<Button size="sm" variant="primary" disabled={upBusy} onclick={submitUpload}>
+			<Button size="sm" variant="primary" disabled={up.busy} onclick={submitUpload}>
 				<Upload size={13} /> Upload
 			</Button>
 		</div>
@@ -2142,26 +1746,35 @@
 			Reconcile the trailer directory against the database. Finds missing files, re-links moved
 			trailers, and imports orphaned files that contain a recognisable TMDB ID.
 		</p>
-		<Button size="sm" variant="primary" onclick={runVerify}>Run verify</Button>
+		<Button
+			size="sm"
+			variant="primary"
+			onclick={() => job.start(() => api.POST('/api/v2/trailers/verify'))}>Run verify</Button
+		>
 	{:else}
 		<p class="mb-3 text-sm text-muted">
 			Looks up certificates for <strong class="text-text">trailers</strong> that have none yet - or one
 			from a different scheme (e.g. an MPAA rating on a BBFC install) - directly from the classification
 			body (bbfc.co.uk / filmratings.com). Movies are rated separately, from the library's sync panel.
 		</p>
-		<Button size="sm" variant="primary" onclick={runRatings}>Update certificate ratings</Button>
+		<Button
+			size="sm"
+			variant="primary"
+			onclick={() =>
+				job.start(() =>
+					api.POST('/api/v2/trailers/ratings/update', { body: { scope: 'trailers' } })
+				)}>Update certificate ratings</Button
+		>
 	{/if}
 
-	{#if trailerJob}
-		<div class="mt-4">
-			<JobProgress kind="trailer" job={trailerJob} opLabels={OP_LABEL} />
-		</div>
+	{#if job.job}
+		<div class="mt-4"><JobProgress {job} opLabels={OP_LABEL} /></div>
 	{/if}
 </Dialog>
 
 <Dialog
 	bind:open={vpOpen}
-	title={vpReplace ? `Replace trailer - ${vpTitle}` : `Choose video - ${vpTitle}`}
+	title={vp.replace ? `Replace trailer - ${vp.title}` : `Choose video - ${vp.title}`}
 	class="max-w-lg"
 >
 	{#if vpError}
@@ -2176,7 +1789,7 @@
 			compact
 		/>
 	{:else}
-		{#if vpReplace}
+		{#if vp.replace}
 			<p class="mb-2 text-xs text-muted">
 				The downloaded file is replaced; the trailer's tags, certificate and movie link stay.
 			</p>
@@ -2188,15 +1801,9 @@
 						<span class="block truncate text-sm" title={v.name}>{v.name}</span>
 						<span class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted">
 							<Badge>{v.type || 'Video'}</Badge>
-							{#if v.official}
-								<Badge variant="accent">Official</Badge>
-							{/if}
-							{#if v.size}
-								<span class="font-mono">{v.size}p</span>
-							{/if}
-							{#if v.published_at}
-								<span class="font-mono">{v.published_at.slice(0, 10)}</span>
-							{/if}
+							{#if v.official}<Badge variant="accent">Official</Badge>{/if}
+							{#if v.size}<span class="font-mono">{v.size}p</span>{/if}
+							{#if v.published_at}<span class="font-mono">{v.published_at.slice(0, 10)}</span>{/if}
 						</span>
 					</span>
 					<a
@@ -2208,9 +1815,9 @@
 					>
 						Preview
 					</a>
-					<Button size="sm" variant="primary" disabled={jobActive} onclick={() => fetchVideo(v)}>
+					<Button size="sm" variant="primary" disabled={job.active} onclick={() => fetchVideo(v)}>
 						<Download size={13} />
-						{vpReplace ? 'Replace' : 'Download'}
+						{vp.replace ? 'Replace' : 'Download'}
 					</Button>
 				</li>
 			{/each}
@@ -2220,7 +1827,7 @@
 
 <Dialog bind:open={bulkTagOpen} title="Tag selected trailers">
 	<p class="mb-3 text-sm text-muted">
-		Apply one tag to {selected.size} selected trailer{selected.size === 1 ? '' : 's'}.
+		Apply one tag to {plural(selected.size, 'selected trailer')}.
 	</p>
 	<label class="mb-1 block text-xs text-muted" for="bulkTagInput">Tag</label>
 	<input
@@ -2232,9 +1839,7 @@
 		list="bulkTagOptions"
 	/>
 	<datalist id="bulkTagOptions">
-		{#each knownTags as t (t.id)}
-			<option value={t.name}></option>
-		{/each}
+		{#each knownTags as t (t.id)}<option value={t.name}></option>{/each}
 	</datalist>
 	{#snippet footer()}
 		<Button onclick={() => (bulkTagOpen = false)}>Cancel</Button>
@@ -2261,12 +1866,7 @@
 			</p>
 			<div class="max-h-64 overflow-y-auto border border-border">
 				<table class="w-full text-xs">
-					<thead>
-						<tr class="border-b border-border bg-surface-2 text-left font-medium text-muted">
-							<th class="px-2 py-1.5">Title</th>
-							<th class="px-2 py-1.5">Change</th>
-						</tr>
-					</thead>
+					{@render head(['Title', 'Change'])}
 					<tbody class="divide-y divide-border">
 						{#each renameChanges.slice(0, 2000) as c, i (i)}
 							<tr>
@@ -2338,9 +1938,7 @@
 								? ''
 								: 'opacity-55'}"
 						>
-							{#if mt.will_play}
-								<StatusLamp colour="green">Would play</StatusLamp>
-							{/if}
+							{#if mt.will_play}<StatusLamp colour="green">Would play</StatusLamp>{/if}
 							<span class="min-w-0 flex-1 truncate">{mt.title}</span>
 							<span class="shrink-0 font-mono text-muted">
 								{mt.year ?? ''}{mt.content_rating ? ` · ${mt.content_rating}` : ''}

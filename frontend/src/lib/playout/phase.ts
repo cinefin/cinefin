@@ -1,9 +1,6 @@
 /**
- * The playout status, read the same way on every surface: the lamp (label and colour, or
- * the red On air tally), the playout bar's two lines and which transport buttons are live.
- * The server works out the phase, the label and the allowed actions once
- * (backend services/playout_service.py); surfaces only choose how to draw them, so none
- * of them derives its own rules. Pure and framework-free: `npm run test:unit` covers it.
+ * The playout status, read the same way on every surface: the lamp, the playout bar's lines
+ * and which buttons are live. The server decides phase, label and actions; this only draws.
  */
 import type { components } from '../api/types.gen';
 import { dayLabel, formatClock, formatTime } from '../format.ts';
@@ -142,23 +139,4 @@ export function barLines(status: PlayoutStatus, address = ''): BarLines {
 			return { title, type: item?.type ?? null, detail: `${at}${item?.title ?? ''}` };
 		}
 	}
-}
-
-/** What the audience sees, drawn simply: the mark on standby, the programme's name on a
- * title card, black during a hold, else the item's title. */
-export function preview(status: PlayoutStatus): {
-	kind: 'mark' | 'title' | 'black' | 'item' | 'none';
-	text: string;
-} {
-	switch (status.phase) {
-		case 'offline':
-			return { kind: 'none', text: '' };
-		case 'standby':
-			return { kind: 'mark', text: status.screen };
-		case 'hold':
-			return { kind: 'black', text: status.current_item?.title ?? '' };
-	}
-	if (status.screen === 'Standby') return { kind: 'mark', text: status.screen };
-	if (status.screen === 'Title card') return { kind: 'title', text: status.programme?.name ?? '' };
-	return { kind: 'item', text: status.screen };
 }

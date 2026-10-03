@@ -1,11 +1,8 @@
 <script lang="ts">
 	/**
-	 * The global playout bar, under every page but the remote, whenever a player is
-	 * active. Left to right: the phase lamp, what is loaded and what is on screen, the
-	 * transport, the running order, and what the phase allows. Everything it shows and
-	 * enables comes from the server's status through `$lib/playout/phase`; it only draws
-	 * and sends actions. Action failures degrade quietly (console.error): a background
-	 * surface shouldn't stack toasts over whatever page is open.
+	 * The global playout bar (every page but the remote, while a player is active), drawn from
+	 * the server's status via `$lib/playout/phase`. Action failures only console.error: a
+	 * background surface shouldn't stack toasts over whatever page is open.
 	 */
 	import { base } from '$app/paths';
 	import {
@@ -18,8 +15,7 @@
 		Square
 	} from '@lucide/svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import StatusLamp from '$lib/components/StatusLamp.svelte';
-	import Tally from '$lib/components/Tally.svelte';
+	import PhaseLamp from '$lib/components/shell/PhaseLamp.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Switch from '$lib/components/ui/Switch.svelte';
 	import { formatTime } from '$lib/format';
@@ -76,17 +72,26 @@
 		'rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text disabled:pointer-events-none disabled:opacity-40';
 </script>
 
+{#snippet skip(action: 'previous' | 'next', label: string, Icon: typeof SkipBack, cls = '')}
+	<button
+		type="button"
+		class="{iconBtn} {cls}"
+		title={label}
+		aria-label={label}
+		disabled={!status || !can(status, action)}
+		onclick={() => void act({ action })}
+	>
+		<Icon size={15} />
+	</button>
+{/snippet}
+
 {#if status?.player && lines}
 	<ConfirmDialog bind:this={confirmDlg} title="End programme?" />
 	<CueDialog bind:open={cueOpen} oncued={() => playlist.refresh()} />
 	<div class="border-t border-border bg-surface-1">
 		<div class="flex h-14 items-center gap-3 px-3 md:gap-4 md:px-4">
 			<div class="hidden w-28 shrink-0 sm:block">
-				{#if light.tally}
-					<Tally label={light.label} />
-				{:else}
-					<StatusLamp colour={light.colour} quiet={light.quiet}>{light.label}</StatusLamp>
-				{/if}
+				<PhaseLamp lamp={light} />
 			</div>
 
 			<div class="min-w-0 flex-1 sm:w-40 sm:flex-none md:w-64">
@@ -145,16 +150,7 @@
 					</Button>
 				{:else}
 					<div class="flex items-center gap-1">
-						<button
-							type="button"
-							class="{iconBtn} hidden sm:block"
-							title="Previous item"
-							aria-label="Previous item"
-							disabled={!can(status, 'previous')}
-							onclick={() => void act({ action: 'previous' })}
-						>
-							<SkipBack size={15} />
-						</button>
+						{@render skip('previous', 'Previous item', SkipBack, 'hidden sm:block')}
 						<button
 							type="button"
 							class="rounded-md bg-accent p-2 text-on-accent hover:bg-accent-hover disabled:pointer-events-none disabled:opacity-40"
@@ -173,16 +169,7 @@
 								onclick={() => void act({ action: 'end_hold' })}>End hold</Button
 							>
 						{:else}
-							<button
-								type="button"
-								class={iconBtn}
-								title="Next item"
-								aria-label="Next item"
-								disabled={!can(status, 'next')}
-								onclick={() => void act({ action: 'next' })}
-							>
-								<SkipForward size={15} />
-							</button>
+							{@render skip('next', 'Next item', SkipForward)}
 						{/if}
 					</div>
 				{/if}

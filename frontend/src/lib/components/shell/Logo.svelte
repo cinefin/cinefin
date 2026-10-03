@@ -1,19 +1,7 @@
 <script lang="ts">
 	/**
-	 * The Cinefin mark — the brand guide's own drawing, inline SVG so the
-	 * frame and perfs inherit currentColor while the three exposures stay
-	 * fixed (they are the idea; they never re-tint, whatever the accent).
-	 *
-	 * ONE drawing at every size: a 36×48 grid (3:4), spec S1. Thin frame (3),
-	 * generous air (3) all round; perfs (4×6, gaps 4) and exposures (10×10,
-	 * gaps 3) both span the same content band, so the first perf's top sits
-	 * on the red's top and the last perf's bottom on the blue's bottom. The
-	 * frame is an evenodd FILL (no stroke, no viewBox straddle). Exposures
-	 * are fixed brand channels. Symmetric, so it antialiases evenly at any
-	 * size — no snapping.
-	 *
-	 * `wordmark` adds the name: Tilt Warp at its natural fit, mixed case —
-	 * never letterspaced (docs/cinefin-ui-spec.html T2).
+	 * The Cinefin mark (spec S1), inline so frame and perfs inherit currentColor while the three
+	 * exposures stay fixed brand channels. `wordmark` adds the name in Tilt Warp.
 	 */
 	interface Props {
 		/** Tailwind height class for the mark, e.g. `h-6`. Width follows. */
@@ -22,9 +10,7 @@
 	}
 	let { markClass = 'h-7', wordmark = false }: Props = $props();
 
-	// The projector warm-up (spec M1): frame in, channels strike upward into
-	// place, perfs last. Once per SESSION, on first paint — never again until
-	// the next visit.
+	// The projector warm-up (spec M1), once per session.
 	const warm = (() => {
 		try {
 			if (sessionStorage.getItem('cinefin-warmup')) return false;
@@ -36,8 +22,7 @@
 	})();
 </script>
 
-<!-- The lockup: the mark centred in a fixed slot so the wordmark's x is
-     stable whatever the mark height. -->
+<!-- The mark sits in a fixed slot so the wordmark's x is stable whatever the mark height. -->
 <span class="flex min-w-0 items-center gap-2.5 text-text">
 	<span class="flex w-6 shrink-0 justify-center">
 		<svg
@@ -94,22 +79,16 @@
 			animation: frame-in 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) 0.6s both;
 		}
 	}
+	/* No `to` frames: they default to the element's own (opaque, untransformed) style. */
 	@keyframes warm-strike {
 		from {
 			opacity: 0;
 			transform: translateY(4px) scaleY(0.72);
 		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
 	}
 	@keyframes frame-in {
 		from {
 			opacity: 0;
-		}
-		to {
-			opacity: 1;
 		}
 	}
 </style>

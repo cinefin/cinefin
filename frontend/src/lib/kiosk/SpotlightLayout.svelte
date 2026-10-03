@@ -3,10 +3,7 @@
 	import SlideShow from './SlideShow.svelte';
 	import type { KioskController } from './controller.svelte';
 
-	interface Props {
-		kiosk: KioskController;
-	}
-	let { kiosk }: Props = $props();
+	let { kiosk }: { kiosk: KioskController } = $props();
 
 	const films = $derived(kiosk.films.length ? kiosk.films : kiosk.screeningFilms());
 </script>

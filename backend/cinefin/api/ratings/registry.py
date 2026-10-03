@@ -11,7 +11,3 @@ def register(cls):
 def get_provider(system: str):
     cls = _REGISTRY.get(system)
     return cls() if cls else None
-
-
-def list_systems() -> list[str]:
-    return sorted(_REGISTRY)

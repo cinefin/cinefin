@@ -1,6 +1,4 @@
 <script lang="ts">
-	// Quick actions for the dashboard's rail: the commands picked on this device
-	// (six shown, the rest in More), then app shortcuts.
 	import { base } from '$app/paths';
 	import { CalendarPlus, Clapperboard, ListPlus } from '@lucide/svelte';
 	import CommandPad from '$lib/commands/CommandPad.svelte';

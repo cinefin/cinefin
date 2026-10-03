@@ -1,11 +1,8 @@
 <script lang="ts">
-	// Kiosk display — public wall display; runs 24/7 unattended (silent fetch failures,
-	// timers tear down with the component, self-reloads on a reload_key change).
 	import { fade } from 'svelte/transition';
 	import { KioskController } from '$lib/kiosk/controller.svelte';
 	import BoardLayout from '$lib/kiosk/BoardLayout.svelte';
 	import CountdownTakeover from '$lib/kiosk/CountdownTakeover.svelte';
-	import NightMode from '$lib/kiosk/NightMode.svelte';
 	import Picker from '$lib/kiosk/Picker.svelte';
 	import PlayoutTakeover from '$lib/kiosk/PlayoutTakeover.svelte';
 	import SplitLayout from '$lib/kiosk/SplitLayout.svelte';
@@ -27,20 +24,23 @@
 	let cursorOn = $state(false);
 
 	const MODE_FADE_MS = 450;
+	const LAYOUT_VIEWS: Record<string, typeof WallLayout> = {
+		spotlight: SpotlightLayout,
+		split: SplitLayout,
+		board: BoardLayout,
+		tonight: TonightLayout
+	};
+	const Layout = $derived(LAYOUT_VIEWS[kiosk.effectiveLayout] ?? WallLayout);
 
 	// One key for "what the stage shows": a change crossfades the scene.
-	const stageKey = $derived.by((): string => {
-		switch (kiosk.mode) {
-			case 'playout':
-				return `playout:${kiosk.playoutKey}`;
-			case 'countdown':
-				return `countdown:${kiosk.countdownTarget?.id ?? 0}`;
-			case 'night':
-				return 'night';
-			default:
-				return `layout:${kiosk.effectiveLayout}`;
-		}
-	});
+	const stageKey = $derived(
+		{
+			playout: `playout:${kiosk.playoutKey}`,
+			countdown: `countdown:${kiosk.countdownTarget?.id ?? 0}`,
+			night: 'night',
+			layout: `layout:${kiosk.effectiveLayout}`
+		}[kiosk.mode]
+	);
 
 	const title = $derived(
 		kiosk.cinema?.name && kiosk.cinema.name !== 'Cinefin'
@@ -95,17 +95,9 @@
 						{:else if kiosk.mode === 'countdown'}
 							<CountdownTakeover {kiosk} />
 						{:else if kiosk.mode === 'night'}
-							<NightMode {kiosk} />
-						{:else if kiosk.effectiveLayout === 'spotlight'}
-							<SpotlightLayout {kiosk} />
-						{:else if kiosk.effectiveLayout === 'split'}
-							<SplitLayout {kiosk} />
-						{:else if kiosk.effectiveLayout === 'board'}
-							<BoardLayout {kiosk} />
-						{:else if kiosk.effectiveLayout === 'tonight'}
-							<TonightLayout {kiosk} />
+							<div class="night"><div class="night-clock">{kiosk.headerClockText}</div></div>
 						{:else}
-							<WallLayout {kiosk} />
+							<Layout {kiosk} />
 						{/if}
 					</div>
 				{/key}

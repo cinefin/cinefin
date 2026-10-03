@@ -2,10 +2,7 @@
 	import { fmtRuntime } from './time';
 	import type { KioskFilmish } from './types';
 
-	interface Props {
-		film: KioskFilmish;
-	}
-	let { film }: Props = $props();
+	let { film }: { film: KioskFilmish } = $props();
 
 	const bits = $derived(
 		[

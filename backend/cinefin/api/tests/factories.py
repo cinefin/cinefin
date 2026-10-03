@@ -8,6 +8,15 @@ from django.utils import timezone
 from cinefin.api import models
 
 
+def _m2m(field):
+    @factory.post_generation
+    def hook(obj, create, extracted, **kwargs):
+        if create and extracted:
+            getattr(obj, field).set(extracted)
+
+    return hook
+
+
 class GenreFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = models.Genre
@@ -24,14 +33,6 @@ class TagFactory(factory.django.DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Tag {n}")
 
 
-class TrailerTagFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = models.TrailerTag
-        django_get_or_create = ("name",)
-
-    name = factory.Sequence(lambda n: f"Trailer Tag {n}")
-
-
 class MovieFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = models.Movie
@@ -46,12 +47,7 @@ class MovieFactory(factory.django.DjangoModelFactory):
     runtime = 120
     tmdbid = factory.Sequence(lambda n: 100000 + n)
     date_added = factory.LazyFunction(timezone.now)
-
-    @factory.post_generation
-    def genres(self, create, extracted, **kwargs):
-        if not create or not extracted:
-            return
-        self.genres.set(extracted)
+    genres = _m2m("genres")
 
 
 class TrailerFactory(factory.django.DjangoModelFactory):
@@ -67,18 +63,8 @@ class TrailerFactory(factory.django.DjangoModelFactory):
     month = 6
     content_rating = "PG"
     tmdbid = factory.Sequence(lambda n: 200000 + n)
-
-    @factory.post_generation
-    def genres(self, create, extracted, **kwargs):
-        if not create or not extracted:
-            return
-        self.genres.set(extracted)
-
-    @factory.post_generation
-    def trailer_tags(self, create, extracted, **kwargs):
-        if not create or not extracted:
-            return
-        self.trailer_tags.set(extracted)
+    genres = _m2m("genres")
+    trailer_tags = _m2m("trailer_tags")
 
 
 class BumperFactory(factory.django.DjangoModelFactory):
@@ -89,21 +75,7 @@ class BumperFactory(factory.django.DjangoModelFactory):
     title = factory.Sequence(lambda n: f"Test Bumper {n}")
     file_path = factory.Sequence(lambda n: f"/tmp/cinefin-tests/bumpers/bumper-{n}.mp4")
     duration = 30
-
-    @factory.post_generation
-    def tags(self, create, extracted, **kwargs):
-        if not create or not extracted:
-            return
-        self.tags.set(extracted)
-
-
-class CertificationFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = models.Certification
-
-    movie = factory.SubFactory(MovieFactory)
-    certification = factory.LazyAttribute(lambda o: o.movie.certification or "PG")
-    file_path = factory.Sequence(lambda n: f"/tmp/cinefin-tests/certs/cert-{n}.mp4")
+    tags = _m2m("tags")
 
 
 class CommandFactory(factory.django.DjangoModelFactory):

@@ -1,5 +1,5 @@
-/** Background-job plumbing shared by the Sync and Trailers pages: Job payload types, the
- *  WebSocket-filtered JobStream, and unwrapLoose() for the untyped sync/trailer endpoints. */
+/** Background-job plumbing: Job payload types, the WebSocket-filtered JobStream, and
+ *  unwrapLoose() for the untyped sync/trailer endpoints. */
 import { toApiError } from '$lib/api/client';
 import { realtime, type RealtimeMessage } from '$lib/realtime.svelte';
 
@@ -26,19 +26,23 @@ export interface JobCounts {
 	[extra: string]: unknown;
 }
 
-/** REST job serialization (Job.serialize). Log only with include_log. */
-export interface ApiJob {
-	id: number;
+/** Fields shared by the REST job and its live events. */
+interface JobProgressFields {
 	source_id: number | null;
 	operation: string;
 	state: string;
-	is_active: boolean;
 	phase: string | null;
 	current: number;
 	total: number | null;
 	percentage: number;
 	current_item: string | null;
 	counts: JobCounts;
+}
+
+/** REST job serialization (Job.serialize). Log only with include_log. */
+export interface ApiJob extends JobProgressFields {
+	id: number;
+	is_active: boolean;
 	created_at: string | null;
 	started_at: string | null;
 	finished_at: string | null;
@@ -49,27 +53,10 @@ export interface ApiJob {
 }
 
 /** SSE state/progress/complete payload (_job_payload, views/job_sse.py). */
-export interface JobEvent {
+export interface JobEvent extends JobProgressFields {
 	job_id: number;
 	kind: string;
-	source_id: number | null;
-	operation: string;
-	state: string;
-	phase: string | null;
-	current: number;
-	total: number | null;
-	percentage: number;
-	current_item: string | null;
-	counts: JobCounts;
 	error: string | null;
-}
-
-/** SSE log payload (_log_payload, views/job_sse.py). */
-export interface JobLogEvent {
-	job_id: number;
-	kind: string;
-	source_id: number | null;
-	entries: JobLogEntry[];
 }
 
 const ACTIVE_STATES = new Set(['queued', 'running', 'cancelling']);
@@ -81,50 +68,37 @@ export function jobIsActive(state?: string | null): boolean {
 export interface JobStreamHandlers {
 	onState?: (p: JobEvent) => void;
 	onProgress?: (p: JobEvent) => void;
-	onLog?: (p: JobLogEvent) => void;
 	onComplete?: (p: JobEvent) => void;
-	/** Fires on every (re)connect — pages reconcile against the DB here: a job
-	 * that finished while the socket was down never gets a `complete` event on
-	 * the new connection (the server only pushes active jobs). */
+	/** Fires on every (re)connect — reconcile against the DB here: a job that finished while the
+	 * socket was down never gets a `complete` event (the server only pushes active jobs). */
 	onOpen?: () => void;
 }
 
-/** A view of the shared socket filtered to one job kind (and optionally one source). */
+/** A view of the shared socket filtered to one job kind. */
 export class JobStream {
 	#kind: string;
-	#sourceId?: number;
 	#handlers: JobStreamHandlers;
 	#unsub: (() => void) | null = null;
 
-	constructor(opts: { kind: string; sourceId?: number }, handlers: JobStreamHandlers = {}) {
+	constructor(opts: { kind: string }, handlers: JobStreamHandlers = {}) {
 		this.#kind = opts.kind;
-		this.#sourceId = opts.sourceId;
 		this.#handlers = handlers;
 	}
 
 	open(): void {
 		if (this.#unsub) return;
+		const h = this.#handlers;
+		const byEvent: Record<string, ((p: JobEvent) => void) | undefined> = {
+			state: h.onState,
+			progress: h.onProgress,
+			complete: h.onComplete
+		};
 		this.#unsub = realtime.subscribe({
 			channel: 'job',
-			onConnect: () => this.#handlers.onOpen?.(),
+			onConnect: () => h.onOpen?.(),
 			onMessage: (msg: RealtimeMessage) => {
-				const data = msg.data as JobEvent & JobLogEvent;
-				if (data.kind !== this.#kind) return;
-				if (this.#sourceId != null && data.source_id !== this.#sourceId) return;
-				switch (msg.event) {
-					case 'state':
-						this.#handlers.onState?.(data);
-						break;
-					case 'progress':
-						this.#handlers.onProgress?.(data);
-						break;
-					case 'log':
-						this.#handlers.onLog?.(data);
-						break;
-					case 'complete':
-						this.#handlers.onComplete?.(data);
-						break;
-				}
+				const data = msg.data as JobEvent;
+				if (data.kind === this.#kind) byEvent[msg.event as string]?.(data);
 			}
 		});
 	}

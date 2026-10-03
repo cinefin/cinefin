@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 
 from .base import SyncSourcePlugin
@@ -38,14 +36,12 @@ def get_plugin(source) -> SyncSourcePlugin | None:
 
 def list_types() -> list[dict]:
     _ensure_loaded()
-    out = []
-    for type_id, cls in sorted(_REGISTRY.items()):
-        out.append(
-            {
-                "type_id": type_id,
-                "label": cls.label or type_id.title(),
-                "operations": list(cls.operations),
-                "needs_connection": cls.needs_connection,
-            }
-        )
-    return out
+    return [
+        {
+            "type_id": type_id,
+            "label": cls.label or type_id.title(),
+            "operations": list(cls.operations),
+            "needs_connection": cls.needs_connection,
+        }
+        for type_id, cls in sorted(_REGISTRY.items())
+    ]

@@ -1,13 +1,5 @@
 <script lang="ts">
-	/**
-	 * Tabs — spec §06 C3, verbatim: a strip of quiet labels over a hairline, the active one lit
-	 * (text colour) with a 2px blue underline that draws in from its centre. Blue because a tab is
-	 * interactive — red stays reserved for live. Hover is a change of light (a surface rung), never
-	 * movement. Roving tabindex + ←/→/Home/End, per the ARIA tabs pattern.
-	 *
-	 * For switching between sections of one thing. A filter (a set of chips) or a view toggle
-	 * (grid/list) is not tabs.
-	 */
+	/** The one tab strip (spec §06 C3), for sections of one thing; roving tabindex + arrow keys. */
 	interface Tab {
 		id: string;
 		label: string;
@@ -54,6 +46,9 @@
 	}
 </script>
 
+<!-- The underline (::after): inset 10px, on the strip's hairline, drawn in from the centre. The
+     hairline is an inset line inside the strip (not a border) and tabs stand 1px above it, so a
+     strip that scrolls sideways on a phone can't clip the underline and a hovered tab can't hide it. -->
 <div
 	bind:this={strip}
 	role="tablist"
@@ -70,9 +65,12 @@
 			aria-selected={active}
 			aria-controls={panelId?.(tab.id)}
 			tabindex={active ? 0 : -1}
-			class="tab relative mb-px shrink-0 rounded-t-sm px-3.5 pt-2 pb-2.5 text-[0.84375rem] font-medium
+			class="relative mb-px shrink-0 rounded-t-sm px-3.5 pt-2 pb-2.5 text-[0.84375rem] font-medium
 				whitespace-nowrap transition-colors duration-[var(--duration-ui)] ease-[var(--ease-panel)]
-				hover:bg-surface-1 hover:text-text {active ? 'text-text' : 'text-muted'}"
+				after:absolute after:inset-x-[10px] after:-bottom-px after:h-[2px] after:scale-x-0 after:bg-accent
+				after:transition-transform after:duration-[var(--duration-ui)] after:ease-[var(--ease-panel)]
+				hover:bg-surface-1 hover:text-text aria-selected:after:scale-x-100
+				{active ? 'text-text' : 'text-muted'}"
 			{onkeydown}
 			onclick={() => onselect(tab.id)}
 		>
@@ -80,23 +78,3 @@
 		</button>
 	{/each}
 </div>
-
-<style>
-	/* The underline: inset 10px, on the strip's hairline, drawn in from the centre. The hairline is
-	 * an inset line inside the strip (not a border) and tabs stand 1px above it, so a strip that
-	 * scrolls sideways on a phone can't clip the underline and a hovered tab can't hide the line. */
-	.tab::after {
-		content: '';
-		position: absolute;
-		left: 10px;
-		right: 10px;
-		bottom: -1px;
-		height: 2px;
-		background: var(--color-accent);
-		transform: scaleX(0);
-		transition: transform var(--duration-ui) var(--ease-panel);
-	}
-	.tab[aria-selected='true']::after {
-		transform: scaleX(1);
-	}
-</style>

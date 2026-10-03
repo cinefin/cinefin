@@ -8,6 +8,7 @@ make them clickable. Lines that print nothing show there as grey placeholders, w
 
 import functools
 import textwrap
+from types import SimpleNamespace
 
 import qrcode
 import qrcode.constants
@@ -30,16 +31,6 @@ QR_ERRORS = {
     "medium": qrcode.constants.ERROR_CORRECT_M,
     "quartile": qrcode.constants.ERROR_CORRECT_Q,
     "high": qrcode.constants.ERROR_CORRECT_H,
-}
-# python-barcode's names, for previewing the barcodes the printer draws itself.
-BARCODE_NAMES = {
-    "code128": "code128",
-    "code39": "code39",
-    "ean13": "ean13",
-    "ean8": "ean8",
-    "upca": "upca",
-    "itf": "itf",
-    "codabar": "codabar",
 }
 
 
@@ -192,7 +183,7 @@ def _item(el, tokens: dict, spec: dict, ctx: dict, width: int) -> Image.Image | 
         path = ts._rating_image_path(ctx.get("certification"))
         return ts._prepare_image(path, width, el.width).convert("L") if path else None
     if el.type == "image":
-        path = ts._ticket_image_path(el.file)
+        path = ts.ticket_image_path(el.file)
         return ts._prepare_image(path, width, el.width).convert("L") if path else None
     return None
 
@@ -264,15 +255,13 @@ def _printer_text(op: dict, paper: int) -> Image.Image:
     lines = []
     for line in op["value"].rstrip("\n").split("\n"):
         lines += [line[i : i + per_line] for i in range(0, len(line), per_line)] or [""]
-    return _draw_lines(lines, _Style(op), "courier", paper, PRINTER_LINE, fill_line=False)
-
-
-class _Style:
-    """An op's styling, shaped like an element for _draw_lines."""
-
-    def __init__(self, op: dict):
-        self.align, self.size = op.get("align", "center"), op.get("size", "normal")
-        self.bold, self.invert = op.get("bold", False), op.get("invert", False)
+    style = SimpleNamespace(
+        align=op.get("align", "center"),
+        size=op.get("size", "normal"),
+        bold=op.get("bold", False),
+        invert=op.get("invert", False),
+    )
+    return _draw_lines(lines, style, "courier", paper, PRINTER_LINE, fill_line=False)
 
 
 def _barcode_image(symbology: str, data: str) -> Image.Image:
@@ -280,7 +269,8 @@ def _barcode_image(symbology: str, data: str) -> Image.Image:
     import barcode
     from barcode.writer import ImageWriter
 
-    code = barcode.get_barcode_class(BARCODE_NAMES[symbology])(data, writer=ImageWriter())
+    # Our symbology ids are python-barcode's names.
+    code = barcode.get_barcode_class(symbology)(data, writer=ImageWriter())
     # At the writer's dpi, 0.25 mm is 2 dots and 8 mm is 64.
     options = {"module_width": 0.25, "module_height": 8.0, "dpi": 203, "font_size": 9, "text_distance": 5.0}
     return code.render({**options, "quiet_zone": 1.0}).convert("L")
@@ -312,11 +302,7 @@ def _op_image(op: dict, paper: int) -> Image.Image | None:
 def render_preview(ops: list[dict], paper: int) -> tuple[Image.Image, list[dict]]:
     """The ticket as one greyscale image, and each line's place on it, in dots: `[{element, y, h, empty,
     cells?}]`; a columns line's `cells` are `[{x, w, items: [{y, h}]}]` with y measured down the whole image."""
-    pieces: list[tuple[dict, Image.Image]] = []
-    for op in ops:
-        image = _op_image(op, paper)
-        if image is not None:
-            pieces.append((op, image))
+    pieces = [(op, image) for op in ops if (image := _op_image(op, paper)) is not None]
     top = PRINTER_LINE  # the blank line every ticket starts with
     height = top + sum(image.height for _, image in pieces) + PRINTER_LINE
     canvas = Image.new("L", (paper, height), PAPER)

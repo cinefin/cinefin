@@ -1,8 +1,42 @@
 import atexit
+import logging
+import os
+import re
 import signal
 import sys
+import threading
 
 from django.apps import AppConfig
+
+logger = logging.getLogger(__name__)
+
+# Management commands that must not spin up the background workers.
+_NO_WORKER_COMMANDS = {
+    "migrate",
+    "makemigrations",
+    "collectstatic",
+    "shell",
+    "shell_plus",
+    "test",
+    "dbshell",
+    "createsuperuser",
+    "check",
+    "prune_jobs",
+    "pair_playout_host",
+    "export_openapi",
+    "loaddata",
+    "dumpdata",
+    "showmigrations",
+    "sqlmigrate",
+    "flush",
+}
+
+
+def _try(label, fn):
+    try:
+        fn()
+    except Exception:  # noqa: BLE001 - one failing worker must not stop boot
+        logger.exception("Failed to %s", label)
 
 
 class ApiConfig(AppConfig):
@@ -10,50 +44,23 @@ class ApiConfig(AppConfig):
     name = "cinefin.api"
 
     def ready(self):
-        # Don't auto-start MPV service - use lazy initialization instead
-        # This prevents threads from blocking Django processes like migrate
-
-        # A multi-worker gunicorn silently breaks playout — refuse to boot one.
-        self._assert_single_web_worker()
-
-        # Register cleanup handlers for graceful shutdown
-        self._register_cleanup_handlers()
-
-        # Make sure the usermedia tree exists (it may be a freshly mounted,
-        # empty volume) before anything tries to write into it.
-        self._ensure_media_tree()
-
-        # Start the background workers (sync engine + schedule runner), but
-        # never during management commands like migrate/makemigrations/shell.
-        self._maybe_start_background_workers()
-
-        # One-line nudges for footgun configurations.
-        self._warn_on_risky_settings()
-
-        # Built-in commands (the system provider's actions) exist after every migrate.
         from django.db.models.signals import post_migrate
 
         from cinefin import plugins
 
+        self._assert_single_web_worker()
+        self._register_cleanup_handlers()
+        self._ensure_media_tree()
+        self._maybe_start_background_workers()
+        self._warn_on_risky_settings()
+        # Built-in commands (the system provider's actions) exist after every migrate.
         post_migrate.connect(plugins.ensure_builtin_commands, sender=self)
 
     @staticmethod
     def _assert_single_web_worker():
-        """Refuse to boot gunicorn with more than one worker process.
-
-        The MPV/playout service is a per-process singleton and the schedule
-        runner + sync engine start one thread per process, so N workers means
-        N disconnected playout state machines and N schedule runners claiming
-        the same rows. The systemd unit ships ``--workers 1`` (concurrency
-        comes from ``--threads``); this guard turns the misconfiguration into
-        a clear boot failure instead of subtle races. Only the argv/env forms
-        are detectable — a gunicorn config file with ``workers = N`` is not,
-        which is acceptable: the shipped deployments don't use one.
-        """
-        import os
-        import re
-        import sys
-
+        """Refuse to boot gunicorn with more than one worker: playout state, the
+        schedule runner and the sync engine are per-process, so N workers race.
+        Only the argv/env forms are detectable, not a gunicorn config file."""
         cmdline = " ".join(sys.argv) + " " + os.environ.get("GUNICORN_CMD_ARGS", "")
         if "gunicorn" not in cmdline:
             return
@@ -70,24 +77,20 @@ class ApiConfig(AppConfig):
 
     @staticmethod
     def _warn_on_risky_settings():
-        import logging
-
         from django.conf import settings
 
-        logger = logging.getLogger("cinefin")
+        log = logging.getLogger("cinefin")
         if getattr(settings, "CORS_ALLOW_ALL_ORIGINS", False):
-            logger.warning(
+            log.warning(
                 "CINEFIN_CORS_ALL=1: any website can call this API from a visitor's "
                 "browser. Prefer CINEFIN_CORS_ORIGINS with an explicit list."
             )
         if settings.DEBUG:
-            logger.warning("DEBUG is on — never expose this instance beyond your own machine.")
+            log.warning("DEBUG is on — never expose this instance beyond your own machine.")
 
     @staticmethod
     def _ensure_media_tree():
-        """Create the MEDIA_ROOT subdirectories the app writes into or reads from."""
-        import os
-
+        """Create the MEDIA_ROOT subdirectories (it may be a fresh, empty volume)."""
         from django.conf import settings
 
         from .utils.media_tree import media_subdir_paths, unwritable_media_subdirs
@@ -99,19 +102,14 @@ class ApiConfig(AppConfig):
             for path in media_subdir_paths():
                 os.makedirs(path, exist_ok=True)
         except Exception:  # noqa: BLE001 - a read-only mount must not stop boot
-            import logging
-
-            logging.getLogger(__name__).exception("Failed to create media directories")
+            logger.exception("Failed to create media directories")
             return
 
-        # makedirs(exist_ok=True) succeeds on directories another user owns
-        # (e.g. a previous Docker run created them as root) — then every write
-        # fails later, one confusing error at a time. Surface it once at boot.
+        # makedirs(exist_ok=True) succeeds on directories another user owns (e.g. a
+        # previous Docker run as root); surface that once at boot, not per write.
         unwritable = unwritable_media_subdirs()
         if unwritable:
-            import logging
-
-            logging.getLogger(__name__).error(
+            logger.error(
                 "Media directories exist but are NOT writable by this process: %s. "
                 "Uploads and generated media will fail. Fix ownership, "
                 "e.g. 'sudo chown -R <app-user> %s'.",
@@ -120,43 +118,15 @@ class ApiConfig(AppConfig):
             )
 
     def _maybe_start_background_workers(self):
-        import os
-        import sys
-
         from django.conf import settings
 
-        # Test runs (pytest uses cinefin.test_settings) must never spawn the
-        # engine worker or recovery threads.
         if getattr(settings, "CINEFIN_DISABLE_BACKGROUND_WORKERS", False):
             return
-
-        # Skip for management commands that shouldn't spin up workers.
-        skip_commands = {
-            "migrate",
-            "makemigrations",
-            "collectstatic",
-            "shell",
-            "shell_plus",
-            "test",
-            "dbshell",
-            "createsuperuser",
-            "check",
-            "prune_jobs",
-            "pair_playout_host",
-            "export_openapi",
-            "loaddata",
-            "dumpdata",
-            "showmigrations",
-            "sqlmigrate",
-            "flush",
-        }
         argv = sys.argv
-        if len(argv) > 1 and argv[1] in skip_commands:
+        if len(argv) > 1 and argv[1] in _NO_WORKER_COMMANDS:
             return
-        # Under runserver's autoreloader, only the reloaded child (RUN_MAIN=true)
-        # should run the workers — not the watcher parent. With --noreload there
-        # is no child and RUN_MAIN is never set, so start normally. gunicorn and
-        # other entrypoints don't set RUN_MAIN either.
+        # Under runserver's autoreloader only the reloaded child (RUN_MAIN=true)
+        # runs the workers, not the watcher parent.
         if (
             len(argv) > 1
             and argv[1] == "runserver"
@@ -164,93 +134,45 @@ class ApiConfig(AppConfig):
             and os.environ.get("RUN_MAIN") != "true"
         ):
             return
-        try:
-            from .sync import engine
 
-            engine.start()
-        except Exception:  # noqa: BLE001
-            import logging
+        from .services import playout_link, schedule_runner
+        from .sync import engine
 
-            logging.getLogger("cinefin.sync.engine").exception("Failed to start sync engine")
-
-        # Programme schedule runner — plays due ProgrammeSchedule rows in a
-        # background thread of this process (which owns the MPV state machine).
-        try:
-            from .services import schedule_runner
-
-            schedule_runner.start()
-        except Exception:  # noqa: BLE001
-            import logging
-
-            logging.getLogger(__name__).exception("Failed to start schedule runner")
-
-        # Keep the control link to the active playout agent open, so the player
-        # knows Cinefin is there (it shows a notice when it is not).
-        try:
-            from .services import playout_link
-
-            playout_link.start()
-        except Exception:  # noqa: BLE001
-            import logging
-
-            logging.getLogger(__name__).exception("Failed to start the playout link keeper")
-
-        # Trailer jobs run on ad-hoc threads (no resumable worker), so any left
-        # "running" by a crash/restart must be marked failed on boot. Run it off
-        # the init path — querying the DB inside ready() is discouraged.
-        import threading
-
-        threading.Thread(
-            target=self._recover_orphans,
-            name="orphan-recovery",
-            daemon=True,
-        ).start()
+        _try("start sync engine", engine.start)
+        _try("start schedule runner", schedule_runner.start)
+        _try("start the playout link keeper", playout_link.start)
+        # Querying the DB inside ready() is discouraged, so recovery runs off the init path.
+        threading.Thread(target=self._recover_orphans, name="orphan-recovery", daemon=True).start()
 
     @staticmethod
     def _recover_orphans():
+        """Trailer jobs (ad-hoc threads) and schedules claimed 'running' are left
+        stranded by a crash; reconcile both on boot."""
         from django.db import close_old_connections
 
-        # Trailer jobs run on ad-hoc threads; schedules are claimed 'running'
-        # before load+start. Both must be reconciled on boot after a crash.
-        try:
-            from .services.trailer_jobs import recover_orphans as recover_trailer_orphans
-
-            recover_trailer_orphans()
-        except Exception:  # noqa: BLE001
-            import logging
-
-            logging.getLogger(__name__).exception("Failed to recover orphaned trailer jobs")
+        from .services import schedule_runner
+        from .services.trailer_jobs import recover_orphans as recover_trailer_orphans
 
         try:
-            from .services import schedule_runner
-
-            schedule_runner.recover_orphans()
-        except Exception:  # noqa: BLE001
-            import logging
-
-            logging.getLogger(__name__).exception("Failed to recover orphaned schedules")
+            _try("recover orphaned trailer jobs", recover_trailer_orphans)
+            _try("recover orphaned schedules", schedule_runner.recover_orphans)
         finally:
             close_old_connections()
 
     def _register_cleanup_handlers(self):
-        """Register cleanup handlers for MPV service shutdown"""
-
         def cleanup_mpv():
             try:
                 from .mpv_service import mpv_service
 
-                if hasattr(mpv_service, "controller") and mpv_service.controller:
+                if getattr(mpv_service, "controller", None):
                     mpv_service.controller.terminate()
-            except Exception:
-                pass  # Ignore errors during cleanup
+            except Exception:  # noqa: BLE001 - best effort at exit
+                pass
 
-        # Register cleanup for normal exit
-        atexit.register(cleanup_mpv)
-
-        # Register cleanup for signal-based termination (Ctrl+C, etc.)
         def signal_handler(_signum, _frame):
             cleanup_mpv()
             sys.exit(0)
 
+        atexit.register(cleanup_mpv)
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)

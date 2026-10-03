@@ -7,6 +7,7 @@
 	import { audioTrackLabel, codecLabel, subtitleTrackLabel } from './create-types';
 	import type { ProgrammeItem } from './types';
 	import { formatDuration, formatFileSize } from './helpers';
+	import { yearRange } from '$lib/editor/types';
 
 	type MovieDetail = components['schemas']['MovieDetailSchema'];
 
@@ -96,14 +97,9 @@
 		[fileSize ? formatFileSize(fileSize) : null, filePath].filter(Boolean).join('\n') || undefined
 	);
 
-	const yearRange = $derived.by(() => {
-		if (d.year_from && d.year_to) return `${d.year_from}-${d.year_to}`;
-		if (d.year_from) return `${d.year_from}+`;
-		if (d.year_to) return `≤${d.year_to}`;
-		return null;
-	});
+	const years = $derived(yearRange(d.year_from, d.year_to));
 	const matching = $derived(d.matching_count ?? 0);
-	const unfiltered = $derived(!d.genre_names?.length && !d.certification && !yearRange);
+	const unfiltered = $derived(!d.genre_names?.length && !d.certification && !years);
 
 	const artCell = 'w-48 shrink-0 self-start sm:w-52';
 	const artBox = 'film-grain aspect-[2/3] w-full overflow-hidden bg-surface-2';
@@ -129,7 +125,7 @@
 					<p class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted">
 						{#if d.genre_names?.length}<span>{d.genre_names.join(', ')}</span>{/if}
 						{#if d.certification}<Badge variant="outline">{d.certification}</Badge>{/if}
-						{#if yearRange}<span>{yearRange}</span>{/if}
+						{#if years}<span>{years}</span>{/if}
 						{#if unfiltered}<span>Any movie</span>{/if}
 					</p>
 				</div>

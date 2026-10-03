@@ -1,15 +1,37 @@
+"""Title-card API — title templates, previews and programme title generation."""
+
+import io
 import os
 
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from ninja import Router, Schema, Status
+from ninja import Router, Schema
 from pydantic import Field
 
 from ..exceptions import ConflictError, UnprocessableEntityError, ValidationError
 from ..models import Programme, ProgrammeTitleTemplate
-from ..services.titlegen_service import TitleGenService, title_length
+from ..services.titlegen_service import TitleGenService
 from ..utils.media_paths import usermedia_abs_path
 
 titlegen_api = Router()
+
+
+def _png(frame) -> HttpResponse:
+    buffer = io.BytesIO()
+    frame.save(buffer, format="PNG")
+    return HttpResponse(buffer.getvalue(), content_type="image/png")
+
+
+def _template_out(template: ProgrammeTitleTemplate) -> dict:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "template_config": template.template_config,
+        "default_duration": template.default_duration,
+        "created_at": template.created_at.isoformat(),
+        "updated_at": template.updated_at.isoformat(),
+    }
 
 
 class TitleTemplateSchema(Schema):
@@ -55,48 +77,20 @@ class MessageResponse(Schema):
 
 @titlegen_api.get("/templates", response=list[TitleTemplateSchema], tags=["Title Generation"])
 def list_title_templates(request):
-    templates = ProgrammeTitleTemplate.objects.all()
-    return [
-        {
-            "id": t.id,
-            "name": t.name,
-            "description": t.description,
-            "template_config": t.template_config,
-            "default_duration": t.default_duration,
-            "created_at": t.created_at.isoformat(),
-            "updated_at": t.updated_at.isoformat(),
-        }
-        for t in templates
-    ]
+    return [_template_out(t) for t in ProgrammeTitleTemplate.objects.all()]
 
 
 @titlegen_api.get("/templates/{template_id}", response=TitleTemplateSchema, tags=["Title Generation"])
 def get_title_template(request, template_id: int):
-    template = get_object_or_404(ProgrammeTitleTemplate, id=template_id)
-    return {
-        "id": template.id,
-        "name": template.name,
-        "description": template.description,
-        "template_config": template.template_config,
-        "default_duration": template.default_duration,
-        "created_at": template.created_at.isoformat(),
-        "updated_at": template.updated_at.isoformat(),
-    }
+    return _template_out(get_object_or_404(ProgrammeTitleTemplate, id=template_id))
 
 
 @titlegen_api.get("/templates/{template_id}/preview", tags=["Title Generation"])
 def render_template_thumbnail(request, template_id: int, programme_id: int | None = None):
     """Server-rendered PNG thumbnail of a template; with programme_id, against that programme's real features."""
-    import io
-
-    from django.http import HttpResponse
-
     template = get_object_or_404(ProgrammeTitleTemplate, id=template_id)
     programme = Programme.objects.filter(id=programme_id).first() if programme_id else None
-    frame = TitleGenService.render_config_frame(template.template_config, programme=programme)
-    buffer = io.BytesIO()
-    frame.save(buffer, format="PNG")
-    response = HttpResponse(buffer.getvalue(), content_type="image/png")
+    response = _png(TitleGenService.render_config_frame(template.template_config, programme=programme))
     response["Cache-Control"] = "private, max-age=86400"
     return response
 
@@ -106,28 +100,7 @@ def create_title_template(request, payload: TitleTemplateCreateSchema):
     if ProgrammeTitleTemplate.objects.filter(name=payload.name).exists():
         raise ConflictError(f"A template with the name '{payload.name}' already exists", error_code="DUPLICATE_NAME")
 
-    try:
-        template = ProgrammeTitleTemplate.objects.create(
-            name=payload.name,
-            description=payload.description,
-            template_config=payload.template_config,
-            default_duration=payload.default_duration,
-        )
-
-        return Status(
-            200,
-            {
-                "id": template.id,
-                "name": template.name,
-                "description": template.description,
-                "template_config": template.template_config,
-                "default_duration": template.default_duration,
-                "created_at": template.created_at.isoformat(),
-                "updated_at": template.updated_at.isoformat(),
-            },
-        )
-    except Exception as e:
-        raise UnprocessableEntityError(f"Failed to create template: {str(e)}") from e
+    return _template_out(ProgrammeTitleTemplate.objects.create(**payload.dict()))
 
 
 @titlegen_api.put(
@@ -144,32 +117,10 @@ def update_title_template(request, template_id: int, payload: TitleTemplateUpdat
                 f"A template with the name '{payload.name}' already exists", error_code="DUPLICATE_NAME"
             )
 
-    try:
-        if payload.name is not None:
-            template.name = payload.name
-        if payload.description is not None:
-            template.description = payload.description
-        if payload.template_config is not None:
-            template.template_config = payload.template_config
-        if payload.default_duration is not None:
-            template.default_duration = payload.default_duration
-
-        template.save()
-
-        return Status(
-            200,
-            {
-                "id": template.id,
-                "name": template.name,
-                "description": template.description,
-                "template_config": template.template_config,
-                "default_duration": template.default_duration,
-                "created_at": template.created_at.isoformat(),
-                "updated_at": template.updated_at.isoformat(),
-            },
-        )
-    except Exception as e:
-        raise UnprocessableEntityError(f"Failed to update template: {str(e)}") from e
+    for key, value in payload.dict(exclude_none=True).items():
+        setattr(template, key, value)
+    template.save()
+    return _template_out(template)
 
 
 @titlegen_api.delete(
@@ -184,12 +135,8 @@ def delete_title_template(request, template_id: int):
             error_code="TEMPLATE_IN_USE",
         )
 
-    try:
-        template_name = template.name
-        template.delete()
-        return Status(200, {"success": True, "message": f"Template '{template_name}' deleted successfully"})
-    except Exception as e:
-        raise UnprocessableEntityError(f"Failed to delete template: {str(e)}") from e
+    template.delete()
+    return {"success": True, "message": f"Template '{template.name}' deleted successfully"}
 
 
 @titlegen_api.post(
@@ -211,48 +158,18 @@ def generate_programme_title(request, programme_id: int, payload: GenerateTitleR
         )
 
     try:
-        service = TitleGenService(programme)
-        result = service.generate_title()
-
-        if not result["success"]:
-            raise UnprocessableEntityError(
-                f"Title generation failed: {result.get('error')}", error_code="GENERATION_FAILED"
-            )
-
-        return Status(
-            200,
-            {
-                "success": True,
-                "message": "Title card generated successfully",
-                "file_path": result.get("file_path"),
-                "duration": result.get("duration"),
-            },
-        )
-
-    except UnprocessableEntityError:
-        raise
+        result = TitleGenService(programme).generate_title()
     except Exception as e:
         raise UnprocessableEntityError(f"Title generation failed: {str(e)}", error_code="GENERATION_FAILED") from e
-
-
-@titlegen_api.get("/programmes/{programme_id}/title-status", response=dict, tags=["Title Generation"])
-def get_programme_title_status(request, programme_id: int):
-    programme = get_object_or_404(Programme, id=programme_id)
-
-    import os
-
-    has_title_file = bool(programme.title_file and os.path.exists(usermedia_abs_path(programme.title_file)))
-
+    if not result["success"]:
+        raise UnprocessableEntityError(
+            f"Title generation failed: {result.get('error')}", error_code="GENERATION_FAILED"
+        )
     return {
-        "programme_id": programme.id,
-        "programme_name": programme.name,
-        "has_template": programme.title_template is not None,
-        "template_name": programme.title_template.name if programme.title_template else None,
-        "background_type": programme.title_background_type,
-        "has_title_file": has_title_file,
-        "title_file_path": programme.title_file if has_title_file else None,
-        "duration": title_length(programme),
-        "feature_count": len(programme.get_feature_movies()),
+        "success": True,
+        "message": "Title card generated successfully",
+        "file_path": result.get("file_path"),
+        "duration": result.get("duration"),
     }
 
 
@@ -273,15 +190,5 @@ class TitlePreviewRequest(Schema):
 
 @titlegen_api.post("/preview", tags=["Title Generation"])
 def render_title_preview(request, payload: TitlePreviewRequest):
-    import io
-
-    from django.http import HttpResponse
-
-    programme = None
-    if payload.programme_id:
-        programme = get_object_or_404(Programme, id=payload.programme_id)
-
-    frame = TitleGenService.render_config_frame(payload.template_config, programme)
-    buffer = io.BytesIO()
-    frame.save(buffer, format="PNG")
-    return HttpResponse(buffer.getvalue(), content_type="image/png")
+    programme = get_object_or_404(Programme, id=payload.programme_id) if payload.programme_id else None
+    return _png(TitleGenService.render_config_frame(payload.template_config, programme))

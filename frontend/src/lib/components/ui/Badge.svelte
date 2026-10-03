@@ -2,10 +2,7 @@
 	import type { Snippet } from 'svelte';
 
 	interface Props {
-		/**
-		 * `type` carries no colour of its own — it is the item-type variant,
-		 * whose tint comes from lib/item-types.ts (always via TypeBadge).
-		 */
+		/** `type` has no colour of its own: TypeBadge passes the item-type tint as a class. */
 		variant?: 'default' | 'accent' | 'success' | 'warning' | 'danger' | 'outline' | 'type';
 		class?: string;
 		children: Snippet;
@@ -13,8 +10,6 @@
 
 	let { variant = 'default', class: cls = '', children }: Props = $props();
 
-	// Spec §06 (.badge / .b-q / .t-*): every chip has a hairline border; a coloured one is its
-	// channel at 30% over a faint tint of it — the same recipe the item-type badges use.
 	const variants: Record<string, string> = {
 		default: 'border-border-strong bg-surface-2 text-muted',
 		accent: 'border-accent/30 bg-accent/15 text-accent',

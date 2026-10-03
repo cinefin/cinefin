@@ -1,16 +1,6 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	/**
-	 * Title template detail = the editor itself.
-	 *
-	 * Unlike the programme and template detail pages, a title card has no
-	 * separate read-only view. The old one was a large static preview that just
-	 * sat in the way (issue #435): the editor already carries a live canvas plus
-	 * a ground-truth "Render", so a card is edited straight from the listing.
-	 * This route mounts the editor directly — `/titles/{id}` for an existing
-	 * card, `/titles/new` for one that does not exist yet (virtual id, nothing
-	 * written until the first save).
-	 */
+	// A title card has no read-only view (issue #435): `/titles/{id}` and `/titles/new` mount the editor.
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -49,10 +39,7 @@
 			`Delete “${tpl.data.name}”? Programmes using it will have no title card.`,
 			{ confirmLabel: 'Delete', title: 'Delete title card' }
 		);
-		if (ok) await remove();
-	}
-
-	async function remove(): Promise<void> {
+		if (!ok) return;
 		try {
 			const res = await api.DELETE('/api/v2/titlegen/templates/{template_id}', {
 				params: { path: { template_id: templateId } }
@@ -82,15 +69,11 @@
 	</button>
 {/snippet}
 
-<!-- Remount when the id changes (new → saved, or listing → listing) so the
-     editor reboots against the right template; see its `booted` contract. -->
+<!-- The editor loads one template per mount, so remount it when the id changes. -->
 {#key page.params.id}
 	<TitleEditor
 		templateId={isNew ? null : templateId}
-		onsaved={(id) => {
-			if (isNew) void goto(`${base}/titles/${id}`);
-			else void tpl.refresh();
-		}}
+		onsaved={(id) => void goto(`${base}/titles/${id}`)}
 	/>
 {/key}
 

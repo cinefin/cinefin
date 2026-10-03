@@ -1,16 +1,14 @@
 <script lang="ts">
-	// System health in the chrome: a quiet icon while everything passes, a lamp
-	// with a count once something fails. The panel lists every check, problems
-	// first, each with its fix and a "Check again".
+	// System health: a quiet icon while everything passes, a lamp with a count once something fails.
 	import { HeartPulse } from '@lucide/svelte';
 	import { relativeTime } from '$lib/format';
 	import { health, type HealthCheck } from '$lib/stores/health.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
+	import { dismiss } from '$lib/components/dismiss';
 
 	$effect(() => health.subscribe());
 
 	let open = $state(false);
-	let root: HTMLDivElement | undefined = $state();
 
 	const problems = $derived(health.problems);
 	const worst = $derived(problems[0]?.status === 'error' ? 'red' : 'amber');
@@ -22,18 +20,9 @@
 		error: 'red'
 	};
 	const lamp = (c: HealthCheck) => LAMP[c.status] ?? 'neutral';
-
-	function onWindowClick(e: MouseEvent) {
-		if (open && root && !root.contains(e.target as Node)) open = false;
-	}
-	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') open = false;
-	}
 </script>
 
-<svelte:window onclick={onWindowClick} onkeydown={onKeydown} />
-
-<div class="relative" bind:this={root}>
+<div class="relative" {@attach dismiss(() => (open = false))}>
 	<button
 		type="button"
 		class="flex items-center rounded-md p-1.5 text-muted hover:bg-surface-2 hover:text-text"

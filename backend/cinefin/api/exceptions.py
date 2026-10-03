@@ -31,18 +31,6 @@ class BadRequestError(APIException):
     message = "Bad request"
 
 
-class AuthenticationError(APIException):
-    status_code = 401
-    error_code = "AUTHENTICATION_FAILED"
-    message = "Authentication required"
-
-
-class PermissionError(APIException):
-    status_code = 403
-    error_code = "PERMISSION_DENIED"
-    message = "You do not have permission to perform this action"
-
-
 class NotFoundError(APIException):
     status_code = 404
     error_code = "NOT_FOUND"
@@ -65,3 +53,11 @@ class InternalServerError(APIException):
     status_code = 500
     error_code = "INTERNAL_ERROR"
     message = "Internal server error"
+
+
+def get_or_404(model, pk, message: str, error_code: str | None = None):
+    """``model``'s row ``pk``, or a NotFoundError with ``message``."""
+    obj = model.objects.filter(pk=pk).first()
+    if obj is None:
+        raise NotFoundError(message, error_code=error_code)
+    return obj

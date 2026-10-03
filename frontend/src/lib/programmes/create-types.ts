@@ -1,4 +1,5 @@
 import { itemTypeCount } from '$lib/item-types';
+import { runtimeRange, yearRange } from '$lib/editor/types';
 import type { components } from '$lib/api/types.gen';
 
 export type AudioTrack = components['schemas']['AudioTrackSchema'];
@@ -44,22 +45,17 @@ export function itemTitle(item: SelectedItem): string {
 }
 
 export function slotFilterText(slot: RandomSlot): string {
-	const filters: string[] = [];
-	if (slot.genre_names.length)
-		filters.push(
-			slot.genre_names.length <= 2
-				? slot.genre_names.join(', ')
-				: `${slot.genre_names[0]} +${slot.genre_names.length - 1} more`
-		);
-	if (slot.certification) filters.push(slot.certification);
-	if (slot.year_from && slot.year_to) filters.push(`${slot.year_from}-${slot.year_to}`);
-	else if (slot.year_from) filters.push(`${slot.year_from}+`);
-	else if (slot.year_to) filters.push(`≤${slot.year_to}`);
-	if (slot.runtime_from && slot.runtime_to)
-		filters.push(`${slot.runtime_from}-${slot.runtime_to} min`);
-	else if (slot.runtime_from) filters.push(`≥${slot.runtime_from} min`);
-	else if (slot.runtime_to) filters.push(`≤${slot.runtime_to} min`);
-	return filters.length ? filters.join(' · ') : 'Any movie';
+	const g = slot.genre_names;
+	const genres = g.length <= 2 ? g.join(', ') : `${g[0]} +${g.length - 1} more`;
+	const text = [
+		genres,
+		slot.certification,
+		yearRange(slot.year_from, slot.year_to),
+		runtimeRange(slot.runtime_from, slot.runtime_to)
+	]
+		.filter(Boolean)
+		.join(' · ');
+	return text || 'Any movie';
 }
 
 export function templateBreakdown(template: TemplateSummary): string {
@@ -79,7 +75,7 @@ export function movieCount(n: number): string {
 // Intl.DisplayNames (no runtime fetch) normalises codes, else fall back to raw.
 let languageNames: Intl.DisplayNames | null | undefined;
 
-export function languageName(raw: string | null | undefined): string {
+function languageName(raw: string | null | undefined): string {
 	const s = (raw || '').trim();
 	if (!s) return '';
 	if (!/^[a-z]{2,3}$/i.test(s)) return s;
@@ -94,7 +90,7 @@ export function languageName(raw: string | null | undefined): string {
 		const name = languageNames?.of(s.toLowerCase());
 		if (name && name.toLowerCase() !== s.toLowerCase()) return name;
 	} catch {
-		// noop
+		/* not a known code */
 	}
 	return s.toUpperCase();
 }
@@ -121,7 +117,7 @@ export function codecLabel(raw: string | null | undefined): string {
 	return CODEC_LABELS[s.toLowerCase()] ?? s.toUpperCase();
 }
 
-export function channelLabel(n: number | null | undefined): string {
+function channelLabel(n: number | null | undefined): string {
 	if (!n) return '';
 	switch (n) {
 		case 1:
@@ -156,16 +152,12 @@ export function subtitleTrackLabel(track: SubtitleTrack, idx: number): string {
 	return flags.length ? `${name} (${flags.join(', ')})` : name;
 }
 
-export function hasAudioChoice(film: SelectedFilm): boolean {
-	return film.audio_tracks.length > 1;
-}
-
 export function hasSubtitleChoice(film: SelectedFilm): boolean {
 	return film.subtitle_tracks.length > 0;
 }
 
 export function canChooseTracks(film: SelectedFilm): boolean {
-	return hasAudioChoice(film) || hasSubtitleChoice(film);
+	return film.audio_tracks.length > 1 || hasSubtitleChoice(film);
 }
 
 export function trackSummary(film: SelectedFilm): string {

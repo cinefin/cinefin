@@ -9,7 +9,7 @@ import logging
 import random
 from dataclasses import dataclass, field
 
-from django.db.models import Count, Q
+from django.db.models import Avg, Count, Q
 
 from cinefin.api.models import Movie, Settings, Trailer
 
@@ -103,25 +103,18 @@ def _rank(pool, criteria: Criteria) -> list[Trailer]:
     ref_year = ref.year if ref else None
 
     def sort_key(t: Trailer):
-        year_gap = abs((t.year or 0) - ref_year) if (ref_year and t.year) else 10_000
-        overlap = getattr(t, "genre_overlap", 0)
-        return (year_gap, -overlap, -(t.year or 0))
+        year_gap = abs(t.year - ref_year) if (ref_year and t.year) else 10_000
+        return (year_gap, -getattr(t, "genre_overlap", 0), -(t.year or 0))
 
     trailers.sort(key=sort_key)
     return trailers
 
 
 def select_trailers(criteria: Criteria, count: int, exclude_ids: set[int] | None = None) -> tuple[list[Trailer], dict]:
-    pool = build_pool(criteria, exclude_ids)
-    ranked = _rank(pool, criteria)
+    ranked = _rank(build_pool(criteria, exclude_ids), criteria)
     selected = ranked[:count]
     matched = len(ranked)
-    info = {
-        "matched": matched,
-        "requested": count,
-        "selected": len(selected),
-        "short": matched < count,
-    }
+    info = {"matched": matched, "requested": count, "selected": len(selected), "short": matched < count}
     if info["short"]:
         who = criteria.reference_movie.title if criteria.reference_movie else "criteria-only rule"
         logger.info(f"Trailer rule ({who}): only {matched} match for {count} requested")
@@ -129,7 +122,5 @@ def select_trailers(criteria: Criteria, count: int, exclude_ids: set[int] | None
 
 
 def match_stats(criteria: Criteria) -> dict:
-    from django.db.models import Avg
-
     agg = build_pool(criteria).aggregate(n=Count("id", distinct=True), avg_duration=Avg("duration"))
     return {"matched": agg["n"] or 0, "avg_duration": agg["avg_duration"]}

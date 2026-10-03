@@ -1,9 +1,5 @@
 <script lang="ts">
-	/**
-	 * Indeterminate loading — the channel chase on the mark (spec M2/M4).
-	 * The wrapper appears only after 250ms of waiting, so a fast response
-	 * never flashes it. Determinate work gets a meter, never this.
-	 */
+	/** Indeterminate loading — the channel chase, shown only after 250ms so fast loads never flash it. */
 	import ChaseMark from '$lib/components/ChaseMark.svelte';
 
 	interface Props {

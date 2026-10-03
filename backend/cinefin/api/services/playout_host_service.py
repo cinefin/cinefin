@@ -13,17 +13,12 @@ STATUS_TIMEOUT = 5
 
 
 class PlayoutHostService:
-    @staticmethod
-    def _headers(host) -> dict:
-        token = host.token or ""
-        return {"Authorization": f"Bearer {token}"} if token else {}
-
     @classmethod
     def _get(cls, host, path: str) -> dict | None:
-        base = (host.base_url or "").rstrip("/")
-        url = f"{base}{path}"
+        url = (host.base_url or "").rstrip("/") + path
+        headers = {"Authorization": f"Bearer {host.token}"} if host.token else {}
         try:
-            response = requests.get(url, headers=cls._headers(host), timeout=STATUS_TIMEOUT)
+            response = requests.get(url, headers=headers, timeout=STATUS_TIMEOUT)
         except requests.RequestException as e:
             logger.warning("PlayoutHost %s unreachable at %s: %s", host.name, url, e)
             return None
@@ -50,12 +45,9 @@ class PlayoutHostService:
         version = payload.get("version") or agent.get("version")
         os_name = payload.get("os") or agent.get("os")
         arch = payload.get("arch") or agent.get("arch")
-        if version:
-            host.agent_version = version
-        if os_name:
-            host.os = os_name
-        if arch:
-            host.arch = arch
+        host.agent_version = version or host.agent_version
+        host.os = os_name or host.os
+        host.arch = arch or host.arch
         if health is not None:
             protocol = health.get("protocol")
             host.protocol = protocol if isinstance(protocol, int) and not isinstance(protocol, bool) else 0

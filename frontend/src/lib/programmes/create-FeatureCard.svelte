@@ -53,6 +53,12 @@
 	const trackSelect = 'h-8 w-full min-w-0 text-xs';
 </script>
 
+{#snippet move(dir: number, disabled: boolean, title: string, Icon: typeof ChevronUp)}
+	<button type="button" class={iconButton} {disabled} {title} onclick={() => onmove(dir)}>
+		<Icon size={14} />
+	</button>
+{/snippet}
+
 <article class="flex gap-3 border border-border bg-surface-1 {type.classes.edge}">
 	<div class="w-36 shrink-0 self-stretch border-r border-border bg-surface-2">
 		<div class="aspect-[2/3] w-full overflow-hidden">
@@ -76,24 +82,8 @@
 			<TypeBadge type={item.kind === 'random' ? 'random_movie' : 'feature'} short icon />
 			<div class="ml-auto flex shrink-0 items-center gap-1">
 				{#if count > 1}
-					<button
-						type="button"
-						class={iconButton}
-						disabled={position === 1}
-						title="Move earlier in the running order"
-						onclick={() => onmove(-1)}
-					>
-						<ChevronUp size={14} />
-					</button>
-					<button
-						type="button"
-						class={iconButton}
-						disabled={position === count}
-						title="Move later in the running order"
-						onclick={() => onmove(1)}
-					>
-						<ChevronDown size={14} />
-					</button>
+					{@render move(-1, position === 1, 'Move earlier in the running order', ChevronUp)}
+					{@render move(1, position === count, 'Move later in the running order', ChevronDown)}
 				{/if}
 				<button
 					type="button"

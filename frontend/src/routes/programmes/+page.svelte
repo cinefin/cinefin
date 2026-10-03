@@ -1,13 +1,15 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { base } from '$app/paths';
-	import { SvelteSet } from 'svelte/reactivity';
 	import { FilterX, ListVideo, PenLine, Trash2, Wand2 } from '@lucide/svelte';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
 	import type { components } from '$lib/api/types.gen';
 	import { sortIndicator, toggleSort, type SortSpec } from '$lib/filters';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
+	import { Selection } from '$lib/selection.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import Button from '$lib/components/ui/Button.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
@@ -30,27 +32,17 @@
 
 	type Programme = components['schemas']['ProgrammeListItemSchema'];
 
-	// The list endpoint has no paging, so this fetches every programme and does
-	// search and sort client-side.
+	// No paging: search and sort are client-side.
 	const programmes = query(() => unwrap(api.GET('/api/v2/programmes/list')));
 	$effect(() => programmes.live({ keys: ['programmes'] }));
 
-	// Signed sort key: "-name" = desc.
 	const DEFAULT_SORT = '-created_at';
 	let search = $state('');
 	let sortKey = $state(DEFAULT_SORT);
 
-	function clearSearch() {
-		search = '';
-	}
-
 	function resetFilters() {
-		clearSearch();
+		search = '';
 		sortKey = DEFAULT_SORT;
-	}
-
-	function headerSort(key: string, defaultDesc = false) {
-		sortKey = toggleSort(sortKey, key, defaultDesc);
 	}
 
 	const sortSpec = $derived<SortSpec>({
@@ -99,14 +91,8 @@
 		return matched;
 	});
 
-	const selected = new SvelteSet<number>();
 	// Select-all works on what's visible: with a search active it selects the matches.
-	const allSelected = $derived(filtered.length > 0 && filtered.every((p) => selected.has(p.id)));
-
-	function toggleAll(on: boolean) {
-		if (on) filtered.forEach((p) => selected.add(p.id));
-		else selected.clear();
-	}
+	const selected = new Selection(() => filtered);
 
 	async function bulkDeleteSelected() {
 		const ids = [...selected];
@@ -117,32 +103,28 @@
 			{ title: `Delete ${noun}`, confirmLabel: 'Delete' }
 		);
 		if (!ok) return;
-		try {
+		await attempt(async () => {
 			const data = await unwrap(api.POST('/api/v2/programmes/bulk-delete', { body: { ids } }));
 			selected.clear();
 			showToast(`Deleted ${data?.deleted ?? ids.length} ${noun}`, 'success');
 			invalidate('programmes');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to delete programmes', 'error');
-		}
+		}, 'Failed to delete programmes');
 	}
 
 	let confirmDialog = $state<ConfirmDialog>();
 
 	async function cueProgramme(p: Programme) {
-		try {
+		await attempt(async () => {
 			await unwrap(
 				api.POST('/api/v2/playout/load', { body: { programme_id: p.id, generate_playlist: true } })
 			);
 			showToast('Programme cued - press Start when ready', 'success');
 			void programmes.refresh(); // loading regenerates a stale playlist — clear the flag
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to cue programme', 'error');
-		}
+		}, 'Failed to cue programme');
 	}
 
 	async function duplicateProgramme(p: Programme) {
-		try {
+		await attempt(async () => {
 			const data = await unwrap(
 				api.POST('/api/v2/programmes/{programme_id}/duplicate', {
 					params: { path: { programme_id: p.id } }
@@ -150,9 +132,7 @@
 			);
 			showToast(`Programme duplicated as "${data?.name ?? 'copy'}"`, 'success');
 			invalidate('programmes');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to duplicate programme', 'error');
-		}
+		}, 'Failed to duplicate programme');
 	}
 
 	async function askDelete(p: Programme) {
@@ -160,24 +140,31 @@
 			confirmLabel: 'Delete'
 		});
 		if (!ok) return;
-		try {
-			// Message-only response (no data envelope) — check the error branch.
-			const res = await api.DELETE('/api/v2/programmes/{programme_id}', {
-				params: { path: { programme_id: p.id } }
-			});
-			if (res.error) throw toApiError(res.error, res.response);
+		await attempt(async () => {
+			await mutate(
+				api.DELETE('/api/v2/programmes/{programme_id}', {
+					params: { path: { programme_id: p.id } }
+				})
+			);
 			selected.delete(p.id);
 			showToast('Programme deleted', 'success');
 			invalidate('programmes');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to delete programme', 'error');
-		}
+		}, 'Failed to delete programme');
 	}
 
 	const total = $derived(programmes.data?.programmes?.length ?? 0);
-
-	const colHeader = 'transition-colors hover:text-text';
 </script>
+
+{#snippet sortButton(label: string, key: string, defaultDesc = false)}
+	<button
+		type="button"
+		class="transition-colors hover:text-text"
+		onclick={() => (sortKey = toggleSort(sortKey, key, defaultDesc))}
+	>
+		{label}
+		{sortIndicator(sortKey, key)}
+	</button>
+{/snippet}
 
 <PageHeader title="Programmes" {actions} />
 {#snippet actions()}
@@ -216,7 +203,7 @@
 			message="Try a different search, or clear it to see every programme."
 		>
 			{#snippet action()}
-				<Button onclick={clearSearch}>Clear search</Button>
+				<Button onclick={() => (search = '')}>Clear search</Button>
 			{/snippet}
 		</EmptyState>
 	{:else}
@@ -251,41 +238,20 @@
 					type="checkbox"
 					aria-label="Select all programmes"
 					class="accent-accent"
-					checked={allSelected}
-					onchange={(e) => toggleAll((e.currentTarget as HTMLInputElement).checked)}
+					checked={selected.allVisible}
+					onchange={(e) => {
+						if ((e.currentTarget as HTMLInputElement).checked) selected.setVisible(true);
+						else selected.clear();
+					}}
 				/>
 			</div>
 			<div class={POSTER_COL}></div>
-			<div class={NAME_COL}>
-				<button type="button" class={colHeader} onclick={() => headerSort('name')}>
-					Programme {sortIndicator(sortKey, 'name')}
-				</button>
-			</div>
+			<div class={NAME_COL}>{@render sortButton('Programme', 'name')}</div>
 			<div class={NUM_GROUP}>
-				<span class={NUM_CELL}>
-					<button type="button" class={colHeader} onclick={() => headerSort('total_runtime', true)}>
-						Runtime {sortIndicator(sortKey, 'total_runtime')}
-					</button>
-				</span>
-				<span class={NUM_CELL_NARROW}>
-					<button type="button" class={colHeader} onclick={() => headerSort('total_blocks', true)}>
-						Items {sortIndicator(sortKey, 'total_blocks')}
-					</button>
-				</span>
-				<span class={NUM_CELL_WIDE}>
-					<button type="button" class={colHeader} onclick={() => headerSort('created_at', true)}>
-						Created {sortIndicator(sortKey, 'created_at')}
-					</button>
-				</span>
-				<span class={NUM_CELL}>
-					<button
-						type="button"
-						class={colHeader}
-						onclick={() => headerSort('last_played_at', true)}
-					>
-						Last played {sortIndicator(sortKey, 'last_played_at')}
-					</button>
-				</span>
+				<span class={NUM_CELL}>{@render sortButton('Runtime', 'total_runtime', true)}</span>
+				<span class={NUM_CELL_NARROW}>{@render sortButton('Items', 'total_blocks', true)}</span>
+				<span class={NUM_CELL_WIDE}>{@render sortButton('Created', 'created_at', true)}</span>
+				<span class={NUM_CELL}>{@render sortButton('Last played', 'last_played_at', true)}</span>
 			</div>
 			<div class={ACTION_COL}></div>
 		</div>
@@ -295,7 +261,7 @@
 				<ProgrammeListRow
 					programme={p}
 					selected={selected.has(p.id)}
-					onselect={(p, on) => (on ? selected.add(p.id) : selected.delete(p.id))}
+					onselect={(p, on) => selected.set(p.id, on)}
 					oncue={cueProgramme}
 					onduplicate={duplicateProgramme}
 					ondelete={askDelete}

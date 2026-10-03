@@ -2,11 +2,13 @@
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
 	import { Copy, FilterX, Layers, Pencil, Plus, Trash2 } from '@lucide/svelte';
 	import { base } from '$app/paths';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
 	import { sortRows } from '$lib/filters';
 	import type { components } from '$lib/api/types.gen';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import SortHeader from '$lib/components/SortHeader.svelte';
 	import { templateBreakdown } from '$lib/programmes/create-types';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -55,7 +57,7 @@
 	let confirmDialog = $state<ConfirmDialog>();
 
 	async function duplicateTemplate(t: TemplateSummary): Promise<void> {
-		try {
+		await attempt(async () => {
 			await unwrap(
 				api.POST('/api/v2/templates/{template_id}/duplicate', {
 					params: { path: { template_id: t.id } }
@@ -63,9 +65,7 @@
 			);
 			showToast('Template duplicated', 'success');
 			void templates.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to duplicate template', 'error');
-		}
+		}, 'Failed to duplicate template');
 	}
 
 	async function deleteTemplate(t: TemplateSummary): Promise<void> {
@@ -75,17 +75,13 @@
 			}))
 		)
 			return;
-		try {
-			// Message-only response (no data envelope) — check the error branch.
-			const res = await api.DELETE('/api/v2/templates/{template_id}', {
-				params: { path: { template_id: t.id } }
-			});
-			if (res.error) throw toApiError(res.error, res.response);
+		await attempt(async () => {
+			await mutate(
+				api.DELETE('/api/v2/templates/{template_id}', { params: { path: { template_id: t.id } } })
+			);
 			showToast('Template deleted', 'success');
 			void templates.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to delete template', 'error');
-		}
+		}, 'Failed to delete template');
 	}
 
 	const iconBtn =

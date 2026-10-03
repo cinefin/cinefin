@@ -1,21 +1,6 @@
-// Hand-written types mirrored from the backend serializers (details dicts are
-// untyped in the schema). GOTCHA: GET /programmes/{id}/playlist has an OpenAPI
-// component-name collision — the playout router's PlaylistItemSchema/etc. win
-// in the exported doc, so the generated types describe the wrong payload;
-// ProgrammePlaylist below is this endpoint's real shape. Delete once the
-// backend renames one side of the collision.
-
-export interface SelectedAudioTrack {
-	language?: string | null;
-	codec?: string | null;
-	channels?: number | null;
-}
-
-export interface SelectedSubtitleTrack {
-	language?: string | null;
-	forced?: boolean;
-	sdh?: boolean;
-}
+// Mirrored from the backend serializers (details dicts are untyped in the schema). GOTCHA:
+// GET /programmes/{id}/playlist's generated types are wrong (an OpenAPI component-name collision
+// with the playout router), so ProgrammePlaylist is its real shape.
 
 // A union-ish bag keyed by item type.
 export interface ProgrammeItemDetails {
@@ -32,8 +17,12 @@ export interface ProgrammeItemDetails {
 	resolution?: string | null;
 	file_size?: number | null;
 	file_path?: string | null;
-	selected_audio_track?: SelectedAudioTrack | null;
-	selected_subtitle_track?: SelectedSubtitleTrack | null;
+	selected_audio_track?: {
+		language?: string | null;
+		codec?: string | null;
+		channels?: number | null;
+	} | null;
+	selected_subtitle_track?: { language?: string | null; forced?: boolean; sdh?: boolean } | null;
 	// trailer_rule (explicit)
 	count?: number;
 	genre_ids?: number[];
@@ -43,6 +32,8 @@ export interface ProgrammeItemDetails {
 	match_genres?: boolean;
 	match_certification?: boolean;
 	year_delta?: number;
+	// command
+	hold_black?: boolean;
 	// bumper
 	tag_id?: number;
 	tag_name?: string;
@@ -64,29 +55,25 @@ export interface ProgrammeItem {
 	details: ProgrammeItemDetails;
 }
 
-export interface PlaylistItemMetadata {
-	rule_based_selection?: boolean;
-	match_tier?: number;
-	match_tier_name?: string;
-	reference_movie?: string;
-	matched_full?: number;
-	requested?: number;
-	year?: number | null;
-}
-
-export interface ProgrammePlaylistItemDetails {
-	programme_block_id?: number | null;
-	metadata?: PlaylistItemMetadata | null;
-	[key: string]: unknown;
-}
-
 export interface ProgrammePlaylistItem {
 	order: number;
 	file_path: string;
 	duration: number | null;
 	title: string;
 	type: string;
-	details: ProgrammePlaylistItemDetails;
+	details: {
+		programme_block_id?: number | null;
+		metadata?: {
+			rule_based_selection?: boolean;
+			match_tier?: number;
+			match_tier_name?: string;
+			reference_movie?: string;
+			matched_full?: number;
+			requested?: number;
+			year?: number | null;
+		} | null;
+		[key: string]: unknown;
+	};
 }
 
 export interface ProgrammePlaylist {

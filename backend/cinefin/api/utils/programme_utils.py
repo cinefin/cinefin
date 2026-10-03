@@ -1,13 +1,10 @@
 """Shared helpers for programme queries and display text."""
 
-import logging
 from typing import Any
 
 from django.db.models import QuerySet
 
 from cinefin.api.models import Movie, ProgrammeBlock
-
-logger = logging.getLogger(__name__)
 
 
 def build_random_movie_query(block: ProgrammeBlock, exclude_empty_paths: bool = True) -> QuerySet:
@@ -17,33 +14,19 @@ def build_random_movie_query(block: ProgrammeBlock, exclude_empty_paths: bool = 
     else:
         movies_query = Movie.objects.all()
 
-    # ALL genres must match - chain filters for AND
-    genres = block.random_movie_genres.all()
-    if genres.exists():
-        for genre in genres:
-            movies_query = movies_query.filter(genres=genre)
-        logger.debug(f"Filtering by genres (ALL must match): {', '.join(g.name for g in genres)}")
-
+    # ALL genres must match: one chained filter per genre.
+    for genre in block.random_movie_genres.all():
+        movies_query = movies_query.filter(genres=genre)
     if block.random_movie_certification:
         movies_query = movies_query.filter(certification__iexact=block.random_movie_certification)
-        logger.debug(f"Filtering by certification: {block.random_movie_certification}")
-
-    if block.random_movie_year_from:
-        movies_query = movies_query.filter(year__gte=block.random_movie_year_from)
-        logger.debug(f"Filtering by year >= {block.random_movie_year_from}")
-
-    if block.random_movie_year_to:
-        movies_query = movies_query.filter(year__lte=block.random_movie_year_to)
-        logger.debug(f"Filtering by year <= {block.random_movie_year_to}")
-
-    if block.random_movie_runtime_from:
-        movies_query = movies_query.filter(runtime__gte=block.random_movie_runtime_from)
-        logger.debug(f"Filtering by runtime >= {block.random_movie_runtime_from} min")
-
-    if block.random_movie_runtime_to:
-        movies_query = movies_query.filter(runtime__lte=block.random_movie_runtime_to)
-        logger.debug(f"Filtering by runtime <= {block.random_movie_runtime_to} min")
-
+    for value, lookup in (
+        (block.random_movie_year_from, "year__gte"),
+        (block.random_movie_year_to, "year__lte"),
+        (block.random_movie_runtime_from, "runtime__gte"),
+        (block.random_movie_runtime_to, "runtime__lte"),
+    ):
+        if value:
+            movies_query = movies_query.filter(**{lookup: value})
     return movies_query.distinct()
 
 
@@ -59,15 +42,11 @@ def build_filter_description(
     """Human-readable filter description for random movie criteria (e.g. "Comedy, PG-13, 2020-2024")."""
     filters = []
 
-    if genres:
-        genre_names = []
-        for g in genres:
-            if hasattr(g, "name"):
-                genre_names.append(g.name)
-            elif isinstance(g, str):
-                genre_names.append(g)
-        if genre_names:
-            filters.append(", ".join(genre_names))
+    genre_names = [
+        g.name if hasattr(g, "name") else g for g in genres or [] if hasattr(g, "name") or isinstance(g, str)
+    ]
+    if genre_names:
+        filters.append(", ".join(genre_names))
 
     if certification:
         filters.append(certification)

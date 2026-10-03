@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""The sync plugin contract and the throttled log/progress/cancel channel a running job writes through."""
 
 import logging
 import time
@@ -16,16 +16,17 @@ class SyncCancelled(Exception):
 class SyncContext:
     """Throttled progress/log/cancellation channel persisted to the Job row."""
 
-    def __init__(self, job, flush_interval: float = 1.0, log_cap: int = 1000):
-        self.job_id = job.pk
-        self.flush_interval = flush_interval
-        self.log_cap = log_cap
+    flush_interval = 1.0
+    log_cap = 1000
+    logger = logger
 
+    def __init__(self, job):
+        self.job_id = job.pk
         self._log: list[dict[str, Any]] = list(job.log or [])
-        self._phase = job.phase
+        self._phase = job.phase or ""
         self._current = job.current
         self._total = job.total
-        self._item = job.current_item
+        self._item = job.current_item or ""
 
         self._dirty = False
         self._last_flush = 0.0
@@ -33,15 +34,9 @@ class SyncContext:
         self._cancel_requested = False
 
     def log(self, level: str, message: str) -> None:
-        entry = {
-            "ts": timezone.now().isoformat(),
-            "level": level.upper(),
-            "message": message,
-        }
-        self._log.append(entry)
-        if len(self._log) > self.log_cap:
-            self._log = self._log[-self.log_cap :]
-        getattr(logger, level.lower(), logger.info)("[job %s] %s", self.job_id, message)
+        self._log.append({"ts": timezone.now().isoformat(), "level": level.upper(), "message": message})
+        self._log = self._log[-self.log_cap :]
+        getattr(self.logger, level.lower(), self.logger.info)("[job %s] %s", self.job_id, message)
         self._dirty = True
         self._maybe_flush()
 

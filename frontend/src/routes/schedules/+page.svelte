@@ -49,25 +49,28 @@
 
 	const programmes = query(() => unwrap(api.GET('/api/v2/programmes/list')));
 
-	const all = $derived((schedules.data?.schedules ?? []) as Schedule[]);
-
-	const features = $derived(
-		Object.fromEntries((programmes.data?.programmes ?? []).map((p) => [p.id, p.movies]))
+	const byStart = (a: Schedule, b: Schedule) =>
+		new Date(a.start_time).getTime() - new Date(b.start_time).getTime();
+	const all = $derived(((schedules.data?.schedules ?? []) as Schedule[]).toSorted(byStart));
+	const progList = $derived((programmes.data?.programmes ?? []) as ProgrammeListItem[]);
+	const features = $derived(Object.fromEntries(progList.map((p) => [p.id, p.movies])));
+	const runtimes: Record<number, number> = $derived(
+		Object.fromEntries(progList.map((p) => [p.id, Math.round(p.total_runtime)]))
 	);
-	const runtimes = $derived.by(() => {
-		const map: Record<number, number> = {};
-		for (const p of programmes.data?.programmes ?? []) map[p.id] = Math.round(p.total_runtime);
-		return map;
-	});
 
+	type Variant = 'default' | 'accent' | 'success' | 'warning' | 'danger';
+	// status: [label, badge variant, calendar chip classes]
+	const STATUS: Record<string, [string, Variant, string]> = {
+		scheduled: ['Scheduled', 'default', 'bg-surface-3 text-text'],
+		running: ['Running', 'accent', 'bg-accent/20 text-accent'],
+		completed: ['Completed', 'success', 'bg-success/15 text-success'],
+		cancelled: ['Cancelled', 'warning', 'bg-warning/15 text-warning'],
+		failed: ['Failed', 'danger', 'bg-danger/15 text-danger'],
+		missed: ['Missed', 'warning', 'bg-warning/15 text-warning']
+	};
 	const STATUSES = [
 		{ value: '', label: 'All' },
-		{ value: 'scheduled', label: 'Scheduled' },
-		{ value: 'running', label: 'Running' },
-		{ value: 'completed', label: 'Completed' },
-		{ value: 'cancelled', label: 'Cancelled' },
-		{ value: 'failed', label: 'Failed' },
-		{ value: 'missed', label: 'Missed' }
+		...Object.entries(STATUS).map(([value, [label]]) => ({ value, label }))
 	];
 
 	let statusFilter = $state('');
@@ -75,10 +78,10 @@
 	let view = $state<'list' | 'calendar'>(
 		localStorage.getItem('sched.view') === 'calendar' ? 'calendar' : 'list'
 	);
-	function setView(v: 'list' | 'calendar') {
-		view = v;
-		localStorage.setItem('sched.view', v);
-	}
+	const VIEWS = [
+		{ v: 'list', label: 'List view', Icon: List },
+		{ v: 'calendar', label: 'Calendar view', Icon: Calendar }
+	] as const;
 
 	const statusCounts = $derived.by(() => {
 		const c: Record<string, number> = {};
@@ -87,14 +90,8 @@
 	});
 	const activeCount = $derived((statusCounts.scheduled ?? 0) + (statusCounts.running ?? 0));
 	const todayCount = $derived.by(() => {
-		const today = new Date();
-		today.setHours(0, 0, 0, 0);
-		const tomorrow = new Date(today);
-		tomorrow.setDate(tomorrow.getDate() + 1);
-		return all.filter((s) => {
-			const d = new Date(s.start_time);
-			return d >= today && d < tomorrow;
-		}).length;
+		const today = new Date().toDateString();
+		return all.filter((s) => new Date(s.start_time).toDateString() === today).length;
 	});
 
 	function endMs(s: Schedule): number {
@@ -102,30 +99,21 @@
 		return new Date(s.play_time).getTime() + (s.runtime || 0) * 60000;
 	}
 
+	const filtered = $derived(all.filter((s) => !statusFilter || s.status === statusFilter));
 	const visible = $derived.by(() => {
 		const now = Date.now();
-		return all
-			.filter((s) => {
-				if (statusFilter && s.status !== statusFilter) return false;
-				if (!showPast && endMs(s) < now) return false;
-				return true;
-			})
-			.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+		return filtered.filter((s) => showPast || endMs(s) >= now);
 	});
 
-	const dayGroups = $derived.by(() => {
-		const keys: string[] = [];
+	function groupByDay(list: Schedule[]): Map<string, Schedule[]> {
 		const byDay = new Map<string, Schedule[]>();
-		for (const s of visible) {
+		for (const s of list) {
 			const key = new Date(s.start_time).toDateString();
-			if (!byDay.has(key)) {
-				byDay.set(key, []);
-				keys.push(key);
-			}
-			byDay.get(key)!.push(s);
+			byDay.set(key, [...(byDay.get(key) ?? []), s]);
 		}
-		return keys.map((key) => ({ key, items: byDay.get(key)! }));
-	});
+		return byDay;
+	}
+	const dayGroups = $derived(groupByDay(visible));
 
 	const filtersActive = $derived(Boolean(statusFilter) || showPast);
 
@@ -138,64 +126,22 @@
 		calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + delta, 1);
 	}
 
-	const calTitle = $derived(
-		calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-	);
-
-	interface CalCell {
-		day: Date;
-		outside: boolean;
-		today: boolean;
-		items: Schedule[];
-	}
-
 	// 6-week Monday-first grid; the status filter applies, "Show past" does not.
-	const calCells = $derived.by((): CalCell[] => {
-		const byDay = new Map<string, Schedule[]>();
-		for (const s of all) {
-			if (statusFilter && s.status !== statusFilter) continue;
-			const key = new Date(s.start_time).toDateString();
-			if (!byDay.has(key)) byDay.set(key, []);
-			byDay.get(key)!.push(s);
-		}
+	const calCells = $derived.by(() => {
+		const byDay = groupByDay(filtered);
 		const firstWeekday = (calMonth.getDay() + 6) % 7; // Monday = 0
-		const gridStart = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1 - firstWeekday);
 		const todayKey = new Date().toDateString();
-		const thisMonth = calMonth.getMonth();
-
-		const cells: CalCell[] = [];
-		for (let i = 0; i < 42; i++) {
-			const day = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+		return Array.from({ length: 42 }, (_, i) => {
+			const day = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1 - firstWeekday + i);
 			const key = day.toDateString();
-			cells.push({
+			return {
 				day,
-				outside: day.getMonth() !== thisMonth,
+				outside: day.getMonth() !== calMonth.getMonth(),
 				today: key === todayKey,
-				items: (byDay.get(key) ?? [])
-					.slice()
-					.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-			});
-		}
-		return cells;
+				items: byDay.get(key) ?? []
+			};
+		});
 	});
-
-	const statusVariant: Record<string, 'default' | 'accent' | 'success' | 'warning' | 'danger'> = {
-		scheduled: 'default',
-		running: 'accent',
-		completed: 'success',
-		cancelled: 'warning',
-		failed: 'danger',
-		missed: 'warning'
-	};
-
-	const calChipClass: Record<string, string> = {
-		scheduled: 'bg-surface-3 text-text',
-		running: 'bg-accent/20 text-accent',
-		completed: 'bg-success/15 text-success',
-		cancelled: 'bg-warning/15 text-warning',
-		failed: 'bg-danger/15 text-danger',
-		missed: 'bg-warning/15 text-warning'
-	};
 
 	function dayLabel(d: Date): string {
 		const today = new Date();
@@ -251,10 +197,7 @@
 				hour: '2-digit',
 				minute: '2-digit'
 			});
-			const p: Record<string, string> = {};
-			dtf.formatToParts(epochMs).forEach((part) => {
-				p[part.type] = part.value;
-			});
+			const p = Object.fromEntries(dtf.formatToParts(epochMs).map((x) => [x.type, x.value]));
 			const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
 			return asUTC - Math.floor(epochMs / 60000) * 60000;
 		} catch {
@@ -287,17 +230,16 @@
 		}
 	}
 
-	function defaultDateTime(): string {
-		const d = new Date();
-		d.setMinutes(d.getMinutes() + 5 - (d.getMinutes() % 5), 0, 0); // round up to next 5 min
+	// Date -> local "YYYY-MM-DDTHH:MM" for a datetime-local input.
+	function toLocalInput(d: Date): string {
 		d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
 		return d.toISOString().slice(0, 16);
 	}
 
-	function localNow(): string {
+	function defaultDateTime(): string {
 		const d = new Date();
-		d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-		return d.toISOString().slice(0, 16);
+		d.setMinutes(d.getMinutes() + 5 - (d.getMinutes() % 5), 0, 0); // round up to next 5 min
+		return toLocalInput(d);
 	}
 
 	function timezoneList(): string[] {
@@ -324,8 +266,7 @@
 	const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 	let modalOpen = $state(false);
-	let mode = $state<'create' | 'edit'>('create');
-	let editing = $state<Schedule | null>(null);
+	let editing = $state<Schedule | null>(null); // null = creating
 	let selectedProgramme = $state<{ id: number; name: string } | null>(null);
 	let pickerSearch = $state('');
 	let dtValue = $state('');
@@ -337,32 +278,16 @@
 	let saving = $state(false);
 	let modalError = $state<string | null>(null);
 
-	function openCreate(preselect: ProgrammeListItem | null = null) {
-		mode = 'create';
-		editing = null;
-		selectedProgramme = preselect ? { id: preselect.id, name: preselect.name } : null;
-		pickerSearch = '';
-		dtValue = defaultDateTime();
-		dtMin = localNow();
-		leadInValue = 0;
-		leadInSteps = [];
-		leadInOn = false;
-		modalError = null;
-		tzValue = browserZone;
-		modalOpen = true;
-	}
-
-	function openEdit(s: Schedule) {
-		mode = 'edit';
+	// s = the screening to reschedule, or null to create one (optionally preselecting a programme).
+	function openDialog(s: Schedule | null, preselect: { id: number; name: string } | null = null) {
 		editing = s;
-		selectedProgramme = { id: s.programme.id, name: s.programme.name };
-		const start = new Date(s.start_time);
-		start.setMinutes(start.getMinutes() - start.getTimezoneOffset());
-		dtValue = start.toISOString().slice(0, 16);
-		dtMin = localNow();
-		leadInValue = Math.round(s.lead_in / 60);
-		leadInSteps = (s.preshow ?? []).map((step) => ({ ...step }));
-		leadInOn = s.lead_in > 0 || leadInSteps.some((step) => !step.cue);
+		selectedProgramme = s ? { id: s.programme.id, name: s.programme.name } : preselect;
+		pickerSearch = '';
+		dtValue = s ? toLocalInput(new Date(s.start_time)) : defaultDateTime();
+		dtMin = toLocalInput(new Date());
+		leadInValue = s ? Math.round(s.lead_in / 60) : 0;
+		leadInSteps = (s?.preshow ?? []).map((step) => ({ ...step }));
+		leadInOn = !!s && (s.lead_in > 0 || leadInSteps.some((step) => !step.cue));
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -370,8 +295,7 @@
 
 	const pickerMatches = $derived.by(() => {
 		const q = pickerSearch.trim().toLowerCase();
-		const list = (programmes.data?.programmes ?? []) as ProgrammeListItem[];
-		return q ? list.filter((p) => p.name.toLowerCase().includes(q)) : list;
+		return q ? progList.filter((p) => p.name.toLowerCase().includes(q)) : progList;
 	});
 
 	const leadInSeconds = $derived(
@@ -379,12 +303,13 @@
 	);
 	const leadInMs = $derived(leadInSeconds * 1000);
 
-	const currentRuntime = $derived.by(() => {
-		if (mode === 'edit' && editing) {
-			return editing.runtime || runtimes[editing.programme.id] || 0;
-		}
-		return selectedProgramme ? runtimes[selectedProgramme.id] || 0 : 0;
-	});
+	const currentRuntime = $derived(
+		editing
+			? editing.runtime || runtimes[editing.programme.id] || 0
+			: selectedProgramme
+				? runtimes[selectedProgramme.id] || 0
+				: 0
+	);
 
 	// "Lead-in 10 min · plays 20:00 · ends ~22:15". Wall-clock arithmetic in the terms the
 	// start time is entered in; the lead-in counts towards the screening's length.
@@ -418,7 +343,7 @@
 		const end = start + leadInMs + Math.round(runtime) * 60000;
 
 		const clash = all.find((s) => {
-			if (mode === 'edit' && editing && s.id === editing.id) return false;
+			if (s.id === editing?.id) return false;
 			if (s.status !== 'scheduled' && s.status !== 'running') return false;
 			const sStart = new Date(s.start_time).getTime();
 			const sEnd = endMs(s);
@@ -435,34 +360,25 @@
 
 	const canSave = $derived(Boolean(dtValue) && Boolean(selectedProgramme) && !conflict);
 
-	const leadInPayload = () => ({ lead_in: leadInSeconds, preshow: leadInOn ? leadInSteps : [] });
-
 	async function save() {
 		if (!canSave || saving) return;
 		saving = true;
 		modalError = null;
 		try {
-			if (mode === 'edit' && editing) {
-				await unwrap(
-					api.PUT('/api/v2/schedules/{schedule_id}', {
-						params: { path: { schedule_id: editing.id } },
-						body: { start_time: dtValue, timezone: tzValue, ...leadInPayload() }
-					})
-				);
-				notice.show('success', 'Schedule updated');
+			const body = {
+				start_time: dtValue,
+				timezone: tzValue,
+				lead_in: leadInSeconds,
+				preshow: leadInOn ? leadInSteps : []
+			};
+			if (editing) {
+				const path = { schedule_id: editing.id };
+				await unwrap(api.PUT('/api/v2/schedules/{schedule_id}', { params: { path }, body }));
 			} else {
-				await unwrap(
-					api.POST('/api/v2/schedules/create', {
-						body: {
-							programme_id: selectedProgramme!.id,
-							start_time: dtValue,
-							timezone: tzValue,
-							...leadInPayload()
-						}
-					})
-				);
-				notice.show('success', 'Schedule created');
+				const programme_id = selectedProgramme!.id;
+				await unwrap(api.POST('/api/v2/schedules/create', { body: { programme_id, ...body } }));
 			}
+			notice.show('success', editing ? 'Schedule updated' : 'Schedule created');
 			modalOpen = false;
 			invalidate('schedules');
 		} catch (e) {
@@ -475,11 +391,6 @@
 	let confirmOpen = $state(false);
 	let confirmTarget = $state<Schedule | null>(null);
 	let removing = $state(false);
-
-	function askRemove(s: Schedule) {
-		confirmTarget = s;
-		confirmOpen = true;
-	}
 
 	async function confirmRemove() {
 		const target = confirmTarget;
@@ -505,16 +416,16 @@
 	let deepLinkId = $state<number | null>(Number(page.url.searchParams.get('new') ?? '') || null);
 	$effect(() => {
 		if (deepLinkId == null || !programmes.data) return;
-		const wanted = (programmes.data.programmes ?? []).find((p) => p.id === deepLinkId);
+		const wanted = progList.find((p) => p.id === deepLinkId);
 		deepLinkId = null;
 		void goto(`${base}/schedules`, { replaceState: true }); // don't reopen on refresh
-		openCreate(wanted ?? null);
+		openDialog(null, wanted ?? null);
 	});
 </script>
 
 <PageHeader title="Schedules" count="{activeCount} active · {todayCount} today" {actions} />
 {#snippet actions()}
-	<Button variant="primary" onclick={() => openCreate()}>
+	<Button variant="primary" onclick={() => openDialog(null)}>
 		<Plus size={14} /> New schedule
 	</Button>
 {/snippet}
@@ -555,28 +466,22 @@
 			role="group"
 			aria-label="Switch view"
 		>
-			<button
-				type="button"
-				title="List view"
-				aria-label="List view"
-				aria-pressed={view === 'list'}
-				onclick={() => setView('list')}
-				class="flex h-7 w-8 items-center justify-center
-					{view === 'list' ? 'bg-surface-3 text-accent' : 'bg-surface-2 text-muted hover:text-text'}"
-			>
-				<List size={14} />
-			</button>
-			<button
-				type="button"
-				title="Calendar view"
-				aria-label="Calendar view"
-				aria-pressed={view === 'calendar'}
-				onclick={() => setView('calendar')}
-				class="flex h-7 w-8 items-center justify-center border-l border-border-strong
-					{view === 'calendar' ? 'bg-surface-3 text-accent' : 'bg-surface-2 text-muted hover:text-text'}"
-			>
-				<Calendar size={14} />
-			</button>
+			{#each VIEWS as o, i (o.v)}
+				<button
+					type="button"
+					title={o.label}
+					aria-label={o.label}
+					aria-pressed={view === o.v}
+					onclick={() => {
+						view = o.v;
+						localStorage.setItem('sched.view', o.v);
+					}}
+					class="flex h-7 w-8 items-center justify-center {i ? 'border-l border-border-strong' : ''}
+						{view === o.v ? 'bg-surface-3 text-accent' : 'bg-surface-2 text-muted hover:text-text'}"
+				>
+					<o.Icon size={14} />
+				</button>
+			{/each}
 		</div>
 	</div>
 </div>
@@ -604,7 +509,9 @@
 					<ChevronRight size={14} />
 				</Button>
 			</div>
-			<div class="text-sm font-medium">{calTitle}</div>
+			<div class="text-sm font-medium">
+				{calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}
+			</div>
 		</div>
 		<div class="grid grid-cols-7 border-b border-border text-center text-[0.65rem] text-faint">
 			{#each ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as wd (wd)}
@@ -634,9 +541,9 @@
 								target="_blank"
 								rel="noopener"
 								title="{t} · {s.programme.name} ({s.status})"
-								class="flex items-baseline gap-1 truncate rounded-xs px-1 py-0.5 text-[0.65rem] leading-tight {calChipClass[
+								class="flex items-baseline gap-1 truncate rounded-xs px-1 py-0.5 text-[0.65rem] leading-tight {STATUS[
 									s.status
-								] ?? 'bg-surface-3 text-text'}"
+								]?.[2] ?? 'bg-surface-3 text-text'}"
 							>
 								<span class="shrink-0 font-mono">{t}</span>
 								<span class="truncate">{s.programme.name}</span>
@@ -662,26 +569,21 @@
 			icon={CalendarPlus}
 			title="Nothing scheduled"
 			message="Use New schedule to line up a screening."
-		>
-			{#snippet action()}
-				<Button variant="primary" onclick={() => openCreate()}>
-					<Plus size={14} /> New schedule
-				</Button>
-			{/snippet}
-		</EmptyState>
+			action={actions}
+		/>
 	{/if}
 {:else}
 	<div class="space-y-6">
-		{#each dayGroups as group (group.key)}
+		{#each [...dayGroups] as [key, items] (key)}
 			<section>
 				<div class="mb-2 flex items-baseline gap-2">
 					<h2 class="text-[0.8rem] font-medium text-muted">
-						{dayLabel(new Date(group.key))}
+						{dayLabel(new Date(key))}
 					</h2>
-					<span class="font-mono text-xs text-faint">{group.items.length}</span>
+					<span class="font-mono text-xs text-faint">{items.length}</span>
 				</div>
 				<div class="space-y-2">
-					{#each group.items as s (s.id)}
+					{#each items as s (s.id)}
 						{@const start = new Date(s.start_time)}
 						{@const end = new Date(endMs(s))}
 						{@const rel = relTime(s)}
@@ -702,7 +604,7 @@
 									{s.programme.name}
 								</a>
 								<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-									<Badge variant={statusVariant[s.status] ?? 'default'}>{s.status}</Badge>
+									<Badge variant={STATUS[s.status]?.[1] ?? 'default'}>{s.status}</Badge>
 									<span class="inline-flex items-center gap-1">
 										<Clock size={12} />
 										{s.runtime} min
@@ -731,7 +633,12 @@
 									<Eye size={14} />
 								</Button>
 								{#if s.status === 'scheduled'}
-									<Button size="sm" variant="ghost" title="Reschedule" onclick={() => openEdit(s)}>
+									<Button
+										size="sm"
+										variant="ghost"
+										title="Reschedule"
+										onclick={() => openDialog(s)}
+									>
 										<Pencil size={14} />
 									</Button>
 								{/if}
@@ -740,7 +647,10 @@
 									variant="ghost"
 									class="hover:bg-danger/15 hover:text-danger"
 									title={cancelTitle(s)}
-									onclick={() => askRemove(s)}
+									onclick={() => {
+										confirmTarget = s;
+										confirmOpen = true;
+									}}
 								>
 									<Trash2 size={14} />
 								</Button>
@@ -753,9 +663,9 @@
 	</div>
 {/if}
 
-<Dialog bind:open={modalOpen} title={mode === 'edit' ? 'Reschedule' : 'New schedule'}>
+<Dialog bind:open={modalOpen} title={editing ? 'Reschedule' : 'New schedule'}>
 	<div class="space-y-4">
-		{#if mode === 'create'}
+		{#if !editing}
 			<div>
 				<label class="mb-1 block text-sm text-muted" for="schedProgrammeSearch">Programme</label>
 				<Input
@@ -770,7 +680,7 @@
 					{:else if programmes.error}
 						<ErrorState error={programmes.error} retry={() => void programmes.load()} compact />
 					{:else if pickerMatches.length === 0}
-						{#if (programmes.data?.programmes ?? []).length === 0}
+						{#if progList.length === 0}
 							<EmptyState
 								title="No programmes yet"
 								message="A schedule plays a programme - create one first."
@@ -879,7 +789,7 @@
 	{#snippet footer()}
 		<Button onclick={() => (modalOpen = false)}>Cancel</Button>
 		<Button variant="primary" disabled={!canSave || saving} onclick={() => void save()}>
-			{saving ? 'Saving…' : mode === 'edit' ? 'Update' : 'Schedule'}
+			{saving ? 'Saving…' : editing ? 'Update' : 'Schedule'}
 		</Button>
 	{/snippet}
 </Dialog>

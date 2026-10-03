@@ -8,12 +8,10 @@
 		title?: string;
 		/** Footer content (usually Buttons), right-aligned. */
 		footer?: Snippet;
-		/**
-		 * Width of the dialog. Set this rather than passing a `max-w-*` class:
-		 * Tailwind emits `max-w-lg` after the larger sizes, so a class on the
-		 * consumer silently loses to the default and the dialog stays narrow.
-		 */
-		size?: 'md' | 'lg' | 'xl' | '2xl' | '3xl';
+		/** Width — set this, not a `max-w-*` class (which loses to the default max-w-lg). */
+		size?: 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
+		/** No padding around the body: for content that draws its own edges (a wizard). */
+		flush?: boolean;
 		class?: string;
 		children: Snippet;
 	}
@@ -23,6 +21,7 @@
 		title,
 		footer,
 		size = 'lg',
+		flush = false,
 		class: cls = '',
 		children
 	}: Props = $props();
@@ -33,7 +32,8 @@
 		lg: 'max-w-lg',
 		xl: 'max-w-xl',
 		'2xl': 'max-w-2xl',
-		'3xl': 'max-w-3xl'
+		'3xl': 'max-w-3xl',
+		'4xl': 'max-w-4xl'
 	};
 
 	let el: HTMLDialogElement | undefined = $state();
@@ -66,7 +66,7 @@
 			<X size={16} />
 		</button>
 	</div>
-	<div class="p-4">
+	<div class={flush ? '' : 'p-4'}>
 		{@render children()}
 	</div>
 	{#if footer}

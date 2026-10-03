@@ -1,13 +1,5 @@
 <script lang="ts">
-	/**
-	 * The add-block palette: a vertical list, one plain button per block
-	 * type, carrying the type's icon in its family colour (labels, icons and
-	 * colours all come from `$lib/item-types`). It lives in a column beside
-	 * the block list, so the buttons are full width and left-aligned.
-	 * Clicking adds an unconfigured block to the list (content is chosen
-	 * inside the block). Types with a `help` explainer get a "?" beside the
-	 * button.
-	 */
+	// The add-block palette: one full-width button per block type; clicking adds an unconfigured block.
 	import { CircleHelp } from '@lucide/svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import { itemTypeDisplay } from '$lib/item-types';

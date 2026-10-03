@@ -2,17 +2,14 @@
 	import { ChevronRight, Plug, Printer, Receipt, RotateCcw } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
-	import { raw, type SettingsStore } from '$lib/settings/form.svelte';
+	import { attempt, errorText, raw, runCheck, type SettingsStore } from '$lib/settings/form.svelte';
 	import { showToast } from '$lib/toast.svelte';
 	import type { CheckState } from '$lib/settings/types';
-
 	import Button from '$lib/components/ui/Button.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
-	import Input from '$lib/components/ui/Input.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import Field from '$lib/settings/Field.svelte';
+	import StoreField, { storeField } from '$lib/settings/StoreField.svelte';
 	import TicketDesigner from './TicketDesigner.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -29,6 +26,53 @@
 		{ id: 'printer', label: 'Printer' }
 	];
 
+	const HOST = storeField('ticket_printer_host', 'Host', 'set-printer-host', {
+		placeholder: '10.0.0.20'
+	});
+	const PORT = storeField('ticket_printer_port', 'Port', 'set-printer-port', { type: 'number' });
+	const DEVICE = storeField('ticket_printer_device', 'Device', 'set-printer-device', {
+		placeholder: '/dev/usb/lp0',
+		input: 'font-mono'
+	});
+	const PAPER = storeField('ticket_paper_width', 'Paper', 'set-paper-width', {
+		input: 'w-full',
+		options: [
+			['384', '58 mm roll'],
+			['576', '80 mm roll']
+		]
+	});
+	const QUALITY = [
+		storeField('ticket_image_mode', 'Images', 'set-image-mode', {
+			hint: 'Tickets printing garbage? Try another mode, or No images.',
+			input: 'w-full',
+			options: [
+				['raster', 'Raster (most printers)'],
+				['column', 'Column'],
+				['graphics', 'Graphics'],
+				['off', 'No images (text only)']
+			]
+		}),
+		storeField('ticket_feed_lines', 'Blank lines after each ticket', 'set-feed-lines', {
+			hint: 'Slack to tear off, 0 to 20.',
+			type: 'number',
+			placeholder: '2'
+		}),
+		storeField('ticket_cut', 'Cut after each ticket', 'set-cut', {
+			hint: 'Needs a printer with a cutter. Partial leaves a tab to tear.',
+			input: 'w-full',
+			options: [
+				['off', 'Off'],
+				['partial', 'Partial cut'],
+				['full', 'Full cut']
+			]
+		}),
+		storeField('ticket_printer_timeout', 'Timeout (s)', 'set-printer-timeout', {
+			hint: 'Raise it if network prints get cut off.',
+			type: 'number',
+			placeholder: '30'
+		})
+	];
+
 	let printerResult = $state<CheckState>(null);
 	let printerBusy = $state(false);
 	let checkedAt = $state<Date | null>(null);
@@ -36,15 +80,15 @@
 
 	// The status card at the top of the Printer tab, from the last check.
 	const isNetwork = $derived(store.main.ticket_printer_type === 'network');
-	const printerStatus = $derived.by(() => {
-		if (!printerResult)
-			return { colour: 'neutral' as const, label: 'Not checked yet', pending: false };
-		if (printerResult.state === 'pending')
-			return { colour: 'neutral' as const, label: 'Checking…', pending: true };
-		if (printerResult.state === 'ok')
-			return { colour: 'green' as const, label: 'Ready', pending: false };
-		return { colour: 'red' as const, label: 'Not reachable', pending: false };
-	});
+	const printerStatus = $derived(
+		!printerResult
+			? { colour: 'neutral' as const, label: 'Not checked yet' }
+			: printerResult.state === 'pending'
+				? { colour: 'neutral' as const, label: 'Checking…', pending: true }
+				: printerResult.state === 'ok'
+					? { colour: 'green' as const, label: 'Ready' }
+					: { colour: 'red' as const, label: 'Not reachable' }
+	);
 	const printerSummary = $derived(
 		[
 			isNetwork
@@ -83,8 +127,8 @@
 	async function checkPrinter() {
 		printerBusy = true;
 		printerResult = { state: 'pending', message: 'Checking…' };
-		try {
-			const res = await raw(
+		printerResult = await runCheck(() =>
+			raw(
 				api.POST('/api/v2/settings/test-printer/', {
 					body: {
 						printer_type: store.main.ticket_printer_type,
@@ -93,26 +137,19 @@
 						port: parseInt(store.main.ticket_printer_port, 10) || null
 					}
 				})
-			);
-			printerResult = { state: res.ok ? 'ok' : 'error', message: res.message };
-		} catch (e) {
-			printerResult = { state: 'error', message: e instanceof Error ? e.message : 'Test failed' };
-		} finally {
-			printerBusy = false;
-			checkedAt = new Date();
-		}
+			)
+		);
+		printerBusy = false;
+		checkedAt = new Date();
 	}
 
 	async function testPrint() {
 		printerBusy = true;
-		try {
+		await attempt(async () => {
 			const data = await unwrap(api.POST('/api/v2/tickets/test', { body: { include_seat: true } }));
 			showToast(`Test ticket printed${data.seat ? ` (seat ${data.seat})` : ''}`, 'success');
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to print test ticket', 'error');
-		} finally {
-			printerBusy = false;
-		}
+		}, 'Failed to print test ticket');
+		printerBusy = false;
 	}
 
 	// Reset acts on the *saved* config, not the unsaved form values.
@@ -124,7 +161,7 @@
 			const msg = await mutate(api.POST('/api/v2/tickets/reset'));
 			resetResult = { state: 'ok', message: msg || 'Printer reset' };
 		} catch (e) {
-			resetResult = { state: 'error', message: e instanceof Error ? e.message : 'Reset failed' };
+			resetResult = { state: 'error', message: errorText(e, 'Reset failed') };
 		} finally {
 			printerBusy = false;
 		}
@@ -141,7 +178,6 @@
 
 	{#if tab === 'printer'}
 		<div class="space-y-4">
-			<!-- ── Status ──────────────────────────────────────────────────── -->
 			<section class="flex flex-wrap items-center gap-4 border border-border bg-surface-1 p-4">
 				<Printer size={26} class="shrink-0 text-muted" />
 				<div class="min-w-0 flex-1">
@@ -159,78 +195,35 @@
 				</Button>
 			</section>
 
-			<!-- ── Connection ──────────────────────────────────────────────── -->
 			<section class="space-y-4 border border-border bg-surface-1 p-4">
 				<h3 class="text-sm font-medium">Connection</h3>
 				<div>
 					<span class="mb-1.5 block text-xs font-medium text-muted">Connected by</span>
-					<div class="seg" role="group" aria-label="Connected by">
-						<button
-							type="button"
-							aria-pressed={!isNetwork}
-							onclick={() => (store.main.ticket_printer_type = 'file')}>USB cable</button
-						>
-						<button
-							type="button"
-							aria-pressed={isNetwork}
-							onclick={() => (store.main.ticket_printer_type = 'network')}>Network</button
-						>
+					<div
+						class="inline-flex border border-border-strong"
+						role="group"
+						aria-label="Connected by"
+					>
+						{#each [['file', 'USB cable'], ['network', 'Network']] as [type, label] (type)}
+							<button
+								type="button"
+								class="h-[2.1rem] border-r border-border-strong px-[0.9rem] text-[0.85rem] font-medium text-muted last:border-r-0 hover:text-text aria-pressed:bg-surface-3 aria-pressed:text-text"
+								aria-pressed={(type === 'network') === isNetwork}
+								onclick={() => (store.main.ticket_printer_type = type)}>{label}</button
+							>
+						{/each}
 					</div>
 				</div>
 				<div class="grid max-w-2xl gap-4 sm:grid-cols-2">
 					{#if isNetwork}
 						<div class="grid grid-cols-[minmax(0,1fr)_6rem] gap-3">
-							<Field
-								label="Host"
-								forId="set-printer-host"
-								dirty={store.isDirty('ticket_printer_host')}
-								error={store.errorFor('ticket_printer_host')}
-							>
-								<Input
-									id="set-printer-host"
-									bind:value={store.main.ticket_printer_host}
-									placeholder="10.0.0.20"
-								/>
-							</Field>
-							<Field
-								label="Port"
-								forId="set-printer-port"
-								dirty={store.isDirty('ticket_printer_port')}
-								error={store.errorFor('ticket_printer_port')}
-							>
-								<Input
-									id="set-printer-port"
-									type="number"
-									bind:value={store.main.ticket_printer_port}
-								/>
-							</Field>
+							<StoreField {store} {...HOST} />
+							<StoreField {store} {...PORT} />
 						</div>
 					{:else}
-						<Field
-							label="Device"
-							forId="set-printer-device"
-							dirty={store.isDirty('ticket_printer_device')}
-							error={store.errorFor('ticket_printer_device')}
-						>
-							<Input
-								id="set-printer-device"
-								bind:value={store.main.ticket_printer_device}
-								placeholder="/dev/usb/lp0"
-								class="font-mono"
-							/>
-						</Field>
+						<StoreField {store} {...DEVICE} />
 					{/if}
-					<Field
-						label="Paper"
-						forId="set-paper-width"
-						dirty={store.isDirty('ticket_paper_width')}
-						error={store.errorFor('ticket_paper_width')}
-					>
-						<Select id="set-paper-width" bind:value={store.main.ticket_paper_width} class="w-full">
-							<option value="384">58 mm roll</option>
-							<option value="576">80 mm roll</option>
-						</Select>
-					</Field>
+					<StoreField {store} {...PAPER} />
 				</div>
 				{#if isNetwork}
 					<p class="text-xs text-muted">
@@ -240,7 +233,6 @@
 				{/if}
 			</section>
 
-			<!-- ── Print quality ───────────────────────────────────────────── -->
 			<section class="border border-border bg-surface-1">
 				<button
 					type="button"
@@ -254,68 +246,15 @@
 				</button>
 				{#if showQuality}
 					<div class="grid max-w-2xl gap-4 px-4 pb-4 sm:grid-cols-2">
-						<Field
-							label="Images"
-							forId="set-image-mode"
-							hint="Tickets printing garbage? Try another mode, or No images."
-							dirty={store.isDirty('ticket_image_mode')}
-							error={store.errorFor('ticket_image_mode')}
-						>
-							<Select id="set-image-mode" bind:value={store.main.ticket_image_mode} class="w-full">
-								<option value="raster">Raster (most printers)</option>
-								<option value="column">Column</option>
-								<option value="graphics">Graphics</option>
-								<option value="off">No images (text only)</option>
-							</Select>
-						</Field>
-						<Field
-							label="Blank lines after each ticket"
-							forId="set-feed-lines"
-							hint="Slack to tear off, 0 to 20."
-							dirty={store.isDirty('ticket_feed_lines')}
-							error={store.errorFor('ticket_feed_lines')}
-						>
-							<Input
-								id="set-feed-lines"
-								type="number"
-								bind:value={store.main.ticket_feed_lines}
-								placeholder="2"
-							/>
-						</Field>
-						<Field
-							label="Cut after each ticket"
-							forId="set-cut"
-							hint="Needs a printer with a cutter. Partial leaves a tab to tear."
-							dirty={store.isDirty('ticket_cut')}
-							error={store.errorFor('ticket_cut')}
-						>
-							<Select id="set-cut" bind:value={store.main.ticket_cut} class="w-full">
-								<option value="off">Off</option>
-								<option value="partial">Partial cut</option>
-								<option value="full">Full cut</option>
-							</Select>
-						</Field>
-						{#if isNetwork}
-							<Field
-								label="Timeout (s)"
-								forId="set-printer-timeout"
-								hint="Raise it if network prints get cut off."
-								dirty={store.isDirty('ticket_printer_timeout')}
-								error={store.errorFor('ticket_printer_timeout')}
-							>
-								<Input
-									id="set-printer-timeout"
-									type="number"
-									bind:value={store.main.ticket_printer_timeout}
-									placeholder="30"
-								/>
-							</Field>
-						{/if}
+						{#each QUALITY as f (f.id)}
+							{#if isNetwork || f.field !== 'ticket_printer_timeout'}
+								<StoreField {store} {...f} />
+							{/if}
+						{/each}
 					</div>
 				{/if}
 			</section>
 
-			<!-- ── Reset ───────────────────────────────────────────────────── -->
 			<section class="flex flex-wrap items-center gap-3 border-t border-border pt-4">
 				<div class="mr-auto">
 					<h3 class="text-sm font-medium">Printing garbage?</h3>
@@ -333,28 +272,3 @@
 		<TicketDesigner {confirm} />
 	{/if}
 </div>
-
-<style>
-	.seg {
-		display: inline-flex;
-		border: 1px solid var(--color-border-strong);
-	}
-	.seg button {
-		height: 2.1rem;
-		padding: 0 0.9rem;
-		border-right: 1px solid var(--color-border-strong);
-		color: var(--color-muted);
-		font-size: 0.85rem;
-		font-weight: 500;
-	}
-	.seg button:last-child {
-		border-right: 0;
-	}
-	.seg button:hover {
-		color: var(--color-text);
-	}
-	.seg button[aria-pressed='true'] {
-		background: var(--color-surface-3);
-		color: var(--color-text);
-	}
-</style>

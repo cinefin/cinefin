@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$app/paths';
 	import { Check, X } from '@lucide/svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -15,11 +14,7 @@
 	interface Props {
 		steps: Step[];
 		ready?: boolean;
-		/**
-		 * Whether the panel is on screen. The dashboard's own "no playout host"
-		 * banner reads this and stands down while the checklist is up, so a new
-		 * operator is told about the player once, not twice.
-		 */
+		/** Whether the panel is up: the dashboard's "no playout host" banner stands down meanwhile. */
 		visible?: boolean;
 	}
 
@@ -27,8 +22,7 @@
 
 	const DISMISS_KEY = 'cpx-getting-started-done';
 
-	// localStorage can throw (private windows, blocked site data) and is only a
-	// per-viewer convenience here — a failure just means the panel shows again.
+	// localStorage can throw; failing just means the panel shows again.
 	function readDismissed(): boolean {
 		try {
 			return localStorage.getItem(DISMISS_KEY) === '1';
@@ -49,7 +43,7 @@
 		try {
 			localStorage.setItem(DISMISS_KEY, '1');
 		} catch {
-			// Not persisting is survivable; the panel simply returns next load.
+			/* see readDismissed */
 		}
 	}
 

@@ -3,11 +3,7 @@
 	import { dayLabel, fmtClock, fmtRuntime, isRunning } from './time';
 	import type { KioskScreening } from './types';
 
-	interface Props {
-		kiosk: KioskController;
-		screening: KioskScreening;
-	}
-	let { kiosk, screening }: Props = $props();
+	let { kiosk, screening }: { kiosk: KioskController; screening: KioskScreening } = $props();
 
 	const running = $derived(isRunning(screening, kiosk.now));
 	const feats = $derived(kiosk.screeningFeatures(screening));

@@ -26,8 +26,7 @@ def _reset_login_throttle():
 
 @pytest.fixture(autouse=True)
 def standby_pushes(monkeypatch):
-    """Record standby spec pushes instead of running them on a background thread
-    (which would reach past the test's transaction). Returns the list of calls."""
+    # Record standby pushes instead of running them on a thread that outlives the test's transaction.
     from cinefin.api.services import standby
 
     standby._pushed.clear()
@@ -39,8 +38,6 @@ def standby_pushes(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def instant_standby_fade(monkeypatch):
-    """Leaving standby fades through black over about a second; tests run it in
-    one step with no waits (test_standby_fade.py sets its own timings)."""
     from cinefin.api import mpv_service
 
     monkeypatch.setattr(mpv_service, "COVER_FADE_SECONDS", 0.0)

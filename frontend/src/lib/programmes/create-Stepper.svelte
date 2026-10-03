@@ -13,19 +13,15 @@
 		steps: WizardStep[];
 		current: string;
 		onselect: (id: string) => void;
-		/** One row at every width: no summaries, and on a phone only the current step's label. */
-		compact?: boolean;
 	}
 
-	let { steps, current, onselect, compact = false }: Props = $props();
+	let { steps, current, onselect }: Props = $props();
 </script>
 
-<ol class="flex gap-2 {compact ? 'flex-row' : 'flex-col sm:flex-row'}">
+<ol class="flex flex-col gap-2 sm:flex-row">
 	{#each steps as step, i (step.id)}
 		{@const active = step.id === current}
-		<li
-			class="flex min-w-0 items-center gap-2 {compact && !active ? 'shrink-0 sm:flex-1' : 'flex-1'}"
-		>
+		<li class="flex min-w-0 flex-1 items-center gap-2">
 			<button
 				type="button"
 				disabled={!step.enabled || active}
@@ -45,13 +41,11 @@
 				>
 					{#if step.done && !active}<Check size={13} />{:else}{i + 1}{/if}
 				</span>
-				<span class="min-w-0 {compact && !active ? 'sr-only sm:not-sr-only' : ''}">
+				<span class="min-w-0">
 					<span class="block truncate text-sm font-medium">{step.label}</span>
-					{#if !compact}
-						<span class="block truncate text-xs {step.summary ? 'text-muted' : 'text-faint'}">
-							{step.summary || 'Not yet'}
-						</span>
-					{/if}
+					<span class="block truncate text-xs {step.summary ? 'text-muted' : 'text-faint'}">
+						{step.summary || 'Not yet'}
+					</span>
 				</span>
 			</button>
 		</li>

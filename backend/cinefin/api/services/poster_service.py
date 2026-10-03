@@ -1,7 +1,5 @@
 """Live poster art fetched from the media server on demand; nothing is written to disk."""
 
-from __future__ import annotations
-
 import logging
 from urllib.parse import quote
 

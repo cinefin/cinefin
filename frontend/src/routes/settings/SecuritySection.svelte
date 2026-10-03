@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
 	import { Check, Copy, KeyRound, Plus, Trash2, TriangleAlert } from '@lucide/svelte';
 	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
 	import { showToast } from '$lib/toast.svelte';
-	import { formatDateTime } from '$lib/settings/form.svelte';
+	import { attempt, errorText, formatDateTime } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
@@ -13,16 +12,14 @@
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
-	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import CheckResult from './CheckResult.svelte';
+	import SectionTabs from './SectionTabs.svelte';
+	import TabPanel from './TabPanel.svelte';
 	import Field from '$lib/settings/Field.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
-	interface Props {
-		confirm: ConfirmDialog['confirm'];
-	}
-	let { confirm }: Props = $props();
+	let { confirm }: { confirm: ConfirmDialog['confirm'] } = $props();
 
 	const TABS = [
 		{ id: 'account', label: 'Account' },
@@ -43,18 +40,16 @@
 	});
 
 	async function savePassword() {
-		passwordResult = null;
-		if (!password) {
-			passwordResult = { state: 'error', message: 'Enter a password' };
-			return;
-		}
-		if (password !== passwordConfirm) {
-			passwordResult = { state: 'error', message: 'Passwords do not match' };
-			return;
-		}
+		const invalid = !password
+			? 'Enter a password'
+			: password !== passwordConfirm
+				? 'Passwords do not match'
+				: null;
+		passwordResult = invalid ? { state: 'error', message: invalid } : null;
+		if (invalid) return;
 		savingPassword = true;
 		try {
-			const state = await unwrap(
+			security.data = await unwrap(
 				api.POST('/api/v2/security/set-password', {
 					body: {
 						password,
@@ -64,16 +59,12 @@
 					}
 				})
 			);
-			security.data = state;
 			password = '';
 			passwordConfirm = '';
 			passwordResult = { state: 'ok', message: 'Password saved' };
 			showToast('Password saved', 'success');
 		} catch (e) {
-			passwordResult = {
-				state: 'error',
-				message: e instanceof Error ? e.message : 'Failed to save password'
-			};
+			passwordResult = { state: 'error', message: errorText(e, 'Failed to save password') };
 		} finally {
 			savingPassword = false;
 		}
@@ -88,45 +79,44 @@
 		}
 	});
 
-	async function toggleAuth() {
+	async function toggle(
+		body: { auth_enabled: boolean } | { kiosk_public: boolean },
+		done: string,
+		fail: string,
+		revert: () => void
+	) {
+		const ok = await attempt(async () => {
+			security.data = await unwrap(api.POST('/api/v2/security/toggle', { body }));
+		}, fail);
+		if (ok) showToast(done, 'success');
+		else revert();
+	}
+
+	function toggleAuth() {
 		const enable = authEnabled;
 		if (enable && security.data && !security.data.has_account) {
 			authEnabled = false;
 			showToast('Set a password first, then enable authentication', 'error');
 			return;
 		}
-		try {
-			const state = await unwrap(
-				api.POST('/api/v2/security/toggle', { body: { auth_enabled: enable } })
-			);
-			security.data = state;
-			showToast(
-				enable
-					? 'Authentication enabled - you may need to sign in on your next action'
-					: 'Authentication disabled',
-				'success'
-			);
-		} catch (e) {
-			authEnabled = !enable;
-			showToast(e instanceof Error ? e.message : 'Failed to change authentication', 'error');
-		}
+		void toggle(
+			{ auth_enabled: enable },
+			enable
+				? 'Authentication enabled - you may need to sign in on your next action'
+				: 'Authentication disabled',
+			'Failed to change authentication',
+			() => (authEnabled = !enable)
+		);
 	}
 
-	async function toggleKiosk() {
+	function toggleKiosk() {
 		const value = kioskPublic;
-		try {
-			const state = await unwrap(
-				api.POST('/api/v2/security/toggle', { body: { kiosk_public: value } })
-			);
-			security.data = state;
-			showToast(
-				value ? 'Kiosk display is public' : 'Kiosk display now requires a login',
-				'success'
-			);
-		} catch (e) {
-			kioskPublic = !value;
-			showToast(e instanceof Error ? e.message : 'Failed to update kiosk setting', 'error');
-		}
+		void toggle(
+			{ kiosk_public: value },
+			value ? 'Kiosk display is public' : 'Kiosk display now requires a login',
+			'Failed to update kiosk setting',
+			() => (kioskPublic = !value)
+		);
 	}
 
 	const apiKeys = query(() => unwrap(api.GET('/api/v2/security/api-keys')));
@@ -143,38 +133,28 @@
 			return;
 		}
 		creatingKey = true;
-		try {
+		await attempt(async () => {
 			const created = await unwrap(api.POST('/api/v2/security/api-keys', { body: { name } }));
 			newKeyName = '';
 			createdKey = created.key;
 			createdKeyOpen = true;
 			void apiKeys.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to create API key', 'error');
-		} finally {
-			creatingKey = false;
-		}
+		}, 'Failed to create API key');
+		creatingKey = false;
 	}
 
 	async function revokeKey(id: number, name: string) {
-		if (
-			!(await confirm(`Revoke "${name}"? Any client using it stops working immediately.`, {
-				confirmLabel: 'Revoke'
-			}))
-		) {
-			return;
-		}
-		try {
+		const ok = await confirm(`Revoke "${name}"? Any client using it stops working immediately.`, {
+			confirmLabel: 'Revoke'
+		});
+		if (!ok) return;
+		await attempt(async () => {
 			await mutate(
-				api.DELETE('/api/v2/security/api-keys/{key_id}', {
-					params: { path: { key_id: id } }
-				})
+				api.DELETE('/api/v2/security/api-keys/{key_id}', { params: { path: { key_id: id } } })
 			);
 			showToast('API key revoked', 'success');
 			void apiKeys.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to revoke API key', 'error');
-		}
+		}, 'Failed to revoke API key');
 	}
 
 	function copyKey() {
@@ -202,22 +182,10 @@
 		</div>
 	{/if}
 
-	<Tabs
-		tabs={TABS}
-		value={tab}
-		label="Security settings"
-		onselect={(id) => (tab = id)}
-		panelId={(id) => `st-${id}`}
-	/>
+	<SectionTabs tabs={TABS} bind:value={tab} label="Security settings" prefix="st" />
 
 	{#if tab === 'account'}
-		<div
-			role="tabpanel"
-			id="st-account"
-			aria-labelledby="tab-account"
-			class="max-w-xl"
-			in:fade={{ duration: 120 }}
-		>
+		<TabPanel prefix="st" tab="account" class="max-w-xl">
 			{#if security.loading}
 				<Spinner label="Loading security state…" />
 			{:else if security.error}
@@ -282,15 +250,9 @@
 					<code class="font-mono">manage.py disable_auth</code> on the server.
 				</p>
 			</div>
-		</div>
+		</TabPanel>
 	{:else if tab === 'keys'}
-		<div
-			role="tabpanel"
-			id="st-keys"
-			aria-labelledby="tab-keys"
-			class="max-w-2xl"
-			in:fade={{ duration: 120 }}
-		>
+		<TabPanel prefix="st" tab="keys" class="max-w-2xl">
 			<p class="mb-3 text-xs text-faint">
 				Bearer tokens for programmatic access to the Cinefin API - send
 				<code class="font-mono">Authorization: Bearer &lt;key&gt;</code>. A key has the same reach
@@ -331,7 +293,7 @@
 					</div>
 				</Field>
 			</div>
-		</div>
+		</TabPanel>
 	{/if}
 </div>
 

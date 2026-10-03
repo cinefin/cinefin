@@ -1,20 +1,23 @@
 <script lang="ts">
-	// Cued, not started: when it starts, what is on screen until then, and the one Start.
-	// The running order (title card marked pre-show) is the rundown beside it.
+	// Cued, not started: the programme as the banner (its first feature's poster), when it
+	// starts, and the one Start. The running order (title card marked pre-show) is beside it.
 	import { Play, Square } from '@lucide/svelte';
 	import { formatClock, formatTime } from '$lib/format';
 	import { untilLabel } from '$lib/dashboard/data.svelte';
-	import OnScreen from '$lib/playout/OnScreen.svelte';
 	import { can, cuedBy, type PlayoutStatus } from '$lib/playout/phase';
+	import StatusLamp from '$lib/components/StatusLamp.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
+	import NowPlaying from './NowPlaying.svelte';
 
 	interface Props {
 		status: PlayoutStatus;
+		/** The first feature's poster. */
+		art?: string | null;
 		starting: boolean;
 		onstart: () => void;
 		onend: () => void;
 	}
-	let { status, starting, onstart, onend }: Props = $props();
+	let { status, art = null, starting, onstart, onend }: Props = $props();
 
 	const total = $derived(status.playlist?.programme_total_duration ?? 0);
 	const count = $derived(status.playlist?.total_items ?? 0);
@@ -29,28 +32,33 @@
 	});
 </script>
 
-<section class="max-w-xl space-y-3.5">
-	<div>
-		<h2 class="text-xl leading-tight font-semibold">{status.programme?.name}</h2>
-		<p class="mt-1 text-sm text-muted">
-			{[when, `${count} item${count === 1 ? '' : 's'}`, total ? formatTime(total) : '']
-				.filter(Boolean)
-				.join(' · ')}
-		</p>
+<section class="border border-border bg-surface-2">
+	<NowPlaying
+		{art}
+		type="movie"
+		badge="Cued"
+		title={status.programme?.name ?? ''}
+		kicker={when || 'Ready to start'}
+		facts={[`${count} item${count === 1 ? '' : 's'}`, total ? formatTime(total) : ''].filter(
+			Boolean
+		)}
+	/>
+	<div class="space-y-3 p-4">
+		<Button
+			variant="primary"
+			size="lg"
+			class="w-full"
+			disabled={starting || !can(status, 'start')}
+			onclick={onstart}
+		>
+			<Play size={16} />
+			{starting ? 'Starting…' : 'Start'}
+		</Button>
+		<Button variant="danger" class="w-full" disabled={!can(status, 'end')} onclick={onend}>
+			<Square size={12} /> End programme
+		</Button>
 	</div>
-	<OnScreen {status} />
-	<p class="text-sm text-muted">On screen · {status.screen}, held until Start</p>
-	<Button
-		variant="primary"
-		size="lg"
-		class="w-full"
-		disabled={starting || !can(status, 'start')}
-		onclick={onstart}
-	>
-		<Play size={16} />
-		{starting ? 'Starting…' : 'Start'}
-	</Button>
-	<Button variant="danger" class="w-full" disabled={!can(status, 'end')} onclick={onend}>
-		<Square size={12} /> End programme
-	</Button>
+	<div class="border-t border-border px-4 py-3 text-sm">
+		<StatusLamp colour="green">On screen: {status.screen}, held until Start</StatusLamp>
+	</div>
 </section>

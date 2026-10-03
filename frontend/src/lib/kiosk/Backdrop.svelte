@@ -1,10 +1,7 @@
 <script lang="ts">
 	import type { KioskFilmish } from './types';
 
-	interface Props {
-		film?: KioskFilmish | null;
-	}
-	let { film = null }: Props = $props();
+	let { film = null }: { film?: KioskFilmish | null } = $props();
 
 	let failedSrc = $state<string | null>(null);
 </script>

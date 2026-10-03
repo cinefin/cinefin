@@ -4,7 +4,7 @@
 	import { query } from '$lib/api/query.svelte';
 	import { uploadWithProgress } from '$lib/upload';
 	import { showToast } from '$lib/toast.svelte';
-	import { formatBytes, formatDateTime } from '$lib/settings/form.svelte';
+	import { errorText, formatBytes, formatDateTime } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
@@ -13,12 +13,15 @@
 	import CheckResult from './CheckResult.svelte';
 	import type ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
-	interface Props {
-		confirm: ConfirmDialog['confirm'];
-	}
-	let { confirm }: Props = $props();
+	let { confirm }: { confirm: ConfirmDialog['confirm'] } = $props();
 
 	const info = query(() => unwrap(api.GET('/api/v2/backup/info')));
+	const facts = (d: NonNullable<typeof info.data>) => [
+		['Database file', d.database_filename || '-'],
+		['Size', formatBytes(d.database_size_bytes || 0)],
+		['Last modified', formatDateTime(d.database_modified_at)],
+		['App version', d.app_version || '-']
+	];
 
 	let fileInput: HTMLInputElement | undefined = $state();
 	let backupFile = $state<File | null>(null);
@@ -55,14 +58,11 @@
 				backupFile,
 				{},
 				(e) => {
-					if (e.percent < 100) {
-						restoreResult = {
-							state: 'pending',
-							message: `Uploading… ${Math.round(e.percent)}%`
-						};
-					} else {
-						restoreResult = { state: 'pending', message: 'Validating and restoring…' };
-					}
+					restoreResult = {
+						state: 'pending',
+						message:
+							e.percent < 100 ? `Uploading… ${Math.round(e.percent)}%` : 'Validating and restoring…'
+					};
 				},
 				'backup'
 			);
@@ -76,7 +76,7 @@
 			};
 			showToast('Backup restored - restart Cinefin to load it', 'success');
 		} catch (e) {
-			const msg = e instanceof Error ? e.message : 'Restore failed';
+			const msg = errorText(e, 'Restore failed');
 			restoreResult = { state: 'error', message: msg };
 			showToast(msg, 'error');
 		} finally {
@@ -103,22 +103,12 @@
 			<ErrorState compact error={info.error} retry={() => void info.load()} />
 		{:else if info.data}
 			<div class="mb-4 max-w-md divide-y divide-border rounded-md border border-border text-sm">
-				<div class="flex justify-between gap-4 px-3 py-1.5">
-					<span class="text-muted">Database file</span>
-					<span class="font-mono text-xs">{info.data.database_filename || '-'}</span>
-				</div>
-				<div class="flex justify-between gap-4 px-3 py-1.5">
-					<span class="text-muted">Size</span>
-					<span class="font-mono text-xs">{formatBytes(info.data.database_size_bytes || 0)}</span>
-				</div>
-				<div class="flex justify-between gap-4 px-3 py-1.5">
-					<span class="text-muted">Last modified</span>
-					<span class="font-mono text-xs">{formatDateTime(info.data.database_modified_at)}</span>
-				</div>
-				<div class="flex justify-between gap-4 px-3 py-1.5">
-					<span class="text-muted">App version</span>
-					<span class="font-mono text-xs">{info.data.app_version || '-'}</span>
-				</div>
+				{#each facts(info.data) as [label, value] (label)}
+					<div class="flex justify-between gap-4 px-3 py-1.5">
+						<span class="text-muted">{label}</span>
+						<span class="font-mono text-xs">{value}</span>
+					</div>
+				{/each}
 			</div>
 		{/if}
 		<Button variant="primary" href="/api/v2/backup/download">

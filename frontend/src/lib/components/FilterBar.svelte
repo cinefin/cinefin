@@ -1,20 +1,10 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import {
-		Check,
-		ChevronDown,
-		FilterX,
-		LayoutGrid,
-		List,
-		SlidersHorizontal,
-		X
-	} from '@lucide/svelte';
+	import { ChevronDown, FilterX, LayoutGrid, List, SlidersHorizontal, X } from '@lucide/svelte';
 	import {
 		anyFilterActive,
-		isMulti,
 		isToggle,
 		type FilterControl,
-		type MultiSelectFilter,
 		type SelectFilter,
 		type SortSpec,
 		type ToggleFilter
@@ -22,32 +12,27 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
-
-	interface SearchSpec {
-		value: string;
-		placeholder: string;
-		onchange: (value: string) => void;
-		debounce?: number;
-	}
+	import { dismiss } from '$lib/components/dismiss';
 
 	interface Props {
-		search?: SearchSpec;
+		search?: {
+			value: string;
+			placeholder: string;
+			onchange: (value: string) => void;
+			debounce?: number;
+		};
 		filters?: FilterControl[];
 		sort?: SortSpec;
 		/** Result count readout, e.g. "142 movies (filtered)". */
 		count?: string;
-		/** Grid/list toggle — bind it; rendered only when viewKey is set. */
+		/** Grid/list toggle — bind it; rendered only when viewKey (its localStorage key) is set. */
 		view?: 'grid' | 'list';
-		/** localStorage key the view choice persists under. */
 		viewKey?: string;
 		/** Clears every filter (and restores the default sort) — page-owned. */
 		onreset?: () => void;
-		/** Collapse filter controls behind one "Filters" button. Defaults on past three filters
-		 *  (where the bar starts wrapping); what is active still reads out as chips beneath. */
-		filterPanel?: boolean;
 		/** Page-local extras rendered inline after the declared controls. */
 		children?: Snippet;
-		/** Page-local extras for the right-hand cluster, before the view toggle (e.g. a zoom control). */
+		/** Extras for the right-hand cluster, before the view toggle (e.g. a zoom control). */
 		viewExtras?: Snippet;
 	}
 
@@ -59,12 +44,12 @@
 		view = $bindable('grid'),
 		viewKey,
 		onreset,
-		filterPanel,
 		children,
 		viewExtras
 	}: Props = $props();
 
-	const panelled = $derived(filterPanel ?? filters.length > 3);
+	// Past three filters the bar starts wrapping, so they collapse behind one "Filters" button.
+	const panelled = $derived(filters.length > 3);
 
 	// Search: local text, debounced onchange; external sets flow back without clobbering typing.
 	// svelte-ignore state_referenced_locally
@@ -97,74 +82,32 @@
 		if (viewKey) localStorage.setItem(viewKey, view);
 	});
 
-	const selectChips = $derived(
-		filters.filter((f): f is SelectFilter => !isToggle(f) && !isMulti(f) && f.value !== '')
+	const chips = $derived(
+		filters.flatMap((f): { f: FilterControl; text: string; clear: () => void }[] =>
+			isToggle(f)
+				? f.value
+					? [{ f, text: f.label, clear: () => f.onchange(false) }]
+					: []
+				: f.value !== ''
+					? [{ f, text: `${f.label}: ${chipValueLabel(f)}`, clear: () => f.onchange('') }]
+					: []
+		)
 	);
-	const toggleChips = $derived(filters.filter((f): f is ToggleFilter => isToggle(f) && f.value));
-	const multiFilters = $derived(filters.filter((f): f is MultiSelectFilter => isMulti(f)));
-	const multiChips = $derived(
-		multiFilters.flatMap((f) => f.values.map((v) => ({ filter: f, value: v })))
+	const resetVisible = $derived(
+		anyFilterActive(filters) ||
+			Boolean(search?.value) ||
+			(sort ? sort.value !== sort.default : false)
 	);
-	const filtersActive = $derived(anyFilterActive(filters) || Boolean(search?.value));
-	const resetVisible = $derived(filtersActive || (sort ? sort.value !== sort.default : false));
 
 	function chipValueLabel(f: SelectFilter): string {
 		return f.options.find((o) => o.value === f.value)?.label ?? f.value;
-	}
-
-	function multiOptionLabel(f: MultiSelectFilter, value: string): string {
-		return f.options.find((o) => o.value === value)?.label ?? value;
-	}
-
-	function toggleMultiValue(f: MultiSelectFilter, value: string, on: boolean) {
-		const next = on ? [...f.values, value] : f.values.filter((v) => v !== value);
-		f.onchange(next);
 	}
 
 	function optionLabel(o: { label: string; count?: number }): string {
 		return o.count != null ? `${o.label} (${o.count})` : o.label;
 	}
 
-	const activeCount = $derived(selectChips.length + toggleChips.length + multiChips.length);
-
-	// Each multi filter has its own dropdown (independent of the Filters panel).
-	let openMultiId = $state<string | null>(null);
-	let multiRoot = $state<HTMLDivElement>();
-
-	$effect(() => {
-		if (openMultiId === null) return;
-		const onClick = (e: MouseEvent) => {
-			if (multiRoot && !multiRoot.contains(e.target as Node)) openMultiId = null;
-		};
-		const onKeydown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') openMultiId = null;
-		};
-		window.addEventListener('click', onClick);
-		window.addEventListener('keydown', onKeydown);
-		return () => {
-			window.removeEventListener('click', onClick);
-			window.removeEventListener('keydown', onKeydown);
-		};
-	});
-
 	let panelOpen = $state(false);
-	let panelRoot = $state<HTMLDivElement>();
-
-	$effect(() => {
-		if (!panelOpen) return;
-		const onClick = (e: MouseEvent) => {
-			if (panelRoot && !panelRoot.contains(e.target as Node)) panelOpen = false;
-		};
-		const onKeydown = (e: KeyboardEvent) => {
-			if (e.key === 'Escape') panelOpen = false;
-		};
-		window.addEventListener('click', onClick);
-		window.addEventListener('keydown', onKeydown);
-		return () => {
-			window.removeEventListener('click', onClick);
-			window.removeEventListener('keydown', onKeydown);
-		};
-	});
 
 	const toggleClasses = (on: boolean) =>
 		`h-9 border bg-surface-2 px-2.5 text-sm whitespace-nowrap transition-colors ` +
@@ -175,66 +118,42 @@
 		}`;
 </script>
 
-{#snippet multiControl(f: MultiSelectFilter)}
-	<div class="relative">
-		<button
-			type="button"
-			aria-expanded={openMultiId === f.id}
-			aria-haspopup="dialog"
-			class="flex h-9 items-center gap-1.5 border bg-surface-2 px-2.5 text-sm transition-colors
-			{f.values.length
-				? 'border-accent text-accent'
-				: 'border-border-strong text-muted hover:border-faint hover:text-text'}"
-			onclick={(e) => {
-				e.stopPropagation();
-				openMultiId = openMultiId === f.id ? null : f.id;
-			}}
-		>
-			{f.label}
-			{#if f.values.length}
-				<span class="font-mono text-xs">{f.values.length}</span>
-			{/if}
-			<ChevronDown
-				size={12}
-				class="transition-transform {openMultiId === f.id ? 'rotate-180' : ''}"
-			/>
-		</button>
+{#snippet toggleControl(f: ToggleFilter, inPanel: boolean)}
+	<button
+		type="button"
+		aria-pressed={f.value}
+		title={inPanel ? undefined : f.label}
+		class="{toggleClasses(f.value)}{inPanel ? ' w-full' : ''}"
+		onclick={() => f.onchange(!f.value)}
+	>
+		{f.label}
+	</button>
+{/snippet}
 
-		{#if openMultiId === f.id}
-			<div
-				bind:this={multiRoot}
-				role="dialog"
-				aria-label={f.label}
-				class="absolute left-0 z-30 mt-1 flex max-h-72 w-56 flex-col gap-0.5 overflow-y-auto
-				border border-border-strong bg-surface-1 p-1.5"
-			>
-				{#if f.options.length}
-					<p class="px-1.5 pb-1 text-[0.65rem] text-faint">Match all selected</p>
-					{#each f.options as o (o.value)}
-						{@const on = f.values.includes(o.value)}
-						<button
-							type="button"
-							role="menuitemcheckbox"
-							aria-checked={on}
-							class="flex items-center gap-2 px-1.5 py-1 text-left text-sm transition-colors
-							{on ? 'text-accent' : 'text-muted hover:text-text'}"
-							onclick={() => toggleMultiValue(f, o.value, !on)}
-						>
-							<span
-								class="flex h-3.5 w-3.5 shrink-0 items-center justify-center border
-								{on ? 'border-accent bg-accent/15' : 'border-border-strong'}"
-							>
-								{#if on}<Check size={11} />{/if}
-							</span>
-							<span class="min-w-0 flex-1 truncate">{optionLabel(o)}</span>
-						</button>
-					{/each}
-				{:else}
-					<p class="px-1.5 py-1 text-sm text-faint">No options</p>
-				{/if}
-			</div>
-		{/if}
-	</div>
+{#snippet selectControl(f: SelectFilter, cls?: string)}
+	<Select
+		class={cls}
+		value={f.value}
+		onchange={(e) => f.onchange((e.currentTarget as HTMLSelectElement).value)}
+	>
+		<option value="">{f.allLabel}</option>
+		{#each f.options as o (o.value)}<option value={o.value}>{optionLabel(o)}</option>{/each}
+	</Select>
+{/snippet}
+
+{#snippet viewButton(v: 'grid' | 'list', label: string, Icon: typeof List, cls = '')}
+	<button
+		type="button"
+		title={label}
+		aria-label={label}
+		aria-pressed={view === v}
+		onclick={() => (view = v)}
+		class="flex h-9 w-9 items-center justify-center {cls} {view === v
+			? 'bg-surface-3 text-accent'
+			: 'bg-surface-2 text-muted hover:text-text'}"
+	>
+		<Icon size={15} />
+	</button>
 {/snippet}
 
 <div class="mb-4 border-y border-border bg-surface-1">
@@ -251,22 +170,20 @@
 			{/if}
 
 			{#if panelled}
-				<div class="relative" bind:this={panelRoot}>
+				<div class="relative" {@attach dismiss(() => (panelOpen = false))}>
 					<button
 						type="button"
 						aria-expanded={panelOpen}
 						aria-haspopup="dialog"
 						class="flex h-9 items-center gap-1.5 border bg-surface-2 px-2.5 text-sm
-						transition-colors {activeCount
+						transition-colors {chips.length
 							? 'border-accent text-accent'
 							: 'border-border-strong text-muted hover:border-faint hover:text-text'}"
 						onclick={() => (panelOpen = !panelOpen)}
 					>
 						<SlidersHorizontal size={14} />
 						Filters
-						{#if activeCount}
-							<span class="font-mono text-xs">{activeCount}</span>
-						{/if}
+						{#if chips.length}<span class="font-mono text-xs">{chips.length}</span>{/if}
 						<ChevronDown size={12} class="transition-transform {panelOpen ? 'rotate-180' : ''}" />
 					</button>
 
@@ -279,32 +196,11 @@
 						>
 							{#each filters as f (f.id)}
 								{#if isToggle(f)}
-									<button
-										type="button"
-										aria-pressed={f.value}
-										class="{toggleClasses(f.value)} w-full"
-										onclick={() => f.onchange(!f.value)}
-									>
-										{f.label}
-									</button>
-								{:else if isMulti(f)}
-									<label class="flex flex-col gap-1 text-xs text-muted">
-										{f.label}
-										{@render multiControl(f)}
-									</label>
+									{@render toggleControl(f, true)}
 								{:else if !f.chipOnly}
 									<label class="flex flex-col gap-1 text-xs text-muted">
 										{f.label}
-										<Select
-											class="w-full"
-											value={f.value}
-											onchange={(e) => f.onchange((e.currentTarget as HTMLSelectElement).value)}
-										>
-											<option value="">{f.allLabel}</option>
-											{#each f.options as o (o.value)}
-												<option value={o.value}>{optionLabel(o)}</option>
-											{/each}
-										</Select>
+										{@render selectControl(f, 'w-full')}
 									</label>
 								{/if}
 							{/each}
@@ -314,27 +210,9 @@
 			{:else}
 				{#each filters as f (f.id)}
 					{#if isToggle(f)}
-						<button
-							type="button"
-							aria-pressed={f.value}
-							title={f.label}
-							class={toggleClasses(f.value)}
-							onclick={() => f.onchange(!f.value)}
-						>
-							{f.label}
-						</button>
-					{:else if isMulti(f)}
-						{@render multiControl(f)}
+						{@render toggleControl(f, false)}
 					{:else if !f.chipOnly}
-						<Select
-							value={f.value}
-							onchange={(e) => f.onchange((e.currentTarget as HTMLSelectElement).value)}
-						>
-							<option value="">{f.allLabel}</option>
-							{#each f.options as o (o.value)}
-								<option value={o.value}>{optionLabel(o)}</option>
-							{/each}
-						</Select>
+						{@render selectControl(f)}
 					{/if}
 				{/each}
 			{/if}
@@ -360,80 +238,31 @@
 		</div>
 
 		<div class="flex shrink-0 items-center gap-2">
-			{#if count}
-				<span class="font-mono text-xs whitespace-nowrap text-muted">{count}</span>
-			{/if}
+			{#if count}<span class="font-mono text-xs whitespace-nowrap text-muted">{count}</span>{/if}
 
 			{#if viewExtras}{@render viewExtras()}{/if}
 
 			{#if viewKey}
 				<div class="flex border border-border-strong" role="group" aria-label="View">
-					<button
-						type="button"
-						title="Grid view"
-						aria-label="Grid view"
-						aria-pressed={view === 'grid'}
-						onclick={() => (view = 'grid')}
-						class="flex h-9 w-9 items-center justify-center {view === 'grid'
-							? 'bg-surface-3 text-accent'
-							: 'bg-surface-2 text-muted hover:text-text'}"
-					>
-						<LayoutGrid size={15} />
-					</button>
-					<button
-						type="button"
-						title="List view"
-						aria-label="List view"
-						aria-pressed={view === 'list'}
-						onclick={() => (view = 'list')}
-						class="flex h-9 w-9 items-center justify-center border-l border-border-strong
-							{view === 'list' ? 'bg-surface-3 text-accent' : 'bg-surface-2 text-muted hover:text-text'}"
-					>
-						<List size={15} />
-					</button>
+					{@render viewButton('grid', 'Grid view', LayoutGrid)}
+					{@render viewButton('list', 'List view', List, 'border-l border-border-strong')}
 				</div>
 			{/if}
 		</div>
 	</div>
 
-	{#if selectChips.length || toggleChips.length || multiChips.length}
+	{#if chips.length}
 		<div class="flex flex-wrap items-center gap-1.5 border-t border-border px-2 py-1.5">
-			{#each multiChips as { filter, value } (filter.id + ':' + value)}
-				<button
-					type="button"
-					title="Clear {filter.label} filter"
-					class="inline-flex items-center gap-1 border border-border-strong bg-surface-2 px-1.5
-						py-px font-mono text-[0.65rem] text-muted
-						hover:border-danger/60 hover:text-danger"
-					onclick={() => toggleMultiValue(filter, value, false)}
-				>
-					{filter.label}: {multiOptionLabel(filter, value)}
-					<X size={10} />
-				</button>
-			{/each}
-			{#each selectChips as f (f.id)}
+			{#each chips as { f, text, clear } (f.id)}
 				<button
 					type="button"
 					title="Clear {f.label} filter"
 					class="inline-flex items-center gap-1 border border-border-strong bg-surface-2 px-1.5
 						py-px font-mono text-[0.65rem] text-muted
 						hover:border-danger/60 hover:text-danger"
-					onclick={() => f.onchange('')}
+					onclick={clear}
 				>
-					{f.label}: {chipValueLabel(f)}
-					<X size={10} />
-				</button>
-			{/each}
-			{#each toggleChips as f (f.id)}
-				<button
-					type="button"
-					title="Clear {f.label} filter"
-					class="inline-flex items-center gap-1 border border-border-strong bg-surface-2 px-1.5
-						py-px font-mono text-[0.65rem] text-muted
-						hover:border-danger/60 hover:text-danger"
-					onclick={() => f.onchange(false)}
-				>
-					{f.label}
+					{text}
 					<X size={10} />
 				</button>
 			{/each}

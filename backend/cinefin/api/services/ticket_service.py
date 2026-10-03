@@ -164,7 +164,8 @@ def ticket_images_dir() -> str:
     return os.path.join(django_settings.MEDIA_ROOT, "ticket_images")
 
 
-def _ticket_image_path(file: str | None) -> str | None:
+def ticket_image_path(file: str | None) -> str | None:
+    """Filesystem path of a ticket-library image, or None."""
     name = os.path.basename(str(file or ""))
     if not name:
         return None
@@ -290,12 +291,8 @@ def design_spec(design) -> dict:
 def effective_certification(features) -> str | None:
     """The most restrictive certificate among features, per the active ratings system's severity order."""
     order = Settings.RATINGS_BBFC_ORDER if Settings.get_ratings_system() == "BBFC" else Settings.RATINGS_MPAA_ORDER
-    best = -1
-    for feat in features or []:
-        cert = feat.get("certification")
-        if cert in order:
-            best = max(best, order.index(cert))
-    return order[best] if best >= 0 else None
+    ranks = [order.index(f.get("certification")) for f in features or [] if f.get("certification") in order]
+    return order[max(ranks)] if ranks else None
 
 
 def make_ticket_context(
@@ -317,16 +314,13 @@ def make_ticket_context(
         film = str(features[0].get("title") or "")
         if film and features[0].get("year"):
             film += f" ({features[0]['year']})"
-    film_lines = []
-    for feat in features:
-        line = str(feat.get("title") or "")
-        if not line:
-            continue
-        if feat.get("year"):
-            line += f" ({feat['year']})"
-        if feat.get("certification"):
-            line += f" [{feat['certification']}]"
-        film_lines.append(line)
+    film_lines = [
+        str(feat["title"])
+        + (f" ({feat['year']})" if feat.get("year") else "")
+        + (f" [{feat['certification']}]" if feat.get("certification") else "")
+        for feat in features
+        if feat.get("title")
+    ]
     return {
         "cinema": Settings.get("cinema.name", "Cinefin"),
         "film": film,
@@ -361,19 +355,8 @@ def resolve_ticket_design(programme=None):
 
 def programme_features(programme) -> list[dict]:
     """The movie features of a programme, for the {film_list} token."""
-    feats = []
-    for block in programme.blocks.filter(content_type="movie"):
-        movie = block.content_object
-        if movie is None:
-            continue
-        feats.append(
-            {
-                "title": movie.title,
-                "year": getattr(movie, "year", None),
-                "certification": getattr(movie, "certification", None),
-            }
-        )
-    return feats
+    movies = (block.content_object for block in programme.blocks.filter(content_type="movie"))
+    return [{"title": m.title, "year": m.year, "certification": m.certification} for m in movies if m is not None]
 
 
 def design_tokens(ctx: dict, spec: dict) -> dict[str, str]:
@@ -384,14 +367,10 @@ def design_tokens(ctx: dict, spec: dict) -> dict[str, str]:
     return {k: str(values.get(k) or "") for k in DESIGN_TOKENS}
 
 
-def _fun_qr_link(spec: dict) -> str | None:
-    return random.choice(spec["qr_links"]) if spec["qr_links"] else None
-
-
 def qr_data(el, tokens: dict, spec: dict) -> str | None:
     """What a QR element encodes: one of the design's surprise links, or its content with tokens filled in."""
     if el.mode == "fun":
-        return _fun_qr_link(spec)
+        return random.choice(spec["qr_links"]) if spec["qr_links"] else None
     return _substitute_tokens(el.content, tokens).strip() or None
 
 
@@ -426,7 +405,7 @@ def render_ticket_ops(
             elif text := ticket_raster.row_as_text(el, tokens, width):
                 op = {"op": "text", "value": text, **style, "align": "left"}
         elif el.type in ("image", "rating"):
-            path = _ticket_image_path(el.file) if el.type == "image" else _rating_image_path(ctx.get("certification"))
+            path = ticket_image_path(el.file) if el.type == "image" else _rating_image_path(ctx.get("certification"))
             if path and images:
                 op = {"op": el.type, "path": path, "width": el.width, **style}
             elif path and preview:
@@ -477,6 +456,17 @@ def _prepare_image(path: str, max_width: int, percent: int | None = None) -> Ima
     return img.convert("1")
 
 
+def _open_checked_printer():
+    """Probe, then open the printer; any failure but our own RuntimeError gets a human reason."""
+    probe_printer()
+    try:
+        return open_printer()
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(f"Could not open printer: {e}") from e
+
+
 def probe_printer():
     """
     Check a file-mode printer device is usable before sending bytes (File printer opens lazily -> misleading mid-print errors).
@@ -517,13 +507,6 @@ def barcode_data(symbology: str, data: str) -> str:
     return data.zfill(digits)
 
 
-def _hw_barcode_code(symbology: str, data: str) -> str:
-    """The bytes the printer's own Code128 needs: Epson (and the GS k spec) want a code-set prefix, else print nothing."""
-    if symbology == "code128":
-        return "{B" + data.replace("{", "{{")
-    return data
-
-
 def _print_barcode(printer, op: dict) -> None:
     """A barcode, drawn by the printer when its profile has a barcode engine, else as an image; skipped (logged) if it can't print."""
     symbology = op["symbology"]
@@ -534,8 +517,10 @@ def _print_barcode(printer, op: dict) -> None:
     align_ct = op.get("align", "center") == "center"
     try:
         if printer.profile.supports("barcodeB") or printer.profile.supports("barcodeA"):
+            # The printer's own Code128 needs a code-set prefix (Epson, the GS k spec), else it prints nothing.
+            code = "{B" + op["data"].replace("{", "{{") if symbology == "code128" else op["data"]
             printer.barcode(
-                _hw_barcode_code(symbology, op["data"]),
+                code,
                 bc,
                 width=2,
                 height=64,
@@ -590,14 +575,7 @@ def print_ticket(design, ctx: dict):
     ops = render_ticket_ops(design, ctx, width=width, images=image_impl() is not None)
     # Held across the whole open->write->close so no other job interleaves bytes (see _print_lock).
     with _print_lock:
-        probe_printer()
-        try:
-            printer = open_printer()
-        except RuntimeError:
-            raise
-        except Exception as e:
-            raise RuntimeError(f"Could not open printer: {e}") from e
-
+        printer = _open_checked_printer()
         try:
             # ESC @ resets to a known state — python-escpos never sends it, so a ticket would inherit the prior job's state.
             printer.hw("INIT")
@@ -606,8 +584,7 @@ def print_ticket(design, ctx: dict):
             impl = image_impl()  # None = images off
             for op in ops:
                 _emit_op(printer, op, width, impl)
-            pad = feed_lines()
-            if pad:
+            if pad := feed_lines():
                 printer.text("\n" * pad)
             cut = cut_mode()
             if cut != "off":
@@ -643,13 +620,7 @@ def reset_printer():
     Best effort — a stubborn jam may swallow the INIT and need a second reset or power-cycle. Serialised on _print_lock.
     """
     with _print_lock:
-        probe_printer()
-        try:
-            printer = open_printer()
-        except RuntimeError:
-            raise
-        except Exception as e:
-            raise RuntimeError(f"Could not open printer: {e}") from e
+        printer = _open_checked_printer()
         try:
             printer.hw("INIT")
             printer.text("\n\n\n")
@@ -661,44 +632,21 @@ def reset_printer():
 def reprint_issue(issue) -> None:
     """Reprint a stored TicketIssue WITHOUT recording a new issue or touching seat occupancy. Falls back to the title snapshot if FKs were nulled."""
     when = issue.schedule.play_time() if issue.schedule_id and issue.schedule else None
-    scheduled = when is not None
-    design = resolve_ticket_design(issue.programme)
+    base = {"seat": issue.seat or None, "when": when, "scheduled": when is not None, "ticket_no": issue.ticket_number}
     programme_name = issue.programme.name if issue.programme_id and issue.programme else None
 
     if issue.kind == TicketIssue.KIND_MOVIE and issue.movie:
         # Legacy per-feature ticket: reprint as a programme ticket scoped to that one film.
-        ctx = make_ticket_context(
-            seat=issue.seat or None,
-            when=when,
-            scheduled=scheduled,
-            ticket_no=issue.ticket_number,
-            programme_name=programme_name,
-            features=[
-                {
-                    "title": issue.movie.title,
-                    "year": issue.movie.year,
-                    "certification": issue.movie.certification,
-                }
-            ],
-        )
+        movie = issue.movie
+        features = [{"title": movie.title, "year": movie.year, "certification": movie.certification}]
     elif issue.kind == TicketIssue.KIND_PROGRAMME and issue.programme_id and issue.programme:
-        ctx = make_ticket_context(
-            seat=issue.seat or None,
-            when=when,
-            scheduled=scheduled,
-            ticket_no=issue.ticket_number,
-            programme_name=programme_name,
-            features=programme_features(issue.programme),
-        )
+        features = programme_features(issue.programme)
     else:
         # Custom ticket, or the referenced movie/programme was deleted — reprint the snapshot title as a one-off text ticket.
-        ctx = make_ticket_context(
-            seat=issue.seat or None, when=when, scheduled=scheduled, ticket_no=issue.ticket_number
-        )
-        print_ticket([{"type": "text", "content": issue.title or ""}], ctx)
+        print_ticket([{"type": "text", "content": issue.title or ""}], make_ticket_context(**base))
         return
-
-    print_ticket(design, ctx)
+    ctx = make_ticket_context(**base, programme_name=programme_name, features=features)
+    print_ticket(resolve_ticket_design(issue.programme), ctx)
 
 
 def preview_ticket(design, ctx: dict, *, width: int | None = None) -> dict:
@@ -763,15 +711,12 @@ def print_run(
     auto-assigned. The ticket number is allocated *before* printing (so it can appear on the ticket); a failed print
     deletes its just-created issue, so only successful prints stay recorded.
     """
-    if seats:
-        seat_list = list(seats)
-    else:
-        seat_list = []
-        assigned: set[str] = set()
+    seat_list = list(seats or [])
+    if not seats:
         for index in range(copies):
-            this_seat = seat if (index == 0 and seat) else next_available_seat(programme, schedule, exclude=assigned)
-            assigned.add(this_seat)
-            seat_list.append(this_seat)
+            seat_list.append(
+                seat if (index == 0 and seat) else next_available_seat(programme, schedule, exclude=set(seat_list))
+            )
 
     issues: list[TicketIssue] = []
     for this_seat in seat_list:
@@ -791,8 +736,3 @@ def print_run(
             raise
         issues.append(issue)
     return issues
-
-
-def ticket_image_path(file: str | None) -> str | None:
-    """Filesystem path of a ticket-library image (for its thumbnail), or None."""
-    return _ticket_image_path(file)

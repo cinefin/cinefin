@@ -1,10 +1,5 @@
 <script lang="ts">
-	/**
-	 * A sortable table header cell. Renders a `<th>` with a click-to-sort button
-	 * and the active-direction arrow, shared by every list table so they behave
-	 * the same. The host owns the `sort` string and applies it (client-side via
-	 * `sortRows`, or by refetching for server-sorted lists); this only toggles.
-	 */
+	/** A sortable `<th>`; the host owns and applies the signed `sort` string. */
 	import { sortIndicator, toggleSort } from '$lib/filters';
 
 	interface Props {

@@ -1,25 +1,26 @@
 /** invalidate() — the cross-page "this resource changed" pub/sub bus (no query cache library). */
 
-/** Coarse resource names (not per-id) a view subscribes to / a mutation touches. The first
- *  group is named by in-app mutations; the rest are probe-style feeds named only by the
- *  real-time WebSocket's `invalidate` channel. */
-export type ResourceKey =
-	| 'schedules'
-	| 'programmes'
-	| 'templates'
-	| 'titles'
-	| 'movies'
-	| 'trailers'
-	| 'commands'
-	| 'sync'
-	| 'settings'
-	| 'tickets'
-	| 'playout-hosts'
-	| 'runner'
-	| 'health'
-	| 'agent'
-	| 'setup'
-	| 'deploy';
+/** Coarse resource names (not per-id) a view subscribes to / a mutation touches; some are named
+ *  only by the real-time WebSocket's `invalidate` channel. */
+export const RESOURCE_KEYS = [
+	'schedules',
+	'programmes',
+	'templates',
+	'titles',
+	'movies',
+	'trailers',
+	'commands',
+	'sync',
+	'settings',
+	'tickets',
+	'playout-hosts',
+	'runner',
+	'health',
+	'agent',
+	'setup',
+	'deploy'
+] as const;
+export type ResourceKey = (typeof RESOURCE_KEYS)[number];
 
 type Listener = () => void;
 
@@ -40,12 +41,9 @@ export function onInvalidate(keys: ResourceKey | ResourceKey[], fn: Listener): (
 
 /** Announce a change. Every subscriber of any named key fires once, even across multiple keys. */
 export function invalidate(keys: ResourceKey | ResourceKey[]): void {
-	const arr = Array.isArray(keys) ? keys : [keys];
 	const fired = new Set<Listener>();
-	for (const k of arr) {
-		const set = listeners.get(k);
-		if (!set) continue;
-		for (const fn of set) {
+	for (const k of Array.isArray(keys) ? keys : [keys]) {
+		for (const fn of listeners.get(k) ?? []) {
 			if (fired.has(fn)) continue;
 			fired.add(fn);
 			try {

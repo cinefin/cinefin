@@ -1,10 +1,9 @@
 <script lang="ts">
-	// Plugins — every command-provider plugin loaded from contrib/plugins (cinefin/plugins.py), any that
-	// failed to load, and the provider-wide settings of those that declare some. Each plugin saves on
-	// its own, outside the page's main settings form.
+	// Every loaded command-provider plugin, any that failed to load, and the provider-wide settings
+	// of those that declare some (each saves on its own, outside the page's Save bar).
 	import { Plug, Power, Search, TriangleAlert } from '@lucide/svelte';
 	import { base } from '$app/paths';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
 	import { mutate } from '$lib/api/mutate';
 	import { query } from '$lib/api/query.svelte';
 	import type { components } from '$lib/api/types.gen';
@@ -16,6 +15,7 @@
 		type FormValues,
 		type ProviderInfo
 	} from '$lib/commands/providers';
+	import { attempt, errorText, runCheck } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
 	import { showToast } from '$lib/toast.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
@@ -49,20 +49,12 @@
 	let checks = $state<Record<string, CheckState>>({});
 	let candidates = $state<Record<string, Candidate[] | null>>({});
 
-	function collect(p: ProviderInfo): Record<string, unknown> | null {
-		const result = fromFormValues(p.settings, values[p.id] ?? {});
-		if ('error' in result) {
-			showToast(result.error, 'error');
-			return null;
-		}
-		return result.config;
-	}
-
 	async function save(p: ProviderInfo) {
-		const config = collect(p);
-		if (!config) return;
+		const result = fromFormValues(p.settings, values[p.id] ?? {});
+		if ('error' in result) return showToast(result.error, 'error');
+		const config = result.config;
 		busy = `${p.id}:save`;
-		try {
+		await attempt(async () => {
 			await unwrap(
 				api.PUT('/api/v2/commands/providers/{provider_id}/settings', {
 					params: { path: { provider_id: p.id } },
@@ -70,11 +62,8 @@
 				})
 			);
 			showToast(`${p.label} settings saved`, 'success');
-		} catch (e) {
-			showToast(toApiError(e).message || 'Failed to save settings', 'error');
-		} finally {
-			busy = null;
-		}
+		}, 'Failed to save settings');
+		busy = null;
 	}
 
 	async function test(p: ProviderInfo) {
@@ -89,19 +78,15 @@
 		}
 		busy = `${p.id}:test`;
 		checks[p.id] = { state: 'pending', message: 'Testing…' };
-		try {
-			const res = await unwrap(
+		checks[p.id] = await runCheck(() =>
+			unwrap(
 				api.POST('/api/v2/commands/providers/{provider_id}/settings/test', {
 					params: { path: { provider_id: p.id } },
 					body: { values: config.config }
 				})
-			);
-			checks[p.id] = { state: res.ok ? 'ok' : 'error', message: res.message };
-		} catch (e) {
-			checks[p.id] = { state: 'error', message: toApiError(e).message || 'Test failed' };
-		} finally {
-			busy = null;
-		}
+			)
+		);
+		busy = null;
 	}
 
 	async function discover(p: ProviderInfo) {
@@ -123,7 +108,7 @@
 				candidates[p.id] = res.candidates;
 			}
 		} catch (e) {
-			checks[p.id] = { state: 'error', message: toApiError(e).message || 'Discovery failed' };
+			checks[p.id] = { state: 'error', message: errorText(e, 'Discovery failed') };
 		} finally {
 			busy = null;
 		}
@@ -140,7 +125,7 @@
 
 	async function setEnabled(p: ProviderInfo, enabled: boolean) {
 		busy = `${p.id}:enabled`;
-		try {
+		await attempt(async () => {
 			await mutate(
 				api.POST('/api/v2/commands/providers/{provider_id}/enabled', {
 					params: { path: { provider_id: p.id } },
@@ -149,11 +134,8 @@
 			);
 			await pluginsQ.refresh();
 			showToast(`${p.label} ${enabled ? 'enabled' : 'disabled'}`, 'success');
-		} catch (e) {
-			showToast(toApiError(e).message || 'Failed to update the plugin', 'error');
-		} finally {
-			busy = null;
-		}
+		}, 'Failed to update the plugin');
+		busy = null;
 	}
 </script>
 

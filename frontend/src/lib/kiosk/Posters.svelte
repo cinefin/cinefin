@@ -2,11 +2,7 @@
 	import Poster from './Poster.svelte';
 	import type { KioskFilmish } from './types';
 
-	interface Props {
-		films: KioskFilmish[];
-		cls?: string;
-	}
-	let { films, cls = '' }: Props = $props();
+	let { films, cls = '' }: { films: KioskFilmish[]; cls?: string } = $props();
 </script>
 
 {#if films.length <= 1}

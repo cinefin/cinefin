@@ -5,7 +5,7 @@
 	import { base } from '$app/paths';
 	import { api, unwrap } from '$lib/api/client';
 	import { query } from '$lib/api/query.svelte';
-	import { showToast } from '$lib/toast.svelte';
+	import { showToast, toastFailure } from '$lib/toast.svelte';
 	import Menu, { type MenuItem } from '$lib/components/ui/Menu.svelte';
 	import CommandPicker from './CommandPicker.svelte';
 	import { CommandPicks, type Surface } from './picks.svelte';
@@ -60,7 +60,7 @@
 			);
 			showToast(`${cmd.name} done`, 'success');
 		} catch (e) {
-			showToast(`${cmd.name} failed: ${e instanceof Error ? e.message : e}`, 'error');
+			toastFailure(`${cmd.name} failed`, e);
 		} finally {
 			running = null;
 		}

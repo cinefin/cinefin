@@ -6,9 +6,11 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { Check, Copy, ListVideo, PanelLeftOpen, Pencil, Trash2 } from '@lucide/svelte';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { Query } from '$lib/api/query.svelte';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
@@ -70,48 +72,33 @@
 			confirmLabel: 'Discard',
 			title: 'Discard changes'
 		});
-		if (ok) discardAndStop();
-	}
-
-	function discardAndStop(): void {
+		if (!ok) return;
 		editorRef?.discardChanges();
 		setEditing(false);
 	}
 
-	async function confirmDelete(): Promise<void> {
+	async function duplicate(): Promise<void> {
+		const path = { template_id: templateId };
+		await attempt(async () => {
+			const data = await unwrap(
+				api.POST('/api/v2/templates/{template_id}/duplicate', { params: { path } })
+			);
+			const id = (data as unknown as { id?: number }).id;
+			showToast('Template duplicated', 'success');
+			if (id) void goto(`${base}/templates/${id}`);
+		}, 'Could not duplicate the template');
+	}
+
+	async function remove(): Promise<void> {
 		if (!template) return;
 		const ok = await confirmDlg?.confirm(
 			`Delete “${template.name}”? Programmes already built from it are not affected.`,
 			{ confirmLabel: 'Delete', title: 'Delete template' }
 		);
-		if (ok) await remove();
-	}
-
-	async function duplicate(): Promise<void> {
-		try {
-			const data = await unwrap(
-				api.POST('/api/v2/templates/{template_id}/duplicate', {
-					params: { path: { template_id: templateId } }
-				})
-			);
-			const id = (data as unknown as { id?: number }).id;
-			showToast('Template duplicated', 'success');
-			if (id) void goto(`${base}/templates/${id}`);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not duplicate the template', 'error');
-		}
-	}
-
-	async function remove(): Promise<void> {
-		try {
-			const res = await api.DELETE('/api/v2/templates/{template_id}', {
-				params: { path: { template_id: templateId } }
-			});
-			if (res.error) throw toApiError(res.error, res.response);
-			void goto(`${base}/templates`);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Could not delete the template', 'error');
-		}
+		if (!ok) return;
+		const path = { template_id: templateId };
+		const del = () => mutate(api.DELETE('/api/v2/templates/{template_id}', { params: { path } }));
+		if (await attempt(del, 'Could not delete the template')) void goto(`${base}/templates`);
 	}
 
 	const segment =
@@ -213,7 +200,7 @@
 						type="button"
 						class="inline-flex items-center gap-1.5 text-xs text-faint transition-colors
 							hover:text-danger"
-						onclick={() => void confirmDelete()}
+						onclick={() => void remove()}
 					>
 						<Trash2 size={12} /> Delete template
 					</button>

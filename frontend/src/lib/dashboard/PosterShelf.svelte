@@ -1,7 +1,6 @@
 <script lang="ts">
-	// Recently added as a strip of posters as tall as the card: a wide screen shows
-	// more of them, the edges fade where more lie beyond, and ‹ › scroll it a
-	// screenful at a time. A tile opens the film drawer.
+	// Recently added: posters as tall as the card, edges fading where more lie beyond,
+	// ‹ › scrolling a screenful. A tile opens the film drawer.
 	import { base } from '$app/paths';
 	import { ChevronLeft, ChevronRight, Film } from '@lucide/svelte';
 	import MoviePanel from '$lib/library/MoviePanel.svelte';
@@ -41,20 +40,24 @@
 	const fade = $derived(
 		`linear-gradient(to right, ${atStart ? '#000' : 'transparent'}, #000 2.5rem, #000 calc(100% - 2.5rem), ${atEnd ? '#000' : 'transparent'})`
 	);
-
-	const arrow = 'shrink-0 rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text';
 </script>
+
+{#snippet arrow(dir: 1 | -1, hidden: boolean, label: string, Icon: typeof ChevronLeft)}
+	<button
+		type="button"
+		class="shrink-0 rounded-sm p-1.5 text-muted hover:bg-surface-2 hover:text-text {hidden
+			? 'invisible'
+			: ''}"
+		aria-label={label}
+		onclick={() => scroll(dir)}
+	>
+		<Icon size={16} />
+	</button>
+{/snippet}
 
 <div class="flex h-full min-h-36 items-center gap-1">
 	<!-- The strip is absolute so the posters take the card's height, never set it. -->
-	<button
-		type="button"
-		class="{arrow} {atStart ? 'invisible' : ''}"
-		aria-label="Newer films"
-		onclick={() => scroll(-1)}
-	>
-		<ChevronLeft size={16} />
-	</button>
+	{@render arrow(-1, atStart, 'Newer films', ChevronLeft)}
 	<div class="relative h-full min-w-0 flex-1">
 		<div
 			bind:this={strip}
@@ -94,14 +97,7 @@
 			{/each}
 		</div>
 	</div>
-	<button
-		type="button"
-		class="{arrow} {atEnd ? 'invisible' : ''}"
-		aria-label="Older films"
-		onclick={() => scroll(1)}
-	>
-		<ChevronRight size={16} />
-	</button>
+	{@render arrow(1, atEnd, 'Older films', ChevronRight)}
 </div>
 
 {#if openId !== null}
@@ -111,7 +107,7 @@
 		{ids}
 		onclose={() => (openId = null)}
 		onstep={(id) => (openId = id)}
-		onmutated={() => onmutated?.()}
+		{onmutated}
 		onremoved={() => {
 			openId = null;
 			onmutated?.();

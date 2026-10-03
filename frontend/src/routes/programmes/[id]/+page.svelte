@@ -1,8 +1,7 @@
 <script lang="ts">
+	// `?edit=1` swaps the Rundown tab for the editor; `/programmes/new` is this route with a
+	// virtual id, written on the first save.
 	import PageHeader from '$lib/components/shell/PageHeader.svelte';
-	// Editing happens here (issue #404): `?edit=1` swaps the Rundown tab for the
-	// ProgrammeEditor. `/programmes/new` is this route with a virtual id — nothing
-	// is written until the first save, so an abandoned start leaves nothing behind.
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -17,7 +16,8 @@
 		Trash2,
 		Upload
 	} from '@lucide/svelte';
-	import { api, toApiError, unwrap } from '$lib/api/client';
+	import { api, unwrap } from '$lib/api/client';
+	import { mutate } from '$lib/api/mutate';
 	import { Query, query } from '$lib/api/query.svelte';
 	import type { components } from '$lib/api/types.gen';
 	import type {
@@ -42,18 +42,18 @@
 	import TicketsPanel from '$lib/programmes/detail-TicketsPanel.svelte';
 	import TracksDialog from '$lib/programmes/detail-TracksDialog.svelte';
 	import { showToast } from '$lib/toast.svelte';
+	import { attempt } from '$lib/settings/form.svelte';
 	import { invalidate } from '$lib/invalidate';
 	import { playout } from '$lib/stores/playout.svelte';
+	import { skippedText } from '$lib/playout/CueDialog.svelte';
 
 	type ProgrammeDetail = components['schemas']['ProgrammeDetailSchema'];
 	type DesignSummary = components['schemas']['DesignSummarySchema'];
 	type MovieDetail = components['schemas']['MovieDetailSchema'];
 
 	const isNew = $derived(page.params.id === 'new');
-	// Read once from the route param, not the derived: the stash is single-use,
-	// so a reload starts from an empty running order instead of re-adding films.
+	// Read once: the stash is single-use, so a reload doesn't re-add the films.
 	const handedOverFilms = page.params.id === 'new' ? takeStashedFilms() : [];
-	// NaN while `new` — every use is behind `isNew`, and no query runs.
 	const programmeId = $derived(Number(page.params.id));
 
 	const prog = new Query<{ programme: ProgrammeDetail }>(() =>
@@ -64,8 +64,7 @@
 		)
 	);
 
-	// Cast through unknown — the generated type for this endpoint is wrong
-	// (schema-name collision, see $lib/programmes/types.ts).
+	// The generated type for this endpoint is wrong (see $lib/programmes/types.ts).
 	const playlist = new Query<ProgrammePlaylist>(async () => {
 		const raw = await unwrap(
 			api.GET('/api/v2/programmes/{programme_id}/playlist', {
@@ -148,11 +147,8 @@
 		const unattached: ProgrammePlaylistItem[] = [];
 		for (const pi of playlist.data?.items ?? []) {
 			const blockId = pi.details?.programme_block_id;
-			if (blockId === null || blockId === undefined) unattached.push(pi);
-			else {
-				if (!byBlock.has(blockId)) byBlock.set(blockId, []);
-				byBlock.get(blockId)!.push(pi);
-			}
+			if (blockId == null) unattached.push(pi);
+			else byBlock.set(blockId, [...(byBlock.get(blockId) ?? []), pi]);
 		}
 		return { byBlock, unattached };
 	});
@@ -163,11 +159,10 @@
 		programme ? formatClock(new Date(Date.now() + programme.total_runtime * 60000)) : ''
 	);
 
-	// Bill collapse is NOT persisted: a working mode for this session, not a setting.
+	// Not persisted; collapses once on first edit, then the user's choice stands.
 	let billCollapsed = $state(false);
 	let autoCollapsed = false;
 	$effect(() => {
-		// Take the width once on first edit; after that the user's choice stands.
 		if (editing && !autoCollapsed) {
 			autoCollapsed = true;
 			billCollapsed = true;
@@ -178,7 +173,6 @@
 	let innerHeight = $state(0);
 	const asideSticks = $derived(innerHeight > 0 && asideHeight + 120 <= innerHeight);
 
-	// Tabs — the active one lives in ?tab=.
 	const TABS = [
 		{ id: 'rundown', label: 'Rundown' },
 		{ id: 'tickets', label: 'Tickets' },
@@ -190,13 +184,10 @@
 	});
 	function selectTab(id: string) {
 		if (id === tab) return;
-		// A history entry per tab, so Back returns to the previous one.
 		void goto(`${base}/programmes/${programmeId}?tab=${id}`, { noScroll: true, keepFocus: true });
 	}
 	const panelId = (id: string) => `panel-${id}`;
 
-	// Edit mode (?edit=1): the URL carries it the way it carries the tab, so
-	// reload, Back and a link all land in the same state.
 	const editing = $derived(page.url.searchParams.get('edit') === '1');
 	let editorDirty = $state(false);
 	let confirmDlg = $state<ConfirmDialog>();
@@ -222,11 +213,8 @@
 			confirmLabel: 'Discard',
 			title: 'Discard changes'
 		});
-		if (ok) discardAndStop();
-	}
-
-	// Tell the editor first, so its navigation guard doesn't ask again on the way out.
-	function discardAndStop(): void {
+		if (!ok) return;
+		// Tell the editor first, so its navigation guard doesn't ask again on the way out.
 		editorRef?.discardChanges();
 		setEditing(false);
 	}
@@ -240,8 +228,6 @@
 		'flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 px-2 text-[0.8rem] ' +
 		'font-medium whitespace-nowrap transition-colors hover:bg-surface-2';
 	const segment = `${SEGMENT_BASE} text-text`;
-	// Written out rather than appended: two text-colour utilities in one class
-	// attribute are settled by the stylesheet's order, not the attribute's.
 	const segmentActive = `${SEGMENT_BASE} bg-surface-3 text-accent`;
 
 	let tracksOpen = $state(false);
@@ -253,8 +239,6 @@
 	}
 
 	let cueing = $state(false);
-	// Reflect the live playout state so the console link survives a reload and
-	// shows for a programme cued from elsewhere — not just right after this click.
 	$effect(() => playout.subscribe());
 	const isCued = $derived(!isNew && playout.status?.programme?.id === programmeId);
 
@@ -263,7 +247,16 @@
 			'Regenerate the playlist? Trailer rules and random selections will be re-picked.',
 			{ confirmLabel: 'Regenerate', title: 'Regenerate playlist', danger: false }
 		);
-		if (ok) await regeneratePlaylist();
+		if (!ok) return;
+		const path = { programme_id: programmeId };
+		const regen = () =>
+			mutate(
+				api.POST('/api/v2/programmes/{programme_id}/regenerate-playlist', { params: { path } })
+			);
+		if (await attempt(regen, 'Failed to regenerate playlist')) {
+			showToast('Playlist regenerated', 'success');
+			reloadAll();
+		}
 	}
 
 	async function confirmDelete(): Promise<void> {
@@ -272,63 +265,26 @@
 			confirmLabel: 'Delete',
 			title: 'Delete programme'
 		});
-		if (ok) await deleteProgramme();
+		if (!ok) return;
+		const path = { programme_id: programmeId };
+		const del = () => mutate(api.DELETE('/api/v2/programmes/{programme_id}', { params: { path } }));
+		if (await attempt(del, 'Failed to delete programme')) {
+			invalidate('programmes');
+			void goto(`${base}/programmes`);
+		}
 	}
 
-	// Cue only — no nav. The 'Open console' link is the separate second beat,
-	// revealed once this programme is the loaded one (see isCued).
 	async function cue() {
 		if (cueing) return;
 		cueing = true;
-		try {
-			const data = await unwrap(
-				api.POST('/api/v2/playout/load', {
-					body: { programme_id: programmeId, generate_playlist: true }
-				})
-			);
+		await attempt(async () => {
+			const body = { programme_id: programmeId, generate_playlist: true };
+			const data = await unwrap(api.POST('/api/v2/playout/load', { body }));
 			const warnings = data?.warnings ?? [];
-			if (warnings.length) {
-				const n = warnings.length;
-				showToast(
-					`Cued. ${n} item${n === 1 ? ' is' : 's are'} unreachable and will be skipped: ` +
-						warnings.slice(0, 3).join('; ') +
-						(n > 3 ? '…' : ''),
-					'warning'
-				);
-			}
+			if (warnings.length) showToast(`Cued. ${skippedText(warnings)}`, 'warning');
 			await playout.refresh();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to cue programme', 'error');
-		} finally {
-			cueing = false;
-		}
-	}
-
-	async function regeneratePlaylist() {
-		try {
-			// Message-only response (no data envelope) — check the error branch.
-			const res = await api.POST('/api/v2/programmes/{programme_id}/regenerate-playlist', {
-				params: { path: { programme_id: programmeId } }
-			});
-			if (res.error) throw toApiError(res.error, res.response);
-			showToast('Playlist regenerated', 'success');
-			reloadAll();
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to regenerate playlist', 'error');
-		}
-	}
-
-	async function deleteProgramme() {
-		try {
-			const res = await api.DELETE('/api/v2/programmes/{programme_id}', {
-				params: { path: { programme_id: programmeId } }
-			});
-			if (res.error) throw toApiError(res.error, res.response);
-			invalidate('programmes');
-			void goto(`${base}/programmes`);
-		} catch (e) {
-			showToast(e instanceof Error ? e.message : 'Failed to delete programme', 'error');
-		}
+		}, 'Failed to cue programme');
+		cueing = false;
 	}
 </script>
 
@@ -544,7 +500,6 @@
 			{/if}
 
 			<section class="border border-border bg-surface-1">
-				<!-- The header's hairline is an inset line, like the tab strip's, so the two coincide. -->
 				<header
 					class="flex flex-wrap items-center justify-between gap-x-4 px-3
 						shadow-[inset_0_-1px_0_var(--color-border)]"
@@ -579,7 +534,6 @@
 					hidden={tab !== 'rundown'}
 				>
 					{#if editing}
-						<!-- Keyed on the id so switching programmes never edits the previous one's blocks. -->
 						{#key programmeId}
 							<ProgrammeEditor
 								bind:this={editorRef}
@@ -599,7 +553,6 @@
 						{/key}
 					{:else}
 						<Rundown
-							{programmeId}
 							{items}
 							byBlock={grouped.byBlock}
 							unattached={grouped.unattached}

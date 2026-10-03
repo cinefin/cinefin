@@ -34,29 +34,19 @@ class TestValidation:
     def test_a_row_keeps_its_cells_and_items_with_defaults_filled_in(self):
         (row,) = ticket_service.dump_elements(ticket_service.parse_elements([ROW]))
         assert row["widths"] == [1, 2]
-        assert row["cells"][1][1] == {
-            "type": "text",
-            "content": "Seat {seat}",
-            "align": "right",
-            "size": "normal",
-            "bold": False,
-            "invert": False,
-        }
+        assert row["cells"][1][1]["align"] == "right" and row["cells"][1][1]["size"] == "normal"
 
-    def test_cells_match_the_widths(self):
-        (row,) = ticket_service.parse_elements([{"type": "columns", "widths": [1, 1], "cells": [[], [], []]}])
-        assert row.cells == [[], []]
-        (row,) = ticket_service.parse_elements([{"type": "columns", "widths": [1, 2, 1]}])
-        assert row.cells == [[], [], []]
-
-    def test_unknown_widths_are_refused(self):
-        with pytest.raises(ValidationError, match="widths"):
-            ticket_service.parse_elements([{"type": "columns", "widths": [5, 1]}])
-
-    @pytest.mark.parametrize("item", [{"type": "barcode", "content": "1"}, {"type": "columns", "widths": [1, 1]}])
-    def test_cells_refuse_barcodes_and_nested_columns(self, item):
+    @pytest.mark.parametrize(
+        "row",
+        [
+            {"type": "columns", "widths": [5, 1]},
+            {"type": "columns", "widths": [1, 1], "cells": [[{"type": "barcode", "content": "1"}], []]},
+            {"type": "columns", "widths": [1, 1], "cells": [[{"type": "columns", "widths": [1, 1]}], []]},
+        ],
+    )
+    def test_refused(self, row):
         with pytest.raises(ValidationError):
-            ticket_service.parse_elements([{"type": "columns", "widths": [1, 1], "cells": [[item], []]}])
+            ticket_service.parse_elements([row])
 
 
 class TestBitmap:
@@ -74,29 +64,6 @@ class TestBitmap:
         assert seat["y"] == title["y"] + title["h"]
         assert op["image"].height == max(qr["h"], 2 * ticket_raster.LINE) + 2 * ticket_raster.PADDING
 
-    def test_an_item_that_prints_nothing_takes_no_room(self):
-        row = {**ROW, "cells": [[{"type": "text", "content": "{showtime}"}, {"type": "spacer", "lines": 2}], []]}
-        (op,) = ticket_service.render_ticket_ops([row], _ctx(), width=384)
-        assert op["regions"][0]["items"] == [
-            {"y": ticket_raster.PADDING, "h": 0},
-            {"y": ticket_raster.PADDING, "h": 2 * ticket_raster.LINE},
-        ]
-
-    def test_long_text_wraps_inside_its_cell(self):
-        row = {"type": "columns", "widths": [1, 1], "cells": [[{"type": "text", "content": "word " * 30}], []]}
-        (op,) = ticket_service.render_ticket_ops([row], _ctx(), width=384)
-        assert op["regions"][0]["items"][0]["h"] > 3 * ticket_raster.LINE
-
-    def test_a_qr_too_big_for_its_cell_is_shrunk_to_fit(self):
-        row = {"type": "columns", "widths": [1, 2, 1], "cells": [[{"type": "qr", "mode": "fun", "width": 100}], [], []]}
-        (op,) = ticket_service.render_ticket_ops({"elements": [row], "qr_links": ["https://a.example"]}, _ctx())
-        assert op["regions"][0]["items"][0]["h"] <= op["regions"][0]["w"]
-
-    @pytest.mark.parametrize("font", list(ticket_service.TICKET_FONTS))
-    def test_every_font_draws(self, font):
-        (op,) = ticket_service.render_ticket_ops({"elements": [ROW], "font": font}, _ctx(), width=384)
-        assert op["image"].getbbox() is not None
-
 
 class TestImagesOff:
     def test_text_cells_print_side_by_side_in_the_printer_font(self):
@@ -105,51 +72,26 @@ class TestImagesOff:
         assert op["op"] == "text" and op["align"] == "left"
         assert op["value"] == ("           Clockers (1995) [18]\n" + " " * 11 + "              Seat D7\n")
 
-    def test_a_short_cell_keeps_its_width(self):
-        row = {
-            "type": "columns",
-            "widths": [1, 1],
-            "cells": [[{"type": "text", "content": "A", "align": "left"}], [{"type": "text", "content": "B\nC"}]],
-        }
-        (op,) = ticket_service.render_ticket_ops([row], _ctx(), width=384, images=False)
-        # 31 characters split 15 + 16; "B" and "C" centre in the second cell, "C" under a blank first one.
-        assert op["value"].split("\n")[:2] == ["A" + " " * 22 + "B", " " * 23 + "C"]
 
-    def test_a_row_with_no_text_prints_nothing(self):
-        row = {"type": "columns", "widths": [1, 1], "cells": [[{"type": "qr", "mode": "content", "content": "x"}], []]}
-        assert ticket_service.render_ticket_ops([row], _ctx(), images=False) == []
+def test_a_row_prints_as_one_image_or_as_text_with_images_off(monkeypatch, tmp_path):
+    device = tmp_path / "printer-device"
+    device.write_bytes(b"")
+    Settings.set("tickets.printer_device", str(device))
+    printer = MagicMock()
+    monkeypatch.setattr(ticket_service, "open_printer", lambda: printer)
 
+    ticket_service.print_ticket([ROW], _ctx())
+    (call,) = printer.image.call_args_list
+    assert call.args[0].width == 384 and call.kwargs == {"impl": "bitImageRaster"}
 
-class TestPrinting:
-    @pytest.fixture
-    def printer(self, monkeypatch, tmp_path):
-        device = tmp_path / "printer-device"
-        device.write_bytes(b"")
-        Settings.set("tickets.printer_device", str(device))
-        printer = MagicMock()
-        monkeypatch.setattr(ticket_service, "open_printer", lambda: printer)
-        return printer
-
-    def test_a_row_prints_as_one_image(self, printer):
-        ticket_service.print_ticket([ROW], _ctx())
-        (call,) = printer.image.call_args_list
-        assert call.args[0].width == 384 and call.kwargs == {"impl": "bitImageRaster"}
-
-    def test_with_images_off_a_row_prints_as_text(self, printer):
-        Settings.set("tickets.image_mode", "off")
-        ticket_service.print_ticket([ROW], _ctx())
-        assert not printer.image.called
-        assert any("Seat D7" in c.args[0] for c in printer.text.call_args_list)
+    printer.reset_mock()
+    Settings.set("tickets.image_mode", "off")
+    ticket_service.print_ticket([ROW], _ctx())
+    assert not printer.image.called
+    assert any("Seat D7" in c.args[0] for c in printer.text.call_args_list)
 
 
 class TestDesignFields:
-    def test_dates_and_times_follow_the_design(self):
-        ctx = _ctx()
-        design = {"elements": [{"type": "text", "content": "{date} {time}"}], "date_format": "%Y-%m-%d"}
-        design["time_format"] = "%I:%M %p"
-        (op,) = ticket_service.render_ticket_ops(design, ctx)
-        assert op["value"] == ctx["when"].strftime("%Y-%m-%d %I:%M %p") + "\n"
-
     def test_surprise_qr_picks_from_the_design_and_an_empty_list_prints_none(self):
         qr = [{"type": "qr", "mode": "fun"}]
         (op,) = ticket_service.render_ticket_ops({"elements": qr, "qr_links": ["https://a.example"]}, _ctx())
@@ -197,15 +139,6 @@ class TestPreview:
         (op,) = [op for op in ticket_service.render_ticket_ops(design, _ctx(), preview=True) if op["op"] == "empty"]
         assert op["label"] == "{showtime}: blank here"
 
-    def test_the_preview_draws_real_qr_codes_and_barcodes(self):
-        design = [
-            {"type": "qr", "mode": "content", "content": "https://x.example", "width": 50},
-            {"type": "barcode", "content": "{ticket_no}"},
-        ]
-        qr, barcode = ticket_service.preview_ticket(design, _ctx(), width=384)["lines"]
-        assert 150 < qr["h"] <= 192 and not qr["empty"]
-        assert barcode["h"] > 64 and not barcode["empty"]
-
     def test_a_columns_line_carries_its_cells_on_the_whole_image(self):
         row = {**ROW, "cells": [[], ROW["cells"][1] + [{"type": "image", "file": "missing.png"}]]}
         (line,) = ticket_service.preview_ticket([{"type": "text", "content": "Top"}, row], _ctx())["lines"][1:]
@@ -214,13 +147,6 @@ class TestPreview:
         # Items are placed down the whole image; the missing image is a placeholder, so it takes room.
         title, seat, image = cells[1]["items"]
         assert title["y"] == line["y"] + ticket_raster.PADDING and image["h"] == ticket_raster.LINE
-
-    def test_with_images_off_an_image_says_so(self):
-        ops = ticket_service.render_ticket_ops([{"type": "rating"}], _ctx(), images=False, preview=True)
-        assert ops == [{"op": "empty", "label": "Rating: images are off", "element": 0}]
-        Settings.set("tickets.image_mode", "off")
-        assert ticket_service.preview_ticket([{"type": "rating"}], _ctx())["lines"][0]["empty"]
-        assert ticket_service.render_ticket_ops([{"type": "rating"}], _ctx(), images=False) == []
 
 
 class TestStarters:

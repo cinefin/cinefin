@@ -1,4 +1,1 @@
-"""
-API Views module - now uses Django Ninja
-"""
-# No exports needed - all views are now in Django Ninja
+"""Plain (non-Ninja) views: the events WebSocket."""

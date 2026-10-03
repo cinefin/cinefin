@@ -1,8 +1,6 @@
 """Job-row retention: a terminal row is deleted only if it is BOTH older than
 ``days`` AND outside the most-recent ``keep`` of its kind; active rows untouched."""
 
-from __future__ import annotations
-
 import logging
 import time
 from datetime import timedelta
@@ -33,10 +31,7 @@ def prune_jobs(days: int = DEFAULT_KEEP_DAYS, keep: int = DEFAULT_KEEP_COUNT, dr
         # The `keep` most recent terminal rows of this kind are always safe.
         keep_ids = list(terminal.order_by("-created_at").values_list("pk", flat=True)[:keep])
         prunable = terminal.filter(created_at__lt=cutoff).exclude(pk__in=keep_ids)
-        if dry_run:
-            deleted[kind] = prunable.count()
-        else:
-            deleted[kind] = prunable.delete()[0]
+        deleted[kind] = prunable.count() if dry_run else prunable.delete()[0]
     return deleted
 
 
