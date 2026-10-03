@@ -25,6 +25,7 @@
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import PlayerPairing from '$lib/components/PlayerPairing.svelte';
 	import { onMount } from 'svelte';
 
 	const STEP_META: Record<number, { title: string; subtitle: string }> = {
@@ -36,7 +37,7 @@
 		2: {
 			title: 'Connect the player',
 			subtitle:
-				'Cinefin plays your programmes through a playout agent on the machine at your screen. Add it now or skip and do it later.'
+				'Cinefin plays your programmes through a playout agent on the machine at your screen. Pair it now or skip and do it later.'
 		},
 		3: {
 			title: 'Your movies',
@@ -70,9 +71,7 @@
 
 	let completing = $state(false); // step 1 finalise (POST /installer/complete)
 
-	let hostName = $state('');
-	let hostUrl = $state('');
-	let hostToken = $state('');
+	let pairedWith = $state('');
 	let serverUrl = $state('');
 	let step2Loaded = false;
 	let step2Error = $state('');
@@ -243,9 +242,14 @@
 	async function loadStep2() {
 		step2Loaded = true;
 		// Prefill the streaming base URL from the saved value, else this origin.
+		// An unset one is saved straight away: pairing shows the ident on the
+		// player at once, and the ident streams from this URL.
 		try {
 			const data = await unwrap(api.GET('/api/v2/settings/'));
 			serverUrl = data.settings.playout_server_url || window.location.origin;
+			if (!data.settings.playout_server_url) {
+				await mutate(api.POST('/api/v2/settings/', { body: { playout_server_url: serverUrl } }));
+			}
 		} catch {
 			serverUrl = serverUrl || window.location.origin;
 		}
@@ -258,17 +262,6 @@
 			await mutate(
 				api.POST('/api/v2/settings/', { body: { playout_server_url: serverUrl.trim() } })
 			);
-			// The first host is auto-activated. Skipped cleanly when left blank.
-			if (hostName.trim() && hostUrl.trim()) {
-				const result = await api.POST('/api/v2/playout/hosts', {
-					body: {
-						name: hostName.trim(),
-						base_url: hostUrl.trim(),
-						token: hostToken.trim() || undefined
-					}
-				});
-				if (result.error !== undefined) throw toApiError(result.error, result.response);
-			}
 			goStep(3);
 		} catch (e) {
 			step2Error = errorMessage(e, 'Could not save. Please try again.');
@@ -687,43 +680,19 @@
 						<div class="mb-4">
 							<h2 class="text-sm font-semibold text-text">Playout host</h2>
 							<p class="mt-0.5 text-xs text-muted">
-								Cinefin plays through the playout agent on the machine at your screen. Run the
-								agent, then copy its address and token from the tray icon and paste them here.
+								Run cinefin-playout on the machine at your screen. Its screen shows a pairing code:
+								pick the player here and enter it.
 							</p>
 						</div>
 						<div class="space-y-4">
-							<div class="grid gap-4 sm:grid-cols-2">
-								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="set-host-name"
-										>Name</label
-									>
-									<Input id="set-host-name" bind:value={hostName} placeholder="Booth PC" />
-								</div>
-								<div>
-									<label class="mb-1 block text-xs font-medium text-muted" for="set-host-url"
-										>Agent address</label
-									>
-									<Input
-										id="set-host-url"
-										bind:value={hostUrl}
-										placeholder="http://127.0.0.1:8089"
-									/>
-								</div>
-							</div>
-							<div>
-								<label class="mb-1 block text-xs font-medium text-muted" for="set-host-token"
-									>Agent token</label
-								>
-								<Input
-									id="set-host-token"
-									type="password"
-									bind:value={hostToken}
-									placeholder="paste from the agent's tray icon"
-								/>
-								<p class="mt-1 text-xs text-faint">
-									Leave the name and address blank to skip. Add the host later.
+							{#if pairedWith}
+								<p class="flex items-center gap-2 text-sm">
+									<CircleCheck class="h-4 w-4 text-success" /> Paired with
+									<strong>{pairedWith}</strong>.
 								</p>
-							</div>
+							{:else}
+								<PlayerPairing onpaired={(host) => (pairedWith = host.name)} />
+							{/if}
 							<div>
 								<label class="mb-1 block text-xs font-medium text-muted" for="set-server-url"
 									>Streaming base URL</label

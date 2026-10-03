@@ -2626,6 +2626,86 @@
         "title": "DiscoverResponseSchema",
         "type": "object"
       },
+      "DiscoveredPlayerListResponse": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DiscoveredPlayerSchema"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable message about the operation",
+            "title": "Message"
+          },
+          "success": {
+            "default": true,
+            "description": "Always True for successful responses",
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "DiscoveredPlayerListResponse",
+        "type": "object"
+      },
+      "DiscoveredPlayerSchema": {
+        "properties": {
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "host_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The playout host this player already is, if any",
+            "title": "Host Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "paired": {
+            "description": "Whether the player is paired (with this or another Cinefin)",
+            "title": "Paired",
+            "type": "boolean"
+          },
+          "version": {
+            "default": "",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "base_url",
+          "paired"
+        ],
+        "title": "DiscoveredPlayerSchema",
+        "type": "object"
+      },
       "DiscoveredSchema": {
         "properties": {
           "label": {
@@ -3433,7 +3513,7 @@
           },
           "drm_connector": {
             "default": "",
-            "description": "drm mode: e.g. \"HDMI-A-1\" (required in drm mode)",
+            "description": "drm mode: e.g. \"HDMI-A-1\"; \"\" = the first connected screen",
             "title": "Drm Connector",
             "type": "string"
           },
@@ -6584,6 +6664,38 @@
         "title": "PaginationSchema",
         "type": "object"
       },
+      "PairHostInput": {
+        "properties": {
+          "base_url": {
+            "description": "The player's address, e.g. http://10.0.0.5:8089 (scheme and port optional)",
+            "title": "Base Url",
+            "type": "string"
+          },
+          "code": {
+            "description": "The 6-digit code shown on the player's screen",
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name for the host; defaults to the player's own name",
+            "title": "Name"
+          }
+        },
+        "required": [
+          "base_url",
+          "code"
+        ],
+        "title": "PairHostInput",
+        "type": "object"
+      },
       "PlaybackControlSchema": {
         "properties": {
           "action": {
@@ -6997,7 +7109,7 @@
                 "type": "null"
               }
             ],
-            "description": "'agent' or 'local_socket' (defaults to 'agent' on create)",
+            "description": "'local_socket' on create (agent hosts are added by pairing); either on update",
             "title": "Kind"
           },
           "name": {
@@ -7021,18 +7133,6 @@
               }
             ],
             "title": "Socket Path"
-          },
-          "token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Bearer token; omit to leave unchanged, '' to clear",
-            "title": "Token"
           }
         },
         "title": "PlayoutHostInput",
@@ -7104,6 +7204,12 @@
       },
       "PlayoutHostSchema": {
         "properties": {
+          "agent_id": {
+            "default": "",
+            "description": "The agent's stable id, from pairing",
+            "title": "Agent Id",
+            "type": "string"
+          },
           "agent_version": {
             "default": "",
             "title": "Agent Version",
@@ -7123,7 +7229,7 @@
             "type": "boolean"
           },
           "has_token": {
-            "description": "Whether a bearer token is set (the token itself is never returned)",
+            "description": "Whether the host is paired (the token itself is never returned)",
             "title": "Has Token",
             "type": "boolean"
           },
@@ -18960,6 +19066,34 @@
         ]
       }
     },
+    "/api/v2/playout/discover": {
+      "get": {
+        "description": "Players announcing themselves on the local network (takes a couple of seconds).",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_discover_players",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoveredPlayerListResponse"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Discover Players",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
     "/api/v2/playout/host/config": {
       "get": {
         "operationId": "cinefin_api_ninja_views_playout_ninja_get_host_config",
@@ -19112,6 +19246,74 @@
           }
         ],
         "summary": "Create Playout Host",
+        "tags": [
+          "Playout"
+        ]
+      }
+    },
+    "/api/v2/playout/hosts/pair": {
+      "post": {
+        "description": "Pair a player with the code on its screen, adding it as a host (or re-pairing a known one).",
+        "operationId": "cinefin_api_ninja_views_playout_ninja_pair_playout_host",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairHostInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayoutHostResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseSchema"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "security": [
+          {
+            "SessionAuthWhenEnabled": []
+          }
+        ],
+        "summary": "Pair Playout Host",
         "tags": [
           "Playout"
         ]
@@ -19334,7 +19536,7 @@
         ]
       },
       "put": {
-        "description": "Replace one host's launch config; the agent validates it and writes its config.toml (applies on next restart).",
+        "description": "Replace one host's launch config; the agent validates and stores it (applies on next restart).",
         "operationId": "cinefin_api_ninja_views_playout_ninja_put_host_launch_config",
         "parameters": [
           {

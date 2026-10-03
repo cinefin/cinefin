@@ -1,5 +1,5 @@
-// The app's sections, shared by the sidebar (the links) and the topbar (the
-// current group's colour). Grouped by what you are doing, not by where the code lives.
+// The app's sections: the sidebar's links, grouped by what you are doing, not by
+// where the code lives.
 import { base } from '$app/paths';
 import {
 	CalendarClock,
@@ -15,7 +15,6 @@ import {
 	SquareTerminal,
 	type LucideIcon
 } from '@lucide/svelte';
-import type { ItemTypeFamily } from '$lib/item-types';
 
 export interface NavItem {
 	href: string;
@@ -26,15 +25,12 @@ export interface NavItem {
 export interface NavGroup {
 	/** Sentence-case group label; shown only in the expanded sidebar. */
 	label: string;
-	/** The group's colour: a square before each page's title, a wash in the topbar. */
-	tone: ItemTypeFamily;
 	items: NavItem[];
 }
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
 		label: 'Operate',
-		tone: 'media',
 		items: [
 			{ href: '/', label: 'Dashboard', icon: LayoutDashboard },
 			{ href: '/remote', label: 'Remote', icon: MonitorPlay }
@@ -42,7 +38,6 @@ export const NAV_GROUPS: NavGroup[] = [
 	},
 	{
 		label: 'Content',
-		tone: 'film',
 		items: [
 			{ href: '/library', label: 'Library', icon: Film },
 			{ href: '/trailers', label: 'Trailers', icon: Clapperboard },
@@ -52,7 +47,6 @@ export const NAV_GROUPS: NavGroup[] = [
 	},
 	{
 		label: 'Programme',
-		tone: 'trailer',
 		items: [
 			{ href: '/programmes', label: 'Programmes', icon: ListVideo },
 			{ href: '/templates', label: 'Templates', icon: Layers },
@@ -61,7 +55,6 @@ export const NAV_GROUPS: NavGroup[] = [
 	},
 	{
 		label: 'System',
-		tone: 'system',
 		items: [
 			{ href: '/commands', label: 'Commands', icon: SquareTerminal },
 			{ href: '/settings', label: 'Settings', icon: Settings }
@@ -87,8 +80,4 @@ export function isActive(href: string, pathname: string): boolean {
 	return !allHrefs.some(
 		(other) => other !== href && other.startsWith(href) && matches(other, path)
 	);
-}
-
-export function navGroupFor(pathname: string): NavGroup | null {
-	return NAV_GROUPS.find((g) => g.items.some((i) => isActive(i.href, pathname))) ?? null;
 }

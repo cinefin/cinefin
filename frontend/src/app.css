@@ -376,3 +376,23 @@ html.theme-light .film-grain::before,
 html.theme-light .film-grain::after {
 	display: none;
 }
+
+/* The header band: a deep projector-light gradient of the accent across the
+ * page's topbar (`.band`) — the sidebar stays on the plain shell. It follows
+ * the accent setting. */
+.band {
+	background-color: var(--color-shell);
+	background-image: linear-gradient(
+		90deg,
+		color-mix(in srgb, var(--color-accent) 32%, var(--color-shell)),
+		color-mix(in srgb, var(--color-accent) 18%, var(--color-shell)) 45%,
+		color-mix(in srgb, var(--color-accent) 8%, var(--color-shell))
+	);
+}
+html.theme-light .band {
+	background-image: linear-gradient(
+		90deg,
+		color-mix(in srgb, var(--color-accent) 18%, var(--color-shell)),
+		color-mix(in srgb, var(--color-accent) 4%, var(--color-shell))
+	);
+}

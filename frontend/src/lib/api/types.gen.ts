@@ -1319,6 +1319,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/playout/discover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover Players
+         * @description Players announcing themselves on the local network (takes a couple of seconds).
+         */
+        get: operations["cinefin_api_ninja_views_playout_ninja_discover_players"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/playout/host/config": {
         parameters: {
             query?: never;
@@ -1374,6 +1394,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/playout/hosts/pair": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pair Playout Host
+         * @description Pair a player with the code on its screen, adding it as a host (or re-pairing a known one).
+         */
+        post: operations["cinefin_api_ninja_views_playout_ninja_pair_playout_host"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/playout/hosts/{host_id}": {
         parameters: {
             query?: never;
@@ -1423,7 +1463,7 @@ export interface paths {
         get: operations["cinefin_api_ninja_views_playout_ninja_get_host_launch_config"];
         /**
          * Put Host Launch Config
-         * @description Replace one host's launch config; the agent validates it and writes its config.toml (applies on next restart).
+         * @description Replace one host's launch config; the agent validates and stores it (applies on next restart).
          */
         put: operations["cinefin_api_ninja_views_playout_ninja_put_host_launch_config"];
         post?: never;
@@ -4819,6 +4859,46 @@ export interface components {
              */
             success: boolean;
         };
+        /** DiscoveredPlayerListResponse */
+        DiscoveredPlayerListResponse: {
+            /** Data */
+            data: components["schemas"]["DiscoveredPlayerSchema"][];
+            /**
+             * Message
+             * @description Human-readable message about the operation
+             */
+            message?: string | null;
+            /**
+             * Success
+             * @description Always True for successful responses
+             * @default true
+             */
+            success: boolean;
+        };
+        /** DiscoveredPlayerSchema */
+        DiscoveredPlayerSchema: {
+            /** Base Url */
+            base_url: string;
+            /**
+             * Host Id
+             * @description The playout host this player already is, if any
+             */
+            host_id?: number | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Paired
+             * @description Whether the player is paired (with this or another Cinefin)
+             */
+            paired: boolean;
+            /**
+             * Version
+             * @default
+             */
+            version: string;
+        };
         /** DiscoveredSchema */
         DiscoveredSchema: {
             /** Label */
@@ -5256,7 +5336,7 @@ export interface components {
             display: string;
             /**
              * Drm Connector
-             * @description drm mode: e.g. "HDMI-A-1" (required in drm mode)
+             * @description drm mode: e.g. "HDMI-A-1"; "" = the first connected screen
              * @default
              */
             drm_connector: string;
@@ -6984,6 +7064,24 @@ export interface components {
              */
             total_pages: number;
         };
+        /** PairHostInput */
+        PairHostInput: {
+            /**
+             * Base Url
+             * @description The player's address, e.g. http://10.0.0.5:8089 (scheme and port optional)
+             */
+            base_url: string;
+            /**
+             * Code
+             * @description The 6-digit code shown on the player's screen
+             */
+            code: string;
+            /**
+             * Name
+             * @description Name for the host; defaults to the player's own name
+             */
+            name?: string | null;
+        };
         /** PlaybackControlSchema */
         PlaybackControlSchema: {
             /**
@@ -7236,18 +7334,13 @@ export interface components {
             is_active?: boolean | null;
             /**
              * Kind
-             * @description 'agent' or 'local_socket' (defaults to 'agent' on create)
+             * @description 'local_socket' on create (agent hosts are added by pairing); either on update
              */
             kind?: string | null;
             /** Name */
             name?: string | null;
             /** Socket Path */
             socket_path?: string | null;
-            /**
-             * Token
-             * @description Bearer token; omit to leave unchanged, '' to clear
-             */
-            token?: string | null;
         };
         /** PlayoutHostListResponse */
         PlayoutHostListResponse: {
@@ -7283,6 +7376,12 @@ export interface components {
         /** PlayoutHostSchema */
         PlayoutHostSchema: {
             /**
+             * Agent Id
+             * @description The agent's stable id, from pairing
+             * @default
+             */
+            agent_id: string;
+            /**
              * Agent Version
              * @default
              */
@@ -7298,7 +7397,7 @@ export interface components {
             enabled: boolean;
             /**
              * Has Token
-             * @description Whether a bearer token is set (the token itself is never returned)
+             * @description Whether the host is paired (the token itself is never returned)
              */
             has_token: boolean;
             /** Id */
@@ -14108,6 +14207,26 @@ export interface operations {
             };
         };
     };
+    cinefin_api_ninja_views_playout_ninja_discover_players: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiscoveredPlayerListResponse"];
+                };
+            };
+        };
+    };
     cinefin_api_ninja_views_playout_ninja_get_host_config: {
         parameters: {
             query?: never;
@@ -14214,6 +14333,57 @@ export interface operations {
             };
             /** @description Bad Request */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+        };
+    };
+    cinefin_api_ninja_views_playout_ninja_pair_playout_host: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairHostInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlayoutHostResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponseSchema"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

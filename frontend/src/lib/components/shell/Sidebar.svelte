@@ -5,7 +5,6 @@
 	import Logo from '$lib/components/shell/Logo.svelte';
 	import { display } from '$lib/display.svelte';
 	import { session } from '$lib/stores/session.svelte';
-	import { familyClasses } from '$lib/item-types';
 	import { NAV_GROUPS, isActive as navActive } from '$lib/components/shell/nav';
 
 	interface Props {
@@ -47,9 +46,9 @@
 		transition-transform md:sticky md:top-0 md:h-dvh md:translate-x-0 {display.rail ? 'w-14' : 'w-56'}
 		{open ? 'translate-x-0' : '-translate-x-full'}"
 >
-	<div
-		class="flex h-14 items-center border-b border-border {display.rail ? 'justify-center' : 'px-5'}"
-	>
+	<!-- The logo sits on the sidebar's own shell with no rule under it, so the
+	     sidebar reads as one column; the accent band belongs to the page's topbar. -->
+	<div class="flex h-14 items-center {display.rail ? 'justify-center' : 'px-5'}">
 		{#if display.rail}
 			<Logo markClass="h-7" />
 		{:else}
@@ -72,19 +71,17 @@
 			<ul class="space-y-0.5" aria-labelledby={display.rail ? undefined : `nav-group-${gi}`}>
 				{#each group.items as item (item.href)}
 					{@const active = isActive(item.href)}
-					{@const tone = active ? familyClasses(group.tone) : null}
 					<li>
 						<a
 							href="{base}{item.href}"
 							aria-current={active ? 'page' : undefined}
 							title={display.rail ? item.label : undefined}
 							onclick={() => (open = false)}
-							class="relative flex items-center gap-3 rounded-md py-1.5 text-sm transition-colors
+							class="flex items-center gap-3 rounded-md py-1.5 text-sm transition-colors
 								{display.rail ? 'justify-center px-0' : 'px-3'}
 								{active ? 'bg-surface-2 font-medium text-text' : 'text-muted hover:bg-surface-1 hover:text-text'}"
 						>
-							{#if tone}<span class="absolute inset-y-1 left-0 w-0.5 {tone.bar}"></span>{/if}
-							<item.icon size={18} class={tone ? tone.icon : active ? 'text-accent' : ''} />
+							<item.icon size={18} class={active ? 'text-accent' : ''} />
 							{#if !display.rail}
 								<span class="flex-1">{item.label}</span>
 							{/if}

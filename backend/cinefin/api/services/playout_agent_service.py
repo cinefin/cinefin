@@ -1,14 +1,17 @@
 """HTTP client for the cinefin-playout agent (mpv process + host launch config).
 
 Playback control does NOT go through here — it rides the WS control channel via
-``mpv_service`` / ``MPVController``. Graphics/audio are host-owned (persisted to the
-agent's config.toml, the source of truth so the box boots with Cinefin offline)."""
+``mpv_service`` / ``MPVController``. Graphics/audio are set from here and kept by the
+agent (in its state file), so the box boots with Cinefin offline.
+
+The bearer token comes from pairing: the player shows a short code on its screen,
+and ``pair()`` exchanges it for the token (``POST /pair``)."""
 
 import logging
 
 import requests
 
-from cinefin.api.exceptions import UnprocessableEntityError
+from cinefin.api.exceptions import ConflictError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import PlayoutHost, Settings
 
 logger = logging.getLogger(__name__)
@@ -56,7 +59,8 @@ class PlayoutAgentService:
             ) from e
         if response.status_code == 401:
             raise UnprocessableEntityError(
-                "Playout agent rejected the token — check the host's token", error_code="AGENT_AUTH_FAILED"
+                "The player no longer accepts this Cinefin — remove it and pair it again",
+                error_code="AGENT_AUTH_FAILED",
             )
         if response.status_code == 400:
             # Surface the agent's validation error verbatim — the most useful thing to read.
@@ -73,6 +77,66 @@ class PlayoutAgentService:
             return response.json()
         except ValueError:
             return {}
+
+    @staticmethod
+    def pair(base_url: str, code: str) -> dict:
+        """Exchange the code shown on the player's screen for its bearer token.
+
+        Returns the agent's answer: ``token``, ``id``, ``name``, ``agent_version``,
+        ``os``, ``arch``. Raises a ValidationError the user can act on for a wrong
+        or rate-limited code, a ConflictError when the player is paired elsewhere.
+        """
+        base = base_url.strip().rstrip("/")
+        try:
+            response = requests.post(f"{base}/pair", json={"code": code}, timeout=STATUS_TIMEOUT)
+        except requests.RequestException as e:
+            raise UnprocessableEntityError(f"No player answered at {base}: {e}", error_code="AGENT_UNREACHABLE") from e
+        if response.status_code == 403:
+            raise ValidationError(
+                "That code is not right. Check the code on the player's screen; it changes after each try.",
+                error_code="PAIR_WRONG_CODE",
+                details={"field": "code"},
+            )
+        if response.status_code == 429:
+            raise ValidationError(
+                "Too many tries. Wait a minute, then enter the code on the player's screen.",
+                error_code="PAIR_RATE_LIMITED",
+                details={"field": "code"},
+            )
+        if response.status_code == 409:
+            raise ConflictError(
+                "This player is already paired with a Cinefin. On the player, choose Forget Cinefin in the "
+                "tray or run `cinefin-playout reset`, then try again.",
+                error_code="PAIR_ALREADY_PAIRED",
+            )
+        if response.status_code == 404:
+            raise UnprocessableEntityError(
+                "That player's agent is too old to pair. Update cinefin-playout.", error_code="AGENT_OUTDATED"
+            )
+        if not response.ok:
+            raise UnprocessableEntityError(
+                f"Pairing failed ({response.status_code}): {response.text[:200]}", error_code="AGENT_ERROR"
+            )
+        try:
+            answer = response.json()
+        except ValueError:
+            answer = {}
+        if not answer.get("token"):
+            raise UnprocessableEntityError("The player did not return a token", error_code="AGENT_ERROR")
+        return answer
+
+    @classmethod
+    def unpair(cls, host) -> bool:
+        """Tell a host's agent to forget this Cinefin (it then shows a pairing code). Best effort."""
+        if host is None or host.kind != PlayoutHost.KIND_AGENT or not host.token:
+            return False
+        try:
+            base, token = cls.host_target(host)
+            cls._request("POST", "/unpair", timeout=STATUS_TIMEOUT, base_override=base, token_override=token)
+            return True
+        except UnprocessableEntityError as e:
+            logger.info("Unpairing %s skipped: %s", host.name, e.message)
+            return False
 
     @classmethod
     def get_status(cls) -> dict:

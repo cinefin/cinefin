@@ -112,6 +112,13 @@
 
 	const isDrm = $derived(config?.graphics?.mode === 'drm');
 
+	// mpv can list one device name twice (two profiles of the same HDMI sink),
+	// and the list is keyed by name: keep the first of each.
+	const audioDevices = $derived.by(() => {
+		const seen = new Set<string>();
+		return (hardware?.audio_devices ?? []).filter((d) => !seen.has(d.name) && !!seen.add(d.name));
+	});
+
 	function toggleSpdif(codec: string, on: boolean) {
 		if (!config) return;
 		const current = config.audio.spdif_passthrough ?? [];
@@ -157,7 +164,7 @@
 {:else if loadError}
 	<div class="p-3"><ErrorState compact message={loadError} retry={() => void load()} /></div>
 {:else if config}
-	<div class="max-w-2xl space-y-5 p-3">
+	<div class="max-w-2xl space-y-5 p-4">
 		{#if hardware?.note}
 			<p class="flex items-start gap-2 text-xs text-warning">
 				<AlertTriangle size={13} class="mt-px shrink-0" />
@@ -166,13 +173,6 @@
 		{/if}
 
 		<div class="grid gap-3 sm:grid-cols-2">
-			<Field label="Picture output" forId="hc-mode-{hostId}">
-				<Select id="hc-mode-{hostId}" bind:value={config.graphics.mode} class="w-full">
-					<option value="desktop">Desktop session</option>
-					<option value="drm">Direct to screen (DRM)</option>
-				</Select>
-			</Field>
-
 			{#if isDrm}
 				<Field label="Connector" forId="hc-conn-{hostId}">
 					<Select id="hc-conn-{hostId}" bind:value={config.graphics.drm_connector} class="w-full">
@@ -210,27 +210,20 @@
 				</Field>
 			{/if}
 
-			<Field label="Sound output" forId="hc-dev-{hostId}">
+			<Field label="Sound" forId="hc-dev-{hostId}">
 				<Select id="hc-dev-{hostId}" bind:value={config.audio.device} class="w-full">
 					<option value="">Auto (mpv default)</option>
-					{#each hardware?.audio_devices ?? [] as d (d.name)}
+					{#each audioDevices as d (d.name)}
 						<option value={d.name}>{d.description || d.name}</option>
 					{/each}
-					{#if config.audio.device && !(hardware?.audio_devices ?? []).some((d) => d.name === config?.audio.device)}
+					{#if config.audio.device && !audioDevices.some((d) => d.name === config?.audio.device)}
 						<option value={config.audio.device}>{config.audio.device} (not detected)</option>
 					{/if}
 				</Select>
 			</Field>
 		</div>
 
-		<div class="flex flex-col gap-2.5">
-			<Toggle label="Fullscreen" bind:checked={config.graphics.fullscreen} />
-			<Toggle
-				label="Start the player when the host boots"
-				bind:checked={config.autostart}
-				hint="The box shows its ident on power-up, with or without Cinefin."
-			/>
-		</div>
+		<Toggle label="Start the player when the box boots" bind:checked={config.autostart} />
 
 		<div class="border-t border-border pt-3">
 			<button
@@ -240,7 +233,7 @@
 				onclick={() => (showAdvanced = !showAdvanced)}
 			>
 				<ChevronRight size={13} class="transition-transform {showAdvanced ? 'rotate-90' : ''}" />
-				Advanced picture &amp; sound
+				Advanced
 			</button>
 
 			{#if showAdvanced}
@@ -248,6 +241,12 @@
 					<div>
 						<p class="mb-2 text-xs font-medium text-muted">Picture</p>
 						<div class="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+							<Field label="Picture output" forId="hc-mode-{hostId}">
+								<Select id="hc-mode-{hostId}" bind:value={config.graphics.mode} class="w-full">
+									<option value="desktop">Desktop session</option>
+									<option value="drm">Direct to screen (DRM)</option>
+								</Select>
+							</Field>
 							{#if isDrm}
 								<Field label="Pinned mode" forId="hc-drmmode-{hostId}">
 									<Input
@@ -303,6 +302,7 @@
 							</Field>
 						</div>
 						<div class="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+							<Toggle label="Fullscreen" bind:checked={config.graphics.fullscreen} />
 							<Toggle
 								label="HDR passthrough"
 								bind:checked={config.graphics.hdr_passthrough}

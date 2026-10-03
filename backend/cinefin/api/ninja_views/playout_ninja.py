@@ -3,8 +3,10 @@
 import logging
 import re
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from django.http import HttpRequest
+from django.utils import timezone
 from ninja import Field, Router, Schema, Status
 
 from cinefin.api.exceptions import ConflictError, NotFoundError, UnprocessableEntityError, ValidationError
@@ -965,6 +967,7 @@ def agent_restart_mpv(request: HttpRequest):
 # Playout hosts — manage cinefin-playout agent host(s) and proxy their
 # host-owned graphics/audio config + hardware enumeration.
 from cinefin.api.schemas.base import MessageResponseSchema  # noqa: E402
+from cinefin.api.services import playout_discovery  # noqa: E402
 from cinefin.api.services.playout_host_service import playout_host_service  # noqa: E402
 
 
@@ -974,7 +977,8 @@ class PlayoutHostSchema(Schema):
     kind: str = Field(default="agent", description="'agent' (WebSocket) or 'local_socket' (local mpv JSON-IPC)")
     base_url: str
     socket_path: str = ""
-    has_token: bool = Field(description="Whether a bearer token is set (the token itself is never returned)")
+    has_token: bool = Field(description="Whether the host is paired (the token itself is never returned)")
+    agent_id: str = Field("", description="The agent's stable id, from pairing")
     enabled: bool
     is_active: bool
     last_seen_at: str | None = None
@@ -1002,7 +1006,7 @@ class HostGraphicsSchema(Schema):
     gpu_context: str = Field("", description='"" = auto; e.g. "displayvk", "drm"')
     hwdec: str = Field("auto", description="hardware decoding: auto / auto-safe / no / nvdec / vaapi / …")
     screen: int = Field(0, description="desktop mode: which display index to fullscreen on")
-    drm_connector: str = Field("", description='drm mode: e.g. "HDMI-A-1" (required in drm mode)')
+    drm_connector: str = Field("", description='drm mode: e.g. "HDMI-A-1"; "" = the first connected screen')
     drm_mode: str = Field("", description='drm mode: optional pinned mode, e.g. "1920x1080@60"')
     fullscreen: bool = True
     hdr_passthrough: bool = Field(True, description="send HDR to the display instead of tone-mapping to SDR")
@@ -1076,12 +1080,50 @@ class IdleMediaInput(Schema):
 
 class PlayoutHostInput(Schema):
     name: str | None = None
-    kind: str | None = Field(default=None, description="'agent' or 'local_socket' (defaults to 'agent' on create)")
+    kind: str | None = Field(
+        default=None, description="'local_socket' on create (agent hosts are added by pairing); either on update"
+    )
     base_url: str | None = None
     socket_path: str | None = None
-    token: str | None = Field(default=None, description="Bearer token; omit to leave unchanged, '' to clear")
     enabled: bool | None = None
     is_active: bool | None = None
+
+
+class PairHostInput(Schema):
+    base_url: str = Field(description="The player's address, e.g. http://10.0.0.5:8089 (scheme and port optional)")
+    code: str = Field(description="The 6-digit code shown on the player's screen")
+    name: str | None = Field(default=None, description="Name for the host; defaults to the player's own name")
+
+
+class DiscoveredPlayerSchema(Schema):
+    id: str
+    name: str
+    base_url: str
+    version: str = ""
+    paired: bool = Field(description="Whether the player is paired (with this or another Cinefin)")
+    host_id: int | None = Field(None, description="The playout host this player already is, if any")
+
+
+class DiscoveredPlayerListResponse(SuccessResponseSchema):
+    data: list[DiscoveredPlayerSchema]
+
+
+AGENT_DEFAULT_PORT = 8089
+
+
+def _agent_url(raw: str) -> str:
+    """Normalise a typed player address: add http:// and the default port when missing."""
+    url = (raw or "").strip().rstrip("/")
+    if not url:
+        raise ValidationError("Enter the player's address", details={"field": "base_url"})
+    if not re.match(r"^https?://", url):
+        url = "http://" + url
+    parsed = urlparse(url)
+    if not parsed.hostname:
+        raise ValidationError("That is not an address", details={"field": "base_url"})
+    if parsed.port is None:
+        url = f"{parsed.scheme}://{parsed.netloc}:{AGENT_DEFAULT_PORT}{parsed.path}"
+    return url.rstrip("/")
 
 
 def _host_schema(host: PlayoutHost) -> PlayoutHostSchema:
@@ -1092,6 +1134,7 @@ def _host_schema(host: PlayoutHost) -> PlayoutHostSchema:
         base_url=host.base_url,
         socket_path=host.socket_path or "",
         has_token=bool(host.token),
+        agent_id=host.agent_id or "",
         enabled=host.enabled,
         is_active=host.is_active,
         last_seen_at=host.last_seen_at.isoformat() if host.last_seen_at else None,
@@ -1108,6 +1151,59 @@ def list_playout_hosts(request: HttpRequest):
     )
 
 
+@playout_api.get("/discover", response={200: DiscoveredPlayerListResponse})
+def discover_players(request: HttpRequest):
+    """Players announcing themselves on the local network (takes a couple of seconds)."""
+    players = playout_discovery.discover()
+    return Status(
+        200,
+        DiscoveredPlayerListResponse(
+            message=f"{len(players)} player(s) found", data=[DiscoveredPlayerSchema(**vars(p)) for p in players]
+        ),
+    )
+
+
+@playout_api.post(
+    "/hosts/pair",
+    response={200: PlayoutHostResponse, 400: ErrorResponseSchema, 409: ErrorResponseSchema, 422: ErrorResponseSchema},
+)
+def pair_playout_host(request: HttpRequest, data: PairHostInput):
+    """Pair a player with the code on its screen, adding it as a host (or re-pairing a known one)."""
+    base_url = _agent_url(data.base_url)
+    code = "".join(ch for ch in (data.code or "") if ch.isdigit())
+    if len(code) != 6:
+        raise ValidationError("Enter the 6-digit code shown on the player's screen", details={"field": "code"})
+    answer = playout_agent_service.pair(base_url, code)
+
+    agent_id = str(answer.get("id") or "")
+    host = None
+    if agent_id:
+        host = PlayoutHost.objects.filter(kind=PlayoutHost.KIND_AGENT, agent_id=agent_id).first()
+    if host is None:
+        host = PlayoutHost.objects.filter(kind=PlayoutHost.KIND_AGENT, base_url=base_url).first()
+    if host is None:
+        host = PlayoutHost(kind=PlayoutHost.KIND_AGENT)
+    name = (data.name or "").strip()
+    if name or not host.name:
+        host.name = name or str(answer.get("name") or "") or "Player"
+    host.base_url = base_url
+    host.token = answer["token"]
+    host.agent_id = agent_id
+    host.enabled = True
+    host.agent_version = str(answer.get("agent_version") or "")
+    host.os = str(answer.get("os") or "")
+    host.arch = str(answer.get("arch") or "")
+    host.last_seen_at = timezone.now()
+    # The first player (or a re-paired active one) becomes the active host.
+    activate = host.is_active or PlayoutHost.get_active() is None
+    host.is_active = activate
+    host.save()
+    if activate:
+        playout_agent_service.resync_idle_media()
+        mpv_service.show_idle()
+    return Status(200, PlayoutHostResponse(message=f"Paired with {host.name}", data=_host_schema(host)))
+
+
 @playout_api.post("/hosts", response={200: PlayoutHostResponse, 400: ErrorResponseSchema})
 def create_playout_host(request: HttpRequest, data: PlayoutHostInput):
     name = (data.name or "").strip()
@@ -1118,14 +1214,14 @@ def create_playout_host(request: HttpRequest, data: PlayoutHostInput):
     socket_path = (data.socket_path or "").strip()
     if not name:
         raise ValidationError("Name is required", details={"field": "name"})
-    if kind == PlayoutHost.KIND_LOCAL_SOCKET:
-        if not socket_path:
-            raise ValidationError("A local mpv host needs a socket path", details={"field": "socket_path"})
-    else:
-        if not base_url:
-            raise ValidationError("Name and agent URL are required", details={"field": "base_url"})
-        if not re.match(r"^https?://", base_url):
-            raise ValidationError("Agent URL must start with http:// or https://", details={"field": "base_url"})
+    if kind == PlayoutHost.KIND_AGENT:
+        raise ValidationError(
+            "Playout agents are added by pairing (POST /playout/hosts/pair) with the code on the player's screen",
+            error_code="PAIR_REQUIRED",
+            details={"field": "kind"},
+        )
+    if not socket_path:
+        raise ValidationError("A local mpv host needs a socket path", details={"field": "socket_path"})
     # Activate the new host when nothing is active yet — covers a fresh box
     # (whose seeded loopback host is inactive) so playout works immediately.
     activate = bool(data.is_active) or PlayoutHost.get_active() is None
@@ -1134,7 +1230,6 @@ def create_playout_host(request: HttpRequest, data: PlayoutHostInput):
         kind=kind,
         base_url=base_url or PlayoutHost._meta.get_field("base_url").default,
         socket_path=socket_path,
-        token=data.token or "",
         enabled=data.enabled if data.enabled is not None else True,
         is_active=activate,
     )
@@ -1166,8 +1261,6 @@ def update_playout_host(request: HttpRequest, host_id: int, data: PlayoutHostInp
         host.base_url = base_url
     if data.socket_path is not None:
         host.socket_path = data.socket_path.strip()
-    if data.token is not None:
-        host.token = data.token
     if data.enabled is not None:
         host.enabled = data.enabled
     if data.is_active:
@@ -1218,6 +1311,12 @@ def delete_playout_host(request: HttpRequest, host_id: int):
         raise NotFoundError("Playout host not found") from None
     was_active = host.is_active
     name = host.name
+    if was_active:
+        # Stop what is on air and drop the control link while it still points here.
+        mpv_service.unload_for_host_switch()
+    # The player forgets this Cinefin and shows a pairing code again (best effort:
+    # a player that is off still gets removed here).
+    playout_agent_service.unpair(host)
     host.delete()
     if was_active:
         nxt = PlayoutHost.objects.first()
@@ -1228,7 +1327,7 @@ def delete_playout_host(request: HttpRequest, host_id: int):
 
 
 # Host-owned graphics/audio config: addressed per host (belongs to the machine),
-# validated + persisted by the agent to its own config.toml (the source of truth).
+# validated + persisted by the agent (its own copy is what it boots from).
 def _host_or_404(host_id: int) -> PlayoutHost:
     host = PlayoutHost.objects.filter(pk=host_id).first()
     if host is None:
@@ -1251,7 +1350,7 @@ def get_host_launch_config(request: HttpRequest, host_id: int):
     response={200: HostConfigSavedResponse, 404: ErrorResponseSchema, 422: ErrorResponseSchema},
 )
 def put_host_launch_config(request: HttpRequest, host_id: int, body: HostLaunchConfigSchema):
-    """Replace one host's launch config; the agent validates it and writes its config.toml (applies on next restart)."""
+    """Replace one host's launch config; the agent validates and stores it (applies on next restart)."""
     host = _host_or_404(host_id)
     saved = playout_agent_service.put_host_config(host, body.dict())
     return Status(200, HostConfigSavedResponse(message="Host config saved", data=saved))

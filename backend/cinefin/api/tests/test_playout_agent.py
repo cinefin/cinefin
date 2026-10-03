@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import pytest
+import requests
 
 from cinefin.api.models import PlayoutHost, Settings
 from cinefin.api.services.playout_agent_service import PlayoutAgentService
@@ -84,37 +85,88 @@ class TestIdentIdleMedia:
 
 
 class TestHostEndpoints:
-    def test_create_list_activate_delete(self, client):
+    PAIR = "/api/v2/playout/hosts/pair"
+
+    def _pair(self, client, answer, **body):
+        body = {"base_url": "booth", "code": "482 913", **body}
+        with (
+            patch("cinefin.api.services.playout_agent_service.requests.post", return_value=_Resp(200, answer)) as post,
+            patch("cinefin.api.ninja_views.playout_ninja.playout_agent_service.resync_idle_media"),
+            patch("cinefin.api.ninja_views.playout_ninja.mpv_service.show_idle"),
+        ):
+            r = client.post(self.PAIR, data=body, content_type="application/json")
+        return r, post
+
+    def test_pair_adds_and_activates_the_first_player(self, client):
         PlayoutHost.objects.all().delete()
+        r, post = self._pair(client, {"token": "sekret", "id": "abc", "name": "Booth", "agent_version": "1.0"})
+        assert r.status_code == 200
+        # Scheme and default port are filled in; the code is sent without spaces.
+        post.assert_called_once()
+        assert post.call_args.args[0] == "http://booth:8089/pair"
+        assert post.call_args.kwargs["json"] == {"code": "482913"}
+        host = r.json()["data"]
+        assert host["is_active"] is True and host["has_token"] is True and host["agent_id"] == "abc"
+        assert host["name"] == "Booth" and "token" not in host
+        assert PlayoutHost.objects.get(pk=host["id"]).token == "sekret"
+
+    def test_repairing_a_known_player_updates_it(self, client):
+        PlayoutHost.objects.all().delete()
+        known = PlayoutHost.objects.create(name="Booth", base_url="http://old:8089", agent_id="abc", token="old")
+        r, _ = self._pair(client, {"token": "new", "id": "abc", "name": "renamed"}, base_url="http://new:8089")
+        assert r.status_code == 200
+        known.refresh_from_db()
+        assert (known.token, known.base_url, known.name) == ("new", "http://new:8089", "Booth")
+        assert PlayoutHost.objects.count() == 1
+
+    @pytest.mark.parametrize(
+        ("status", "code"),
+        [(403, "PAIR_WRONG_CODE"), (429, "PAIR_RATE_LIMITED"), (409, "PAIR_ALREADY_PAIRED")],
+    )
+    def test_pair_errors_reach_the_user(self, client, status, code):
+        with patch("cinefin.api.services.playout_agent_service.requests.post", return_value=_Resp(status, {})):
+            r = client.post(self.PAIR, data={"base_url": "booth", "code": "111111"}, content_type="application/json")
+        assert r.json()["error_code"] == code
+        assert r.status_code == (409 if status == 409 else 400)
+
+    def test_code_must_be_six_digits(self, client):
+        r = client.post(self.PAIR, data={"base_url": "booth", "code": "12"}, content_type="application/json")
+        assert r.status_code == 400
+
+    def test_agent_hosts_cannot_be_created_without_pairing(self, client):
         r = client.post(
             "/api/v2/playout/hosts",
-            data={"name": "Booth", "base_url": "http://booth:8089", "token": "sekret"},
+            data={"name": "Booth", "base_url": "http://booth:8089"},
             content_type="application/json",
         )
-        assert r.status_code == 200
-        host = r.json()["data"]
-        assert host["is_active"] is True
-        assert host["has_token"] is True
-        assert "token" not in host
-        hid = host["id"]
+        assert r.status_code == 400
+        assert r.json()["error_code"] == "PAIR_REQUIRED"
 
-        listed = client.get("/api/v2/playout/hosts").json()["data"]
-        assert [h["id"] for h in listed] == [hid]
+    def test_delete_unpairs_the_player(self, client):
+        PlayoutHost.objects.all().delete()
+        a = PlayoutHost.objects.create(name="A", base_url="http://a:8089", token="ta", is_active=True)
+        b = PlayoutHost.objects.create(name="B", base_url="http://b:8089", token="tb")
+        with (
+            patch("cinefin.api.services.playout_agent_service.requests.request", return_value=_Resp(200)) as req,
+            patch("cinefin.api.ninja_views.playout_ninja.mpv_service.unload_for_host_switch") as unload,
+        ):
+            assert client.delete(f"/api/v2/playout/hosts/{a.id}").status_code == 200
+        req.assert_called_once()
+        assert req.call_args.args[:2] == ("POST", "http://a:8089/unpair")
+        assert req.call_args.kwargs["headers"] == {"Authorization": "Bearer ta"}
+        unload.assert_called_once()
+        assert PlayoutHost.objects.get(pk=b.id).is_active is True
 
-        r2 = client.post(
-            "/api/v2/playout/hosts",
-            data={"name": "Spare", "base_url": "http://spare:8089"},
-            content_type="application/json",
-        )
-        hid2 = r2.json()["data"]["id"]
-        client.post(f"/api/v2/playout/hosts/{hid2}/activate")
-        assert PlayoutHost.objects.get(pk=hid2).is_active is True
-        assert PlayoutHost.objects.get(pk=hid).is_active is False
+    def test_delete_works_when_the_player_is_off(self, client):
+        host = PlayoutHost.objects.create(name="Off", base_url="http://off:8089", token="t")
+        with patch(
+            "cinefin.api.services.playout_agent_service.requests.request",
+            side_effect=requests.ConnectionError("refused"),
+        ):
+            assert client.delete(f"/api/v2/playout/hosts/{host.id}").status_code == 200
+        assert not PlayoutHost.objects.filter(pk=host.id).exists()
 
-        assert client.delete(f"/api/v2/playout/hosts/{hid2}").status_code == 200
-        assert PlayoutHost.objects.get(pk=hid).is_active is True
-
-    def test_update_keeps_token_unless_provided(self, client):
+    def test_update_keeps_token(self, client):
         host = PlayoutHost.objects.create(name="Booth", base_url="http://booth:8089", token="keep", is_active=True)
         client.patch(f"/api/v2/playout/hosts/{host.id}", data={"name": "Renamed"}, content_type="application/json")
         host.refresh_from_db()

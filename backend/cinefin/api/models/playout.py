@@ -129,7 +129,15 @@ class PlayoutHost(models.Model):
         default="",
         help_text="mpv --input-ipc-server path, e.g. /tmp/mpvsocket (local_socket kind only)",
     )
-    token = models.CharField(max_length=500, blank=True, default="", help_text="Bearer token for the agent")
+    token = models.CharField(
+        max_length=500, blank=True, default="", help_text="Bearer token the agent issued when it was paired"
+    )
+    agent_id = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="The agent's stable id (from pairing / mDNS), to recognise it when its address changes",
+    )
     enabled = models.BooleanField(default=True, help_text="Whether this host may be used for playout")
     is_active = models.BooleanField(
         default=False, help_text="The single host used for playout (exactly one row is active)"

@@ -3,7 +3,6 @@
 	import {
 		Check,
 		CircleCheck,
-		Info,
 		MonitorPlay,
 		Pencil,
 		Play,
@@ -11,7 +10,6 @@
 		RefreshCw,
 		RotateCcw,
 		RotateCw,
-		Server,
 		Square,
 		Trash2
 	} from '@lucide/svelte';
@@ -24,20 +22,19 @@
 	import { showToast } from '$lib/toast.svelte';
 	import { playout } from '$lib/stores/playout.svelte';
 	import { itemTypeLabel } from '$lib/item-types';
-	import { formatDateTime, type SettingsStore } from '$lib/settings/form.svelte';
+	import { type SettingsStore } from '$lib/settings/form.svelte';
 	import type { CheckState } from '$lib/settings/types';
 	import type { PlayoutStatus } from '$lib/api/refinements';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
-	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import ErrorState from '$lib/components/ui/ErrorState.svelte';
 	import Input from '$lib/components/ui/Input.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import Tabs from '$lib/components/ui/Tabs.svelte';
 	import StatusLamp from '$lib/components/StatusLamp.svelte';
+	import PlayerPairing from '$lib/components/PlayerPairing.svelte';
 	import CheckResult from './CheckResult.svelte';
-	import Disclosure from './Disclosure.svelte';
 	import Field from './Field.svelte';
 	import HostConfigPanel from './HostConfigPanel.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
@@ -49,11 +46,13 @@
 	}
 	let { store, confirm }: Props = $props();
 
+	// Players: each paired machine and its own screen and sound. Presentation:
+	// what every player shows (idle ident, subtitles) and where it streams from.
 	const TABS = [
-		{ id: 'player', label: 'Player' },
-		{ id: 'show', label: 'Show' }
+		{ id: 'players', label: 'Players' },
+		{ id: 'presentation', label: 'Presentation' }
 	];
-	let tab = $state('player');
+	let tab = $state('players');
 
 	const hosts = query(() => unwrap(api.GET('/api/v2/playout/hosts')));
 	const activeHost = $derived(hosts.data?.find((h) => h.is_active) ?? null);
@@ -133,6 +132,9 @@
 		const id = activeHost?.id ?? 0;
 		if (id === lastActiveId) return;
 		lastActiveId = id;
+		// A different host: its lamp reads "Checking" until its own status arrives,
+		// not the previous host's result (or "Unreachable" for none).
+		agentChecked = false;
 		void loadAgentStatus();
 	});
 
@@ -216,7 +218,13 @@
 	}
 
 	async function removeHost(id: number, name: string) {
-		if (!(await confirm(`Remove "${name}"?`, { confirmLabel: 'Remove' }))) return;
+		if (
+			!(await confirm(
+				`Remove "${name}"? Its player forgets this Cinefin and shows a pairing code again.`,
+				{ confirmLabel: 'Remove' }
+			))
+		)
+			return;
 		try {
 			await mutate(
 				api.DELETE('/api/v2/playout/hosts/{host_id}', { params: { path: { host_id: id } } })
@@ -248,14 +256,24 @@
 		}
 	}
 
+	// The player shown on the right of the Players tab: a host id, or 'add' for
+	// the pairing panel. Defaults to the active host (else the first).
+	let selectedId = $state<number | 'add' | null>(null);
+	const selected = $derived.by(() => {
+		if (selectedId === 'add') return null;
+		const list = hosts.data ?? [];
+		return list.find((h) => h.id === selectedId) ?? activeHost ?? list[0] ?? null;
+	});
+	const addingPlayer = $derived(selectedId === 'add' || !(hosts.data ?? []).length);
+
+	// Adding a playout agent is pairing (PlayerPairing); this dialog edits a
+	// host, or adds a local mpv the operator runs themselves.
 	let hostOpen = $state(false);
 	let editingHostId = $state<number | null>(null);
-	let hostHasToken = $state(false);
-	let hKind = $state('agent');
+	let hKind = $state('local_socket');
 	let hName = $state('');
 	let hUrl = $state('');
 	let hSocket = $state('');
-	let hToken = $state('');
 	let hostSaveResult = $state<CheckState>(null);
 
 	function openHostDialog(
@@ -265,18 +283,21 @@
 			kind: string;
 			base_url: string;
 			socket_path: string;
-			has_token: boolean;
 		} | null
 	) {
 		editingHostId = host?.id ?? null;
-		hostHasToken = host?.has_token ?? false;
-		hKind = host?.kind ?? 'agent';
+		hKind = host?.kind ?? 'local_socket';
 		hName = host?.name ?? '';
 		hUrl = host?.base_url ?? '';
 		hSocket = host?.socket_path ?? '';
-		hToken = '';
 		hostSaveResult = null;
 		hostOpen = true;
+	}
+
+	async function onPaired(host: { id: number; name: string }) {
+		selectedId = host.id;
+		showToast(`Paired with ${host.name}`, 'success');
+		await reloadAll();
 	}
 
 	async function saveHost() {
@@ -296,11 +317,10 @@
 		} else {
 			const base_url = hUrl.trim();
 			if (!base_url) {
-				hostSaveResult = { state: 'error', message: 'Enter a name and agent URL' };
+				hostSaveResult = { state: 'error', message: "Enter the player's address" };
 				return;
 			}
-			const token = hToken.trim();
-			body = token ? { name, kind: 'agent', base_url, token } : { name, kind: 'agent', base_url };
+			body = { name, base_url };
 		}
 		try {
 			if (editingHostId != null) {
@@ -314,7 +334,7 @@
 				await unwrap(api.POST('/api/v2/playout/hosts', { body }));
 			}
 			hostOpen = false;
-			showToast(editingHostId != null ? 'Host updated' : 'Playout host added', 'success');
+			showToast(editingHostId != null ? 'Host updated' : 'Local mpv added', 'success');
 			await reloadAll();
 		} catch (e) {
 			hostSaveResult = {
@@ -346,6 +366,25 @@
 		}
 	}
 
+	// The subtitle preview: a 16:9 frame drawn from the current (unsaved) values.
+	// mpv sizes subtitles against a 720-line frame, so the font scales with the
+	// frame's height (cqh); position 0 is the top, 100 the bottom.
+	const subtitlePreviewStyle = $derived.by(() => {
+		const m = store.main;
+		const size = Number(m.subtitle_font_size) || 52;
+		const pos = Math.min(100, Math.max(0, Number(m.subtitle_position) || 0));
+		const margin = m.subtitle_use_margins ? Number(m.subtitle_margin_y) || 0 : 0;
+		const back = m.subtitle_back_color || '#000000';
+		const boxed = m.subtitle_border_style !== 'outline-and-shadow';
+		return [
+			`font-size: ${(size / 7.2).toFixed(2)}cqh`,
+			`top: calc(${pos}% - ${(margin / 7.2).toFixed(2)}cqh)`,
+			`color: ${m.subtitle_color || '#ffffff'}`,
+			`font-weight: ${m.subtitle_bold ? 700 : 400}`,
+			boxed ? `background: ${back}` : `text-shadow: 0 0 0.12em ${back}, 0 0 0.12em ${back}`
+		].join('; ');
+	});
+
 	const subtitleInputCls =
 		'h-9 w-full rounded-md border border-border-strong bg-surface-2 px-1.5 text-sm text-text focus:border-accent-dim';
 </script>
@@ -364,221 +403,276 @@
 			panelId={(id) => `pt-${id}`}
 		/>
 
-		{#if tab === 'player'}
+		{#if tab === 'players'}
 			<div
 				role="tabpanel"
-				id="pt-player"
-				aria-labelledby="tab-player"
+				id="pt-players"
+				aria-labelledby="tab-players"
+				class="mt-4"
+				in:fade={{ duration: 120 }}
+			>
+				{#if !hosts.data?.length}
+					<!-- ── First run: no players yet ──────────────────────────────── -->
+					<section class="max-w-2xl space-y-5">
+						<div>
+							<h3 class="text-base font-medium">Add your first player</h3>
+							<p class="mt-1 text-sm text-muted">
+								Cinefin plays through a player: the machine wired to your screen.
+							</p>
+						</div>
+						<div class="flex gap-3">
+							<span class="step">1</span>
+							<div>
+								<p class="text-sm">
+									Run <code class="font-mono text-[0.8rem]">cinefin-playout</code> on that machine.
+								</p>
+								<p class="mt-0.5 text-xs text-muted">Its screen shows a pairing code.</p>
+							</div>
+						</div>
+						<div class="flex gap-3">
+							<span class="step">2</span>
+							<div class="min-w-0 flex-1">
+								<p class="mb-3 text-sm">Choose it and type the code.</p>
+								<PlayerPairing onpaired={onPaired} />
+							</div>
+						</div>
+						<p class="border-t border-border pt-3 text-xs text-muted">
+							Running mpv yourself?
+							<button
+								type="button"
+								class="underline hover:text-text"
+								onclick={() => openHostDialog(null)}>Add a local mpv</button
+							>
+						</p>
+					</section>
+				{:else}
+					<div class="grid gap-6 md:grid-cols-[13rem_minmax(0,1fr)]">
+						<!-- ── The players ───────────────────────────────────────────── -->
+						<nav aria-label="Players" class="flex flex-col gap-1">
+							{#each hosts.data as h (h.id)}
+								{@const on = selectedId !== 'add' && selected?.id === h.id}
+								<button
+									type="button"
+									aria-current={on ? 'true' : undefined}
+									class="flex items-center gap-2.5 px-3 py-2 text-left text-sm font-medium hover:bg-surface-2
+										{on ? 'bg-surface-2 text-text' : 'text-muted'}"
+									onclick={() => (selectedId = h.id)}
+								>
+									<StatusLamp
+										colour={h.is_active ? activeState.colour : 'neutral'}
+										pending={h.is_active && activeState.pending}
+									>
+										<span class="sr-only">{h.is_active ? activeState.label : 'Not in use'}</span>
+									</StatusLamp>
+									<span class="min-w-0 flex-1 truncate">{h.name}</span>
+									{#if h.is_active}<span class="text-[0.7rem] text-success">Active</span>{/if}
+								</button>
+							{/each}
+							<div class="my-2 h-px bg-border"></div>
+							<button
+								type="button"
+								aria-current={selectedId === 'add' ? 'true' : undefined}
+								class="flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-surface-2
+									{selectedId === 'add' ? 'bg-surface-2 text-text' : 'text-muted'}"
+								onclick={() => (selectedId = 'add')}
+							>
+								<Plus size={14} /> Add a player
+							</button>
+						</nav>
+
+						<div class="min-w-0">
+							{#if addingPlayer}
+								<!-- ── Pairing another player ──────────────────────────────── -->
+								<section class="space-y-4">
+									<div>
+										<h3 class="text-base font-medium">Add a player</h3>
+										<p class="mt-1 text-sm text-muted">
+											Run <code class="font-mono text-[0.8rem]">cinefin-playout</code> on the machine,
+											then choose it and type the code on its screen.
+										</p>
+									</div>
+									<PlayerPairing onpaired={onPaired} />
+									<p class="border-t border-border pt-3 text-xs text-muted">
+										Running mpv yourself?
+										<button
+											type="button"
+											class="underline hover:text-text"
+											onclick={() => openHostDialog(null)}>Add a local mpv</button
+										>
+									</p>
+								</section>
+							{:else if selected}
+								{@const isSocket = selected.kind === 'local_socket'}
+								{@const isActive = selected.is_active}
+								<div class="space-y-5">
+									<!-- ── The player ────────────────────────────────────────── -->
+									<section class="space-y-2">
+										<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+											<h3 class="text-lg font-medium">{selected.name}</h3>
+											{#if isActive}
+												<span title={activeState.detail}>
+													<StatusLamp colour={activeState.colour} pending={activeState.pending}>
+														{activeState.label}
+													</StatusLamp>
+												</span>
+											{:else}
+												<StatusLamp colour="neutral">Not in use</StatusLamp>
+											{/if}
+											{#if isActive && !isSocket}
+												<Button
+													size="sm"
+													variant="ghost"
+													class="ml-auto"
+													disabled={refreshing}
+													title="Ask the player for its status again"
+													onclick={refreshActiveHost}
+												>
+													<RefreshCw size={13} /><span class="sr-only">Refresh status</span>
+												</Button>
+											{/if}
+											<Button
+												size="sm"
+												variant="ghost"
+												class={isActive && !isSocket ? '' : 'ml-auto'}
+												onclick={() => openHostDialog(selected)}
+											>
+												<Pencil size={13} /> Edit
+											</Button>
+										</div>
+										<p class="font-mono text-xs break-all text-muted">
+											{#if isSocket}
+												{selected.socket_path || '(no socket path)'} · local mpv
+											{:else}
+												{selected.base_url}{selected.agent_version
+													? ` · agent ${selected.agent_version} · ${selected.os}/${selected.arch}`
+													: ''}{selected.has_token ? '' : ' · not paired: remove it and pair again'}
+											{/if}
+										</p>
+
+										{#if isActive}
+											<div
+												class="flex flex-wrap items-center gap-1.5 border border-border bg-surface-1 px-3 py-2.5"
+											>
+												<p class="mr-auto text-sm">
+													<span class="text-muted">Now</span>
+													<span class="ml-1 font-medium">{nowOnPlayer.label}</span>
+													{#if nowOnPlayer.detail}<span class="text-muted">
+															· {nowOnPlayer.detail}</span
+														>{/if}
+												</p>
+												<Button
+													size="sm"
+													disabled={mpvBusy !== null}
+													title="Clear any loaded programme and show the paused idle ident"
+													onclick={() => void returnToIdent()}
+												>
+													<RotateCcw size={13} /> Return to ident
+												</Button>
+												{#if !isSocket && agentStatus?.reachable}
+													{#if agentStatus.mpv_running}
+														<Button
+															size="sm"
+															disabled={mpvBusy !== null}
+															onclick={() => controlMpv('restart')}
+														>
+															<RotateCw size={13} /> Restart
+														</Button>
+														<Button
+															size="sm"
+															disabled={mpvBusy !== null}
+															onclick={() => controlMpv('stop')}
+														>
+															<Square size={13} /> Stop
+														</Button>
+													{:else}
+														<Button
+															size="sm"
+															variant="primary"
+															disabled={mpvBusy !== null}
+															onclick={() => controlMpv('start')}
+														>
+															<Play size={13} /> Start player
+														</Button>
+													{/if}
+												{/if}
+											</div>
+										{:else}
+											<div
+												class="flex flex-wrap items-center gap-3 border border-border bg-surface-1 px-3 py-2.5"
+											>
+												<p class="mr-auto text-sm text-muted">
+													Cinefin plays through one player at a time.
+												</p>
+												<Button
+													size="sm"
+													variant="primary"
+													onclick={() => activateHost(selected.id)}
+												>
+													<CircleCheck size={13} /> Use this player
+												</Button>
+											</div>
+										{/if}
+									</section>
+
+									<!-- ── Screen and sound ──────────────────────────────────── -->
+									<section class="border border-border bg-surface-1">
+										<div class="px-4 pt-4">
+											<h3 class="text-sm font-medium">Screen and sound</h3>
+											<p class="mt-0.5 text-xs text-muted">
+												{isSocket
+													? 'You run this mpv, so set its screen and sound with its own options when you launch it.'
+													: 'Applies when the player restarts.'}
+											</p>
+										</div>
+										{#if !isSocket}
+											{#key selected.id}
+												<HostConfigPanel hostId={selected.id} kind={selected.kind} />
+											{/key}
+										{:else}
+											<div class="pb-4"></div>
+										{/if}
+									</section>
+
+									<!-- ── Remove ────────────────────────────────────────────── -->
+									<section class="flex items-center gap-3 border-t border-border pt-4">
+										<div class="mr-auto">
+											<h3 class="text-sm font-medium">Remove this player</h3>
+											<p class="mt-0.5 text-xs text-muted">
+												{isSocket
+													? 'Cinefin stops using this mpv.'
+													: 'It forgets this Cinefin and shows a pairing code again.'}
+											</p>
+										</div>
+										<Button variant="danger" onclick={() => removeHost(selected.id, selected.name)}>
+											<Trash2 size={13} /> Remove
+										</Button>
+									</section>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+			</div>
+		{:else if tab === 'presentation'}
+			<div
+				role="tabpanel"
+				id="pt-presentation"
+				aria-labelledby="tab-presentation"
 				class="mt-4 space-y-6"
 				in:fade={{ duration: 120 }}
 			>
-				<!-- ── The active player ─────────────────────────────────────────── -->
-				{#if !hosts.data?.length}
-					<EmptyState
-						compact
-						icon={Server}
-						title="No playout host configured yet"
-						message="Add the machine Cinefin plays through — a playout agent, or a local mpv you run yourself."
-					/>
-					<div class="mt-3">
-						<Button variant="primary" onclick={() => openHostDialog(null)}>
-							<Plus size={14} /> Add host
-						</Button>
-					</div>
-				{:else if activeHost}
-					{@const isSocket = activeHost.kind === 'local_socket'}
-					<section class="border border-border bg-surface-2">
-						<div class="space-y-3 p-4">
-							<div class="flex flex-col gap-3 sm:flex-row sm:items-start">
-								<div class="min-w-0 flex-1 space-y-1.5">
-									<div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-										<span class="font-medium">{activeHost.name}</span>
-										<span class="font-mono text-[0.7rem] text-faint"
-											>{isSocket ? 'local mpv' : 'agent'}</span
-										>
-										<span title={activeState.detail}>
-											<StatusLamp colour={activeState.colour} pending={activeState.pending}>
-												{activeState.label}
-											</StatusLamp>
-										</span>
-									</div>
-									<!-- What is on the screen right now, in plain words. -->
-									<p class="text-sm">
-										<span class="text-faint">Now on player</span>
-										<span class="ml-1.5 font-medium">{nowOnPlayer.label}</span>
-										{#if nowOnPlayer.detail}
-											<span class="text-muted"> — {nowOnPlayer.detail}</span>
-										{/if}
-									</p>
-									<code class="block font-mono text-xs break-all text-muted">
-										{isSocket ? activeHost.socket_path || '(no socket path)' : activeHost.base_url}
-									</code>
-									{#if isSocket}
-										<p class="text-xs text-faint">
-											You run this mpv — start it with <code class="font-mono"
-												>--input-ipc-server</code
-											>.
-										</p>
-									{:else}
-										<p class="text-xs text-faint">
-											{activeHost.agent_version
-												? `agent ${activeHost.agent_version} · ${activeHost.os}/${activeHost.arch} · `
-												: ''}last seen
-											{activeHost.last_seen_at
-												? formatDateTime(activeHost.last_seen_at)
-												: 'never'}{activeHost.has_token ? '' : ' · no token'}
-										</p>
-									{/if}
-								</div>
-							</div>
+				<p class="-mt-1 text-sm text-muted">These apply to every player.</p>
 
-							<!-- Controls. Return to ident always works; process control is agent-only. -->
-							<div class="flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
-								<Button
-									size="sm"
-									disabled={mpvBusy !== null}
-									title="Clear any loaded programme and show the paused idle ident"
-									onclick={() => void returnToIdent()}
-								>
-									<RotateCcw size={13} /> Return to ident
-								</Button>
-								{#if !isSocket}
-									{#if agentStatus?.reachable}
-										{#if agentStatus.mpv_running}
-											<Button
-												size="sm"
-												disabled={mpvBusy !== null}
-												onclick={() => controlMpv('restart')}
-											>
-												<RotateCw size={13} /> Restart
-											</Button>
-											<Button
-												size="sm"
-												disabled={mpvBusy !== null}
-												onclick={() => controlMpv('stop')}
-											>
-												<Square size={13} /> Stop
-											</Button>
-										{:else}
-											<Button
-												size="sm"
-												variant="primary"
-												disabled={mpvBusy !== null}
-												onclick={() => controlMpv('start')}
-											>
-												<Play size={13} /> Start player
-											</Button>
-										{/if}
-									{/if}
-									<Button size="sm" disabled={refreshing} onclick={refreshActiveHost}>
-										<RefreshCw size={13} /> Refresh
-									</Button>
-								{/if}
-								<Button size="sm" class="ml-auto" onclick={() => openHostDialog(activeHost)}>
-									<Pencil size={13} /> Edit
-								</Button>
-							</div>
-						</div>
-					</section>
-				{:else}
-					<p class="flex items-center gap-2 text-sm text-muted">
-						<Info size={14} /> No active host — pick one under
-						<strong class="text-text">Manage hosts</strong> below.
-					</p>
-				{/if}
-
-				{#if hosts.data?.length}
-					<Disclosure
-						title="Manage hosts"
-						note={hosts.data.length > 1 ? `${hosts.data.length} hosts` : undefined}
-					>
-						<div class="space-y-2">
-							{#each hosts.data as h (h.id)}
-								{@const isSocket = h.kind === 'local_socket'}
-								<div
-									class="flex flex-col gap-2 rounded-md border p-2.5 sm:flex-row sm:items-center
-								{h.is_active ? 'border-accent-dim bg-surface-2' : 'border-border'}"
-								>
-									<div class="min-w-0 flex-1">
-										<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-											<span class="text-sm font-medium">{h.name}</span>
-											<span class="font-mono text-[0.7rem] text-faint"
-												>{isSocket ? 'local mpv' : 'agent'}</span
-											>
-											{#if h.is_active}<StatusLamp colour="green">Active</StatusLamp>{/if}
-										</div>
-										<code class="font-mono text-xs break-all text-muted">
-											{isSocket ? h.socket_path || '(no socket path)' : h.base_url}
-										</code>
-									</div>
-									<div class="flex shrink-0 items-center gap-1.5">
-										{#if !h.is_active}
-											<Button size="sm" variant="primary" onclick={() => activateHost(h.id)}>
-												<CircleCheck size={13} /> Use
-											</Button>
-										{/if}
-										<Button size="sm" onclick={() => openHostDialog(h)}>
-											<Pencil size={13} /> Edit
-										</Button>
-										<Button
-											size="sm"
-											variant="danger"
-											title="Remove host"
-											onclick={() => removeHost(h.id, h.name)}
-										>
-											<Trash2 size={13} />
-										</Button>
-									</div>
-								</div>
-							{/each}
-						</div>
-
-						<div class="mt-3">
-							<Button onclick={() => openHostDialog(null)}><Plus size={14} /> Add host</Button>
-						</div>
-						<p class="mt-2 text-xs text-faint">
-							The active host is the one Cinefin plays through. Switching hosts stops anything
-							currently on air. Tokens are stored write-only - never shown again.
-						</p>
-
-						<div class="mt-4">
-							<Field
-								label="Streaming base URL"
-								forId="set-server-url"
-								dirty={store.isDirty('playout_server_url')}
-								error={store.errorFor('playout_server_url')}
-							>
-								<Input
-									id="set-server-url"
-									bind:value={store.main.playout_server_url}
-									placeholder="http://cinefin.local:8000"
-									class="max-w-xl"
-								/>
-								{#snippet hintSnippet()}
-									Everything the player shows is streamed from Cinefin at this URL - idents, movies,
-									trailers, user media, title cards.
-									<strong class="text-muted">The playout host must be able to reach it.</strong>
-									Leave blank to use the <code class="font-mono">CINEFIN_SERVER_URL</code> environment
-									default (fine when Cinefin and the player are on the same machine).
-								{/snippet}
-							</Field>
-						</div>
-					</Disclosure>
-				{/if}
-
-				<!-- ── Idle & ident ──────────────────────────────────────────────── -->
-				<section class="space-y-2">
+				<!-- ── Idle screen ───────────────────────────────────────────────── -->
+				<section class="space-y-3 border border-border bg-surface-1 p-4">
 					<div>
-						<h3 class="text-sm font-medium">Idle &amp; ident</h3>
-						<p class="mt-0.5 max-w-2xl text-xs text-muted">
-							The ident is your cinema's stand-in clip. It does three jobs: it's the
-							<strong class="text-text">idle screen</strong> (shown paused when nothing is playing),
-							the <strong class="text-text">opening item</strong> of every programme, and what the player
-							returns to on reset or when a show finishes.
+						<h3 class="text-sm font-medium">Idle screen</h3>
+						<p class="mt-0.5 text-xs text-muted">
+							Shown paused when nothing plays, and first in every programme.
 						</p>
 					</div>
 					<Field
-						label="System Ident"
+						label="Ident"
 						forId="set-default-ident"
 						dirty={store.isDirty('default_cinema_ident')}
 						error={store.errorFor('default_cinema_ident')}
@@ -589,140 +683,158 @@
 								bind:value={store.main.default_cinema_ident}
 								class="w-full"
 							>
-								<option value="">- Built-in System Ident -</option>
+								<option value="">Built-in System Ident</option>
 								{#each store.bumpers as b (b.id)}
 									<option value={String(b.id)}>{b.title} ({b.duration}s)</option>
 								{/each}
 							</Select>
 							<Button disabled={identTesting} onclick={playIdentNow}>
-								<MonitorPlay size={14} /> Play on player now
+								<MonitorPlay size={14} /> Show on player
 							</Button>
 						</div>
-						{#snippet hintSnippet()}
-							Cinefin ships one; pick an uploaded media item to use your own. Either way it is
-							<strong class="text-muted">streamed</strong> to the host - no local file needed there.
-							<strong class="text-muted">Play on player now</strong> plays it on the live screen straight
-							away. Part of "Save changes"; restart the player to apply a change to the idle screen.
-						{/snippet}
 					</Field>
 				</section>
 
-				<!-- ── Display & audio (agent hosts only) ────────────────────────── -->
-				{#if activeHost && isAgent}
-					<Disclosure title="Display & audio">
-						<HostConfigPanel hostId={activeHost.id} kind={activeHost.kind} />
-					</Disclosure>
-				{/if}
-			</div>
-		{:else if tab === 'show'}
-			<div
-				role="tabpanel"
-				id="pt-show"
-				aria-labelledby="tab-show"
-				class="mt-4 space-y-6"
-				in:fade={{ duration: 120 }}
-			>
 				<!-- ── Subtitles ─────────────────────────────────────────────────── -->
-				<section class="space-y-2">
+				<section class="space-y-4 border border-border bg-surface-1 p-4">
 					<div>
 						<h3 class="text-sm font-medium">Subtitles</h3>
-						<p class="mt-0.5 max-w-2xl text-xs text-muted">
-							One subtitle style for the room, applied to the live player the moment you save - no
-							restart. Per-block subtitle track selection is separate.
+						<p class="mt-0.5 text-xs text-muted">Applied live when you save, no restart.</p>
+					</div>
+					<div class="grid gap-6 lg:grid-cols-2">
+						<div class="space-y-4">
+							<div class="grid grid-cols-3 gap-3">
+								<Field
+									label="Size"
+									forId="set-subtitle-size"
+									dirty={store.isDirty('subtitle_font_size')}
+									error={store.errorFor('subtitle_font_size')}
+								>
+									<Input
+										id="set-subtitle-size"
+										type="number"
+										bind:value={store.main.subtitle_font_size}
+									/>
+								</Field>
+								<Field
+									label="Position"
+									forId="set-subtitle-position"
+									dirty={store.isDirty('subtitle_position')}
+									error={store.errorFor('subtitle_position')}
+								>
+									<Input
+										id="set-subtitle-position"
+										type="number"
+										bind:value={store.main.subtitle_position}
+									/>
+								</Field>
+								<Field
+									label="Margin"
+									forId="set-subtitle-margin"
+									dirty={store.isDirty('subtitle_margin_y')}
+									error={store.errorFor('subtitle_margin_y')}
+								>
+									<Input
+										id="set-subtitle-margin"
+										type="number"
+										bind:value={store.main.subtitle_margin_y}
+									/>
+								</Field>
+							</div>
+							<Field
+								label="Background"
+								forId="set-subtitle-border"
+								dirty={store.isDirty('subtitle_border_style')}
+								error={store.errorFor('subtitle_border_style')}
+							>
+								<Select
+									id="set-subtitle-border"
+									bind:value={store.main.subtitle_border_style}
+									class="w-full"
+								>
+									<option value="outline-and-shadow">Outline &amp; shadow</option>
+									<option value="opaque-box">Opaque box</option>
+									<option value="background-box">Background box</option>
+								</Select>
+							</Field>
+							<div class="grid grid-cols-2 gap-3">
+								<Field
+									label="Text"
+									forId="set-subtitle-color"
+									dirty={store.isDirty('subtitle_color')}
+									error={store.errorFor('subtitle_color')}
+								>
+									<input
+										id="set-subtitle-color"
+										type="color"
+										bind:value={store.main.subtitle_color}
+										class={subtitleInputCls}
+									/>
+								</Field>
+								<Field
+									label="Box / shadow"
+									forId="set-subtitle-back-color"
+									dirty={store.isDirty('subtitle_back_color')}
+									error={store.errorFor('subtitle_back_color')}
+								>
+									<input
+										id="set-subtitle-back-color"
+										type="color"
+										bind:value={store.main.subtitle_back_color}
+										class={subtitleInputCls}
+									/>
+								</Field>
+							</div>
+							<div class="space-y-2.5">
+								<Toggle
+									label="Keep inside the picture"
+									bind:checked={store.main.subtitle_use_margins}
+									dirty={store.isDirty('subtitle_use_margins')}
+								/>
+								<Toggle
+									label="Bold"
+									bind:checked={store.main.subtitle_bold}
+									dirty={store.isDirty('subtitle_bold')}
+								/>
+							</div>
+						</div>
+						<div>
+							<p class="mb-1.5 text-xs font-medium text-muted">Preview</p>
+							<div
+								class="subtitle-frame relative aspect-video overflow-hidden border border-border bg-[#1a1f24]"
+								aria-hidden="true"
+							>
+								<span
+									class="absolute left-1/2 -translate-x-1/2 -translate-y-full px-[0.3em] leading-snug whitespace-nowrap"
+									style={subtitlePreviewStyle}>Where are you taking me?</span
+								>
+							</div>
+						</div>
+					</div>
+				</section>
+
+				<!-- ── Streaming address ─────────────────────────────────────────── -->
+				<section class="space-y-3 border border-border bg-surface-1 p-4">
+					<div>
+						<h3 class="text-sm font-medium">Streaming address</h3>
+						<p class="mt-0.5 text-xs text-muted">
+							Players stream everything from Cinefin at this address, so every player must reach it.
+							Blank uses the <code class="font-mono">CINEFIN_SERVER_URL</code> default.
 						</p>
 					</div>
-					<div class="grid max-w-2xl gap-4 sm:grid-cols-3">
-						<Field
-							label="Font size"
-							forId="set-subtitle-size"
-							dirty={store.isDirty('subtitle_font_size')}
-							error={store.errorFor('subtitle_font_size')}
-						>
-							<Input
-								id="set-subtitle-size"
-								type="number"
-								bind:value={store.main.subtitle_font_size}
-							/>
-						</Field>
-						<Field
-							label="Position (0 top - 100 bottom)"
-							forId="set-subtitle-position"
-							dirty={store.isDirty('subtitle_position')}
-							error={store.errorFor('subtitle_position')}
-						>
-							<Input
-								id="set-subtitle-position"
-								type="number"
-								bind:value={store.main.subtitle_position}
-							/>
-						</Field>
-						<Field
-							label="Margin"
-							forId="set-subtitle-margin"
-							dirty={store.isDirty('subtitle_margin_y')}
-							error={store.errorFor('subtitle_margin_y')}
-						>
-							<Input
-								id="set-subtitle-margin"
-								type="number"
-								bind:value={store.main.subtitle_margin_y}
-							/>
-						</Field>
-						<Field
-							label="Border style"
-							forId="set-subtitle-border"
-							dirty={store.isDirty('subtitle_border_style')}
-							error={store.errorFor('subtitle_border_style')}
-						>
-							<Select
-								id="set-subtitle-border"
-								bind:value={store.main.subtitle_border_style}
-								class="w-full"
-							>
-								<option value="outline-and-shadow">Outline &amp; shadow</option>
-								<option value="opaque-box">Opaque box</option>
-								<option value="background-box">Background box</option>
-							</Select>
-						</Field>
-						<Field
-							label="Text colour"
-							forId="set-subtitle-color"
-							dirty={store.isDirty('subtitle_color')}
-							error={store.errorFor('subtitle_color')}
-						>
-							<input
-								id="set-subtitle-color"
-								type="color"
-								bind:value={store.main.subtitle_color}
-								class={subtitleInputCls}
-							/>
-						</Field>
-						<Field
-							label="Box / shadow colour"
-							forId="set-subtitle-back-color"
-							dirty={store.isDirty('subtitle_back_color')}
-							error={store.errorFor('subtitle_back_color')}
-						>
-							<input
-								id="set-subtitle-back-color"
-								type="color"
-								bind:value={store.main.subtitle_back_color}
-								class={subtitleInputCls}
-							/>
-						</Field>
-					</div>
-					<div class="mt-4 space-y-2.5">
-						<Toggle
-							label="Keep inside the video margins"
-							bind:checked={store.main.subtitle_use_margins}
-							dirty={store.isDirty('subtitle_use_margins')}
+					<Field
+						label="Address"
+						forId="set-server-url"
+						dirty={store.isDirty('playout_server_url')}
+						error={store.errorFor('playout_server_url')}
+					>
+						<Input
+							id="set-server-url"
+							bind:value={store.main.playout_server_url}
+							placeholder="http://cinefin.local:8000"
+							class="max-w-xl font-mono"
 						/>
-						<Toggle
-							label="Bold"
-							bind:checked={store.main.subtitle_bold}
-							dirty={store.isDirty('subtitle_bold')}
-						/>
-					</div>
+					</Field>
 				</section>
 			</div>
 		{/if}
@@ -731,23 +843,11 @@
 
 <Dialog
 	bind:open={hostOpen}
-	title={editingHostId != null ? `Edit ${hName || 'host'}` : 'Add playout host'}
+	title={editingHostId != null ? `Edit ${hName || 'host'}` : 'Add a local mpv'}
 >
 	<div class="space-y-3">
 		<Field label="Name" forId="set-host-name">
 			<Input id="set-host-name" bind:value={hName} placeholder="Booth PC" />
-		</Field>
-		<Field
-			label="Type"
-			forId="set-host-kind"
-			hint={hKind === 'local_socket'
-				? 'A plain mpv you run yourself with --input-ipc-server. No start/stop from here.'
-				: 'The Cinefin playout agent - a WebSocket, and it can start/stop the player.'}
-		>
-			<Select id="set-host-kind" bind:value={hKind} class="w-full">
-				<option value="agent">Playout agent (WebSocket)</option>
-				<option value="local_socket">Local mpv (JSON-IPC socket)</option>
-			</Select>
 		</Field>
 		{#if hKind === 'local_socket'}
 			<Field
@@ -758,22 +858,12 @@
 				<Input id="set-host-socket" bind:value={hSocket} placeholder="/tmp/mpvsocket" />
 			</Field>
 		{:else}
-			<Field label="Agent URL" forId="set-host-url">
-				<Input id="set-host-url" bind:value={hUrl} placeholder="http://127.0.0.1:8089" />
-			</Field>
 			<Field
-				label="Agent token"
-				forId="set-host-token"
-				hint="The server.token from the agent's config.toml. Stored write-only."
+				label="Address"
+				forId="set-host-url"
+				hint="Change it if the player's address changed. The pairing is kept."
 			>
-				<Input
-					id="set-host-token"
-					type="password"
-					bind:value={hToken}
-					placeholder={editingHostId != null && hostHasToken
-						? 'leave blank to keep the current token'
-						: 'shared secret (server.token in config.toml)'}
-				/>
+				<Input id="set-host-url" bind:value={hUrl} placeholder="http://10.0.0.5:8089" />
 			</Field>
 		{/if}
 		<CheckResult result={hostSaveResult} />
@@ -783,3 +873,20 @@
 		<Button variant="primary" onclick={saveHost}><Check size={14} /> Save</Button>
 	{/snippet}
 </Dialog>
+
+<style>
+	.step {
+		display: flex;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		width: 1.5rem;
+		height: 1.5rem;
+		border: 1px solid var(--color-border-strong);
+		font: 500 0.75rem var(--font-mono);
+		color: var(--color-muted);
+	}
+	.subtitle-frame {
+		container-type: size;
+	}
+</style>
