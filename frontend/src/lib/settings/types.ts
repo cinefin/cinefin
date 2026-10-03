@@ -1,50 +1,6 @@
 // Payload types for the Settings page where the generated OpenAPI types are loose
 // (untyped dict fields / responses without schemas) — mirrored from the backend, never guessed.
 
-export interface TicketElement {
-	type: string;
-	align?: string;
-	size?: string | number;
-	bold?: boolean;
-	invert?: boolean;
-	content?: string;
-	scale?: string;
-	mode?: string;
-	lines?: number;
-	/** image elements: 'file' prints a library image (`file`), unset prints the logo. */
-	source?: string;
-	file?: string;
-	[key: string]: unknown;
-}
-
-export interface TicketDesignMeta {
-	element_types: string[];
-	tokens: string[];
-	alignments: string[];
-	sizes: string[];
-	rating_scales: string[];
-}
-
-export interface TicketOpStyle {
-	align?: string;
-	size?: string;
-	bold?: boolean;
-	invert?: boolean;
-	/** Index of the design element that produced this op. */
-	element?: number;
-}
-export type TicketPreviewOp =
-	| ({ type: 'text'; value: string } & TicketOpStyle)
-	| ({
-			type: 'image';
-			kind: string;
-			width_px: number;
-			height_px: number;
-			url: string;
-	  } & TicketOpStyle)
-	| ({ type: 'qr'; url: string; size: number } & TicketOpStyle)
-	| ({ type: 'barcode'; value: string } & TicketOpStyle);
-
 /** GET /playout/host/config data (HostConfigResponse.data is an untyped dict). */
 export interface HostConfig {
 	graphics: {

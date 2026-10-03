@@ -2585,23 +2585,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v2/tickets/designs/meta": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Design Meta */
-        get: operations["cinefin_api_ninja_views_ticket_ninja_design_meta"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v2/tickets/designs/{design_id}": {
         parameters: {
             query?: never;
@@ -2681,7 +2664,7 @@ export interface paths {
         };
         /**
          * Preview Asset
-         * @description Stream a ticket image (rating symbol or library image) for previews — neither is web-served.
+         * @description Stream a ticket-library image, for the image library's thumbnails (the library isn't web-served).
          */
         get: operations["cinefin_api_ninja_views_ticket_ninja_preview_asset"];
         put?: never;
@@ -3792,6 +3775,31 @@ export interface components {
              */
             success: boolean;
         };
+        /** BarcodeElement */
+        BarcodeElement: {
+            /**
+             * Align
+             * @default center
+             * @enum {string}
+             */
+            align: "left" | "center" | "right";
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /**
+             * Symbology
+             * @default code128
+             * @enum {string}
+             */
+            symbology: "code128" | "code39" | "ean13" | "ean8" | "upca" | "itf" | "codabar";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "barcode";
+        };
         /** BlockTracksDataSchema */
         BlockTracksDataSchema: {
             /**
@@ -4200,6 +4208,21 @@ export interface components {
              * @description Movies currently in the library
              */
             total: number;
+        };
+        /** ColumnsElement */
+        ColumnsElement: {
+            /** Cells */
+            cells?: (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["RatingElement"] | components["schemas"]["QrElement"] | components["schemas"]["RuleElement"] | components["schemas"]["SpacerElement"])[][];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "columns";
+            /**
+             * Widths
+             * @description Relative cell widths, 2 or 3 cells
+             */
+            widths?: number[];
         };
         /** CommandBasicSchema */
         CommandBasicSchema: {
@@ -4770,25 +4793,62 @@ export interface components {
         };
         /** DesignCreateSchema */
         DesignCreateSchema: {
-            /** Elements */
-            elements?: {
-                [key: string]: unknown;
-            }[];
             /** Name */
             name: string;
+            /**
+             * Starter
+             * @description The layout it starts from
+             * @default standard
+             * @enum {string}
+             */
+            starter: "standard" | "compact" | "blank";
+        };
+        /**
+         * DesignDraftSchema
+         * @description A design's content as the designer holds it; anything left out takes the default.
+         */
+        DesignDraftSchema: {
+            /**
+             * Date Format
+             * @description strftime preset (ticket_service.DATE_FORMATS)
+             */
+            date_format?: string | null;
+            /** Elements */
+            elements?: (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["RatingElement"] | components["schemas"]["QrElement"] | components["schemas"]["BarcodeElement"] | components["schemas"]["RuleElement"] | components["schemas"]["SpacerElement"] | components["schemas"]["ColumnsElement"])[];
+            /**
+             * Font
+             * @description Font of the design's columns rows (ticket_service.TICKET_FONTS)
+             */
+            font?: string | null;
+            /**
+             * Qr Links
+             * @description Links a surprise QR picks from (empty = no QR)
+             */
+            qr_links?: string[] | null;
+            /**
+             * Time Format
+             * @description strftime preset (ticket_service.TIME_FORMATS)
+             */
+            time_format?: string | null;
         };
         /** DesignSchema */
         DesignSchema: {
+            /** Date Format */
+            date_format: string;
             /** Elements */
-            elements: {
-                [key: string]: unknown;
-            }[];
+            elements: (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["RatingElement"] | components["schemas"]["QrElement"] | components["schemas"]["BarcodeElement"] | components["schemas"]["RuleElement"] | components["schemas"]["SpacerElement"] | components["schemas"]["ColumnsElement"])[];
+            /** Font */
+            font: string;
             /** Id */
             id: number;
             /** Is Default */
             is_default: boolean;
             /** Name */
             name: string;
+            /** Qr Links */
+            qr_links: string[];
+            /** Time Format */
+            time_format: string;
         };
         /** DesignSummarySchema */
         DesignSummarySchema: {
@@ -4801,14 +4861,20 @@ export interface components {
         };
         /** DesignUpdateSchema */
         DesignUpdateSchema: {
+            /** Date Format */
+            date_format?: string | null;
             /** Elements */
-            elements?: {
-                [key: string]: unknown;
-            }[] | null;
+            elements?: (components["schemas"]["TextElement"] | components["schemas"]["ImageElement"] | components["schemas"]["RatingElement"] | components["schemas"]["QrElement"] | components["schemas"]["BarcodeElement"] | components["schemas"]["RuleElement"] | components["schemas"]["SpacerElement"] | components["schemas"]["ColumnsElement"])[] | null;
+            /** Font */
+            font?: string | null;
             /** Is Default */
             is_default?: boolean | null;
             /** Name */
             name?: string | null;
+            /** Qr Links */
+            qr_links?: string[] | null;
+            /** Time Format */
+            time_format?: string | null;
         };
         /** DiscoverDataSchema */
         DiscoverDataSchema: {
@@ -5464,6 +5530,31 @@ export interface components {
              * @default 0
              */
             w: number;
+        };
+        /** ImageElement */
+        ImageElement: {
+            /**
+             * Align
+             * @default center
+             * @enum {string}
+             */
+            align: "left" | "center" | "right";
+            /**
+             * File
+             * @description A ticket-library image
+             * @default
+             */
+            file: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "image";
+            /**
+             * Width
+             * @description Unset: the image's own size, shrunk only if too wide
+             */
+            width?: number | null;
         };
         /** ImageListResponseSchema */
         ImageListResponseSchema: {
@@ -7483,6 +7574,48 @@ export interface components {
              */
             source: string;
         };
+        /** PreviewCellSchema */
+        PreviewCellSchema: {
+            /** Items */
+            items: components["schemas"]["PreviewItemSchema"][];
+            /** W */
+            w: number;
+            /** X */
+            x: number;
+        };
+        /** PreviewItemSchema */
+        PreviewItemSchema: {
+            /**
+             * H
+             * @description 0 when the item prints nothing
+             */
+            h: number;
+            /** Y */
+            y: number;
+        };
+        /** PreviewLineSchema */
+        PreviewLineSchema: {
+            /**
+             * Cells
+             * @description A columns line's cells and their items
+             */
+            cells?: components["schemas"]["PreviewCellSchema"][] | null;
+            /**
+             * Element
+             * @description Index of the design element this line is
+             */
+            element: number;
+            /**
+             * Empty
+             * @description Prints nothing: a grey placeholder in the preview only
+             * @default false
+             */
+            empty: boolean;
+            /** H */
+            h: number;
+            /** Y */
+            y: number;
+        };
         /** PreviewTrailerItemSchema */
         PreviewTrailerItemSchema: {
             /**
@@ -8346,6 +8479,51 @@ export interface components {
              */
             success: boolean;
         };
+        /** QrElement */
+        QrElement: {
+            /**
+             * Align
+             * @default center
+             * @enum {string}
+             */
+            align: "left" | "center" | "right";
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /**
+             * Error
+             * @default low
+             * @enum {string}
+             */
+            error: "low" | "medium" | "quartile" | "high";
+            /**
+             * Mode
+             * @description fun: one of the design's surprise links
+             * @default fun
+             * @enum {string}
+             */
+            mode: "fun" | "content";
+            /**
+             * Render
+             * @description Drawn here as an image, or by the printer
+             * @default image
+             * @enum {string}
+             */
+            render: "image" | "printer";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "qr";
+            /**
+             * Width
+             * @description Share (%) of the paper, or of the cell, to fill
+             * @default 50
+             */
+            width: number;
+        };
         /** RatingCardListResponseSchema */
         RatingCardListResponseSchema: {
             data: components["schemas"]["RatingCardListSchema"];
@@ -8400,6 +8578,26 @@ export interface components {
              * @description A user static card video exists
              */
             static_video: boolean;
+        };
+        /** RatingElement */
+        RatingElement: {
+            /**
+             * Align
+             * @default center
+             * @enum {string}
+             */
+            align: "left" | "center" | "right";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "rating";
+            /**
+             * Width
+             * @description Share (%) of the paper, or of the cell, to fill
+             * @default 25
+             */
+            width: number;
         };
         /** RatingsOptionsResponseSchema */
         RatingsOptionsResponseSchema: {
@@ -8483,6 +8681,14 @@ export interface components {
              * @default true
              */
             success: boolean;
+        };
+        /** RuleElement */
+        RuleElement: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "rule";
         };
         /** RunResultDataSchema */
         RunResultDataSchema: {
@@ -8983,11 +9189,11 @@ export interface components {
              */
             subtitle_use_margins: boolean;
             /**
-             * Ticket Date Format
-             * @description Date format (preset strftime)
-             * @default %d/%m/%Y
+             * Ticket Cut
+             * @description Paper cut after each ticket: off / partial / full
+             * @default off
              */
-            ticket_date_format: string;
+            ticket_cut: string;
             /**
              * Ticket Feed Lines
              * @description Blank lines fed after each ticket (0-20)
@@ -9036,21 +9242,10 @@ export interface components {
              */
             ticket_printer_type: string;
             /**
-             * Ticket Qr Fun Links
-             * @description Link pool for a fun-mode QR element (random pick per ticket)
-             */
-            ticket_qr_fun_links?: string[];
-            /**
              * Ticket Seats Per Row
              * @description Seats per row
              */
             ticket_seats_per_row: number;
-            /**
-             * Ticket Time Format
-             * @description Time format (preset strftime)
-             * @default %H:%M
-             */
-            ticket_time_format: string;
             /**
              * Ticket Total Rows
              * @description Number of seat rows
@@ -9130,6 +9325,19 @@ export interface components {
             token?: string | null;
             /** Url */
             url?: string | null;
+        };
+        /** SpacerElement */
+        SpacerElement: {
+            /**
+             * Lines
+             * @default 1
+             */
+            lines: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "spacer";
         };
         /** SpeedControlSchema */
         SpeedControlSchema: {
@@ -9787,11 +9995,49 @@ export interface components {
         };
         /** TestTicketRequestSchema */
         TestTicketRequestSchema: {
+            /** @description Print this draft with the preview's sample details (else the default design) */
+            design?: components["schemas"]["DesignDraftSchema"] | null;
             /**
              * Include Seat
              * @default true
              */
             include_seat: boolean;
+        };
+        /** TextElement */
+        TextElement: {
+            /**
+             * Align
+             * @default center
+             * @enum {string}
+             */
+            align: "left" | "center" | "right";
+            /**
+             * Bold
+             * @default false
+             */
+            bold: boolean;
+            /**
+             * Content
+             * @description Text, with {tokens}
+             * @default
+             */
+            content: string;
+            /**
+             * Invert
+             * @default false
+             */
+            invert: boolean;
+            /**
+             * Size
+             * @default normal
+             * @enum {string}
+             */
+            size: "normal" | "wide" | "tall" | "large";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text";
         };
         /** TicketIssueSchema */
         TicketIssueSchema: {
@@ -9848,39 +10094,33 @@ export interface components {
         };
         /** TicketPreviewDataSchema */
         TicketPreviewDataSchema: {
+            /** Height */
+            height: number;
             /**
              * Lines
-             * @description The ticket rendered line by line (images/QR as [ markers ])
+             * @description Where each line sits on the image, in dots
              */
-            lines: string[];
+            lines: components["schemas"]["PreviewLineSchema"][];
             /**
-             * Ops
-             * @description Structured steps for the styled preview: {type:'text', value, size?}, {type:'image', kind:'rating', width_px, height_px, url} or {type:'qr', url, size}
+             * Url
+             * @description The ticket drawn as it prints, as a PNG data URL, 1 px per printer dot
              */
-            ops?: {
-                [key: string]: unknown;
-            }[];
+            url: string;
             /**
-             * Paper Width
-             * @description Printable width in dots the preview was computed for
-             * @default 384
+             * Width
+             * @description Printable width in dots
              */
-            paper_width: number;
+            width: number;
         };
         /** TicketPreviewRequestSchema */
         TicketPreviewRequestSchema: {
+            /** @description A draft design to preview (else design_id, else default) */
+            design?: components["schemas"]["DesignDraftSchema"] | null;
             /**
              * Design Id
              * @description Preview a saved design
              */
             design_id?: number | null;
-            /**
-             * Elements
-             * @description Live design elements to preview (else design_id, else default)
-             */
-            elements?: {
-                [key: string]: unknown;
-            }[] | null;
             /**
              * Seat
              * @description Seat to show (sampled when omitted)
@@ -10771,10 +11011,10 @@ export interface components {
              */
             subtitle_use_margins?: boolean | null;
             /**
-             * Ticket Date Format
-             * @description Date format (preset strftime)
+             * Ticket Cut
+             * @description Paper cut after each ticket: off / partial / full
              */
-            ticket_date_format?: string | null;
+            ticket_cut?: string | null;
             /**
              * Ticket Feed Lines
              * @description Blank lines fed after each ticket
@@ -10816,20 +11056,10 @@ export interface components {
              */
             ticket_printer_type?: string | null;
             /**
-             * Ticket Qr Fun Links
-             * @description Link pool for a fun-mode QR element (empty list = no QR)
-             */
-            ticket_qr_fun_links?: string[] | null;
-            /**
              * Ticket Seats Per Row
              * @description Seats per row
              */
             ticket_seats_per_row?: number | null;
-            /**
-             * Ticket Time Format
-             * @description Time format (preset strftime)
-             */
-            ticket_time_format?: string | null;
             /**
              * Ticket Total Rows
              * @description Total seat rows
@@ -17199,24 +17429,6 @@ export interface operations {
             };
         };
     };
-    cinefin_api_ninja_views_ticket_ninja_design_meta: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     cinefin_api_ninja_views_ticket_ninja_get_design: {
         parameters: {
             query?: never;
@@ -17440,7 +17652,6 @@ export interface operations {
         parameters: {
             query: {
                 kind: string;
-                cert?: string | null;
                 file?: string | null;
             };
             header?: never;

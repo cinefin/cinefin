@@ -51,6 +51,78 @@ def test_settings_get(client):
     assert_envelope(response.json())
 
 
+def test_settings_ticket_cut_round_trips_and_validates(client):
+    assert client.get(f"{API}/settings/").json()["data"]["settings"]["ticket_cut"] == "off"
+    response = client.post(f"{API}/settings/", {"ticket_cut": "partial"}, content_type="application/json")
+    assert response.status_code == 200
+    assert client.get(f"{API}/settings/").json()["data"]["settings"]["ticket_cut"] == "partial"
+    response = client.post(f"{API}/settings/", {"ticket_cut": "sideways"}, content_type="application/json")
+    assert response.status_code == 400
+
+
+def test_ticket_test_print_of_a_draft_design(client, monkeypatch):
+    from cinefin.api.services import ticket_service
+
+    printed = []
+    monkeypatch.setattr(ticket_service, "print_ticket", lambda design, ctx: printed.append((design, ctx)))
+    draft = {
+        "elements": [{"type": "barcode", "content": "{ticket_no}", "symbology": "ean8"}],
+        "time_format": "%I:%M %p",
+    }
+    response = client.post(f"{API}/tickets/test", {"design": draft}, content_type="application/json")
+    assert response.status_code == 200
+    design, ctx = printed[0]
+    assert design["time_format"] == "%I:%M %p"
+    assert design["elements"][0]["symbology"] == "ean8" and design["elements"][0]["align"] == "center"
+    assert ctx["ticket_no"] == "142" and ctx["seat"] == response.json()["data"]["seat"]
+    # The schema refuses an element it doesn't know.
+    draft["elements"].append({"type": "bogus"})
+    assert client.post(f"{API}/tickets/test", {"design": draft}, content_type="application/json").status_code == 422
+
+
+def test_new_designs_start_from_a_starter(client):
+    compact = client.post(
+        f"{API}/tickets/designs", {"name": "C", "starter": "compact"}, content_type="application/json"
+    )
+    assert any(el["type"] == "columns" for el in compact.json()["elements"])
+    blank = client.post(f"{API}/tickets/designs", {"name": "B", "starter": "blank"}, content_type="application/json")
+    assert blank.json()["elements"] == []
+    bad = client.post(f"{API}/tickets/designs", {"name": "X", "starter": "fancy"}, content_type="application/json")
+    assert bad.status_code == 422
+
+
+def test_ticket_design_fields_round_trip(client):
+    design = client.post(f"{API}/tickets/designs", {"name": "Mine"}, content_type="application/json").json()
+    assert [el["type"] for el in design["elements"]][:2] == ["text", "rule"]  # the Standard starter
+    assert design["font"] == "courier" and design["date_format"] == "%d/%m/%Y" and design["qr_links"]
+    url = f"{API}/tickets/designs/{design['id']}"
+    body = {"font": "inter", "time_format": "%I:%M %p", "qr_links": [" https://a.example ", ""]}
+    updated = client.put(url, body, content_type="application/json").json()
+    assert (updated["font"], updated["time_format"], updated["qr_links"]) == (
+        "inter",
+        "%I:%M %p",
+        ["https://a.example"],
+    )
+    assert client.put(url, {"font": "comic"}, content_type="application/json").status_code == 400
+    assert client.put(url, {"qr_links": ["ftp://x"]}, content_type="application/json").status_code == 400
+    copy = client.post(f"{url}/duplicate").json()
+    assert copy["font"] == "inter" and copy["qr_links"] == ["https://a.example"]
+
+
+def test_ticket_preview_of_a_draft_with_columns(client):
+    draft = {
+        "elements": [
+            {"type": "columns", "widths": [1, 2], "cells": [[{"type": "text", "content": "{seat}"}], []]},
+        ]
+    }
+    response = client.post(f"{API}/tickets/preview", {"design": draft}, content_type="application/json")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["url"].startswith("data:image/png;base64,") and data["width"] == 384
+    (line,) = data["lines"]
+    assert [cell["w"] for cell in line["cells"]] == [124, 248]
+
+
 def test_movies_list(client):
     MovieFactory.create_batch(2)
     response = client.get(f"{API}/movies/list")

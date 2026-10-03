@@ -3,13 +3,25 @@
 from django.db import models, transaction
 
 
+def _default_qr_links():
+    from cinefin.api.services.ticket_service import DEFAULT_QR_LINKS
+
+    return list(DEFAULT_QR_LINKS)
+
+
 class TicketDesign(models.Model):
-    """Named ticket layout: an ordered list of styled elements. Exactly one is
-    the default, used when a programme has no ticket_design override."""
+    """Named ticket layout: an ordered list of styled elements, plus how it writes dates and times, the
+    links its surprise QR codes pick from and the font its columns rows use. Exactly one is the default,
+    used when a programme has no ticket_design override. Choices are validated in ticket_service."""
 
     name = models.CharField(max_length=120)
     is_default = models.BooleanField(default=False, db_index=True)
     elements = models.JSONField(default=list, blank=True)
+    date_format = models.CharField(max_length=20, default="%d/%m/%Y")
+    time_format = models.CharField(max_length=20, default="%H:%M")
+    # An empty list prints no surprise QR.
+    qr_links = models.JSONField(default=_default_qr_links, blank=True)
+    font = models.CharField(max_length=20, default="courier")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

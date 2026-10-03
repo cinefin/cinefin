@@ -1,20 +1,23 @@
 """Ticket text generation, layout, and ESC/POS printing (a design + context -> render ops shared by print and preview)."""
 
+import base64
+import io
 import logging
 import os
 import random
 import socket
 import threading
-from urllib.parse import quote
 
 from django.conf import settings as django_settings
 from django.utils import timezone
 from escpos.printer import File as FilePrinter
 from escpos.printer import Network as NetworkPrinter
 from PIL import Image
+from pydantic import ValidationError as PydanticValidationError
 
 from cinefin.api.exceptions import ValidationError
 from cinefin.api.models import Settings, TicketIssue
+from cinefin.api.schemas.tickets import ELEMENTS
 from cinefin.api.services import config_check_service
 from cinefin.api.utils.assets import asset_path
 
@@ -54,25 +57,60 @@ _TITLE_SIZE_FLAGS = {
     "large": {"double_width": True, "double_height": True},
 }
 
-# rating element `scale` -> fraction of printable width the symbol occupies.
-RATING_SIZE_FRACTIONS = {"small": 0.18, "medium": 0.25, "large": 0.35}
 
-QR_SIZE_MIN, QR_SIZE_MAX = 1, 16
-DEFAULT_QR_SIZE = 6
+# Barcode symbologies: id -> (label, python-escpos name). The data each one takes is checked by barcode_data().
+BARCODE_SYMBOLOGIES = {
+    "code128": ("Code 128", "CODE128"),
+    "code39": ("Code 39", "CODE39"),
+    "ean13": ("EAN-13", "EAN13"),
+    "ean8": ("EAN-8", "EAN8"),
+    "upca": ("UPC-A", "UPC-A"),
+    "itf": ("ITF (Interleaved 2 of 5)", "ITF"),
+    "codabar": ("Codabar", "NW7"),
+}
+_CODE39_CHARS = set("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ -.$/+%")
+_CODABAR_CHARS = set("0123456789-$:/.+")
+# Digits before the check digit, which the printer (or python-barcode) adds itself.
+_FIXED_DIGITS = {"ean13": 12, "ean8": 7, "upca": 11}
 
 DATE_FORMATS = ("%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%a %d %b %Y")
 TIME_FORMATS = ("%H:%M", "%I:%M %p")
 
-# Fallback for fun-mode QR when tickets.qr_fun_links is unset/malformed (a saved empty list is respected -> no QR).
-FUN_QR_LINKS = list(Settings.DEFAULTS["tickets"]["qr_fun_links"])
+# The surprise links a new design's fun-mode QR codes pick from.
+DEFAULT_QR_LINKS = (
+    "https://www.youtube.com/watch?v=V14PfDDwxlE",
+    "https://www.youtube.com/watch?v=8wI4jMxveyI",
+    "https://www.youtube.com/watch?v=qPGYBLaF15M",
+    "https://www.youtube.com/watch?v=21h0G_gU9Tw",
+    "https://www.youtube.com/watch?v=k8V9vgqeUPM",
+    "https://www.youtube.com/watch?v=7bXjWRXDFV8",
+    "https://www.youtube.com/watch?v=ZqZdfxc-fq0",
+)
+QR_LINKS_MAX = 50
 
-RULE = "=============================\n"
+# Fonts a design's columns rows can be drawn in (cinefin/static/fonts/): id -> (label, file).
+TICKET_FONTS = {
+    "courier": ("Courier Prime", "CourierPrime.ttf"),
+    "inter": ("Inter", "Inter.ttf"),
+    "oswald": ("Oswald", "Oswald.ttf"),
+    "bebas": ("Bebas Neue", "BebasNeue.ttf"),
+    "playfair": ("Playfair Display", "PlayfairDisplay.ttf"),
+}
+DEFAULT_FONT = "courier"
+
+# The printer's font A is 12 dots wide: 32 characters on 58 mm paper, 48 on 80 mm.
+CHAR_DOTS = 12
 
 
 def paper_width() -> int:
     """Printable width in dots (tickets.paper_width, one of PRINTER_PROFILES)."""
     width = Settings.get("tickets.paper_width", DEFAULT_PAPER_WIDTH)
     return width if width in PRINTER_PROFILES else DEFAULT_PAPER_WIDTH
+
+
+def chars_per_line(width: int) -> int:
+    """How many font-A characters fit across `width` dots."""
+    return width // CHAR_DOTS
 
 
 def open_printer():
@@ -112,12 +150,22 @@ def feed_lines() -> int:
     return max(0, min(20, value))
 
 
+# ESC/POS GS V m: cut at the blade with no extra feed (feed_lines already fed the slack).
+CUT_COMMANDS = {"partial": b"\x1dV\x01", "full": b"\x1dV\x00"}
+
+
+def cut_mode() -> str:
+    """Paper cut after each ticket (tickets.cut): off / partial / full. Anything else is off."""
+    value = str(Settings.get("tickets.cut") or "off").lower()
+    return value if value in CUT_COMMANDS else "off"
+
+
 def ticket_images_dir() -> str:
     return os.path.join(django_settings.MEDIA_ROOT, "ticket_images")
 
 
-def _ticket_image_path(el: dict) -> str | None:
-    name = os.path.basename(str(el.get("file") or ""))
+def _ticket_image_path(file: str | None) -> str | None:
+    name = os.path.basename(str(file or ""))
     if not name:
         return None
     path = os.path.join(ticket_images_dir(), name)
@@ -136,9 +184,6 @@ def _rating_image_path(certification: str | None) -> str | None:
     return bundled if os.path.exists(bundled) else None
 
 
-ELEMENT_TYPES = ("text", "image", "rating", "qr", "barcode", "rule", "spacer")
-ALIGNMENTS = ("left", "center", "right")
-ELEMENT_SIZES = ("normal", "wide", "tall", "large")  # -> double width/height via _TITLE_SIZE_FLAGS
 DESIGN_TOKENS = ("film", "film_list", "seat", "date", "time", "showtime", "ticket_no", "cinema", "programme")
 
 # The shipped "Standard" default.
@@ -148,20 +193,36 @@ DEFAULT_DESIGN_ELEMENTS = [
     {"type": "text", "content": "ADMIT ONE"},
     {"type": "text", "content": "{seat}", "size": "wide", "bold": True},
     {"type": "text", "content": "{film_list}", "bold": True},
-    {"type": "rating", "scale": "medium"},
+    {"type": "rating", "width": 25},
     {"type": "text", "content": "{date} {time}"},
     {"type": "text", "content": "Ticket #{ticket_no}"},
-    {"type": "qr", "mode": "fun", "size": 6},
+    {"type": "qr", "mode": "fun", "width": 55},
     {"type": "rule"},
 ]
 
-
-def _fun_qr_link() -> str | None:
-    pool = Settings.get("tickets.qr_fun_links")
-    if not isinstance(pool, list):
-        pool = FUN_QR_LINKS
-    pool = [str(x).strip() for x in pool if str(x).strip()]
-    return random.choice(pool) if pool else None
+# What a new design can start from.
+STARTER_DESIGNS = {
+    "standard": DEFAULT_DESIGN_ELEMENTS,
+    "compact": [
+        {"type": "text", "content": "{cinema}", "size": "wide", "bold": True},
+        {"type": "rule"},
+        {
+            "type": "columns",
+            "widths": [1, 2],
+            "cells": [
+                [{"type": "qr", "mode": "fun", "width": 100}],
+                [
+                    {"type": "text", "content": "{film_list}", "align": "left", "bold": True},
+                    {"type": "text", "content": "Seat {seat}", "align": "left", "size": "wide"},
+                    {"type": "text", "content": "{date} {time}", "align": "left"},
+                    {"type": "rating", "width": 40, "align": "left"},
+                ],
+            ],
+        },
+        {"type": "rule"},
+    ],
+    "blank": [],
+}
 
 
 def _substitute_tokens(text: str, tokens: dict[str, str]) -> str:
@@ -170,48 +231,60 @@ def _substitute_tokens(text: str, tokens: dict[str, str]) -> str:
     return text
 
 
-def validate_elements(elements, *, field: str = "elements") -> list[dict]:
-    """Validate/normalize a design's element list into clean dicts; raises ValidationError on a bad shape."""
-    if not isinstance(elements, list):
-        raise ValidationError("Ticket elements must be a list", details={"field": field})
-    cleaned = []
-    for raw in elements:
-        if not isinstance(raw, dict) or raw.get("type") not in ELEMENT_TYPES:
-            raise ValidationError(
-                f"Each element needs a valid type ({', '.join(ELEMENT_TYPES)})", details={"field": field}
-            )
-        t = raw["type"]
-        el: dict = {"type": t}
-        if raw.get("align") in ALIGNMENTS:
-            el["align"] = raw["align"]
-        if raw.get("size") in ELEMENT_SIZES and raw["size"] != "normal":
-            el["size"] = raw["size"]
-        if raw.get("bold"):
-            el["bold"] = True
-        if raw.get("invert"):
-            el["invert"] = True
-        if t in ("text", "barcode"):
-            el["content"] = str(raw.get("content", ""))[:500]
-        elif t == "rating":
-            el["scale"] = raw["scale"] if raw.get("scale") in RATING_SIZE_FRACTIONS else "medium"
-        elif t == "qr":
-            el["mode"] = "fun" if raw.get("mode") == "fun" else "content"
-            if el["mode"] == "content":
-                el["content"] = str(raw.get("content", ""))[:500]
-            try:
-                el["size"] = min(max(int(raw.get("size", DEFAULT_QR_SIZE)), QR_SIZE_MIN), QR_SIZE_MAX)
-            except (TypeError, ValueError):
-                el["size"] = DEFAULT_QR_SIZE
-        elif t == "spacer":
-            try:
-                el["lines"] = min(max(int(raw.get("lines", 1)), 1), 10)
-            except (TypeError, ValueError):
-                el["lines"] = 1
-        elif t == "image":
-            # basename() blocks path traversal on the library-image filename.
-            el["file"] = os.path.basename(str(raw.get("file") or ""))[:200]
-        cleaned.append(el)
+def parse_elements(elements) -> list:
+    """Stored or posted element dicts -> typed elements (schemas/tickets.py); raises ValidationError."""
+    try:
+        return ELEMENTS.validate_python(elements or [])
+    except PydanticValidationError as e:
+        first = e.errors()[0]
+        where = ".".join(str(part) for part in first["loc"])
+        raise ValidationError(f"Ticket element {where}: {first['msg']}", details={"field": "elements"}) from None
+
+
+def dump_elements(elements) -> list[dict]:
+    """Typed elements -> the JSON they store and travel as."""
+    return ELEMENTS.dump_python(elements, mode="json")
+
+
+def validate_design(data: dict) -> dict:
+    """Clean the design fields present in `data` (elements, formats, links, font); raises ValidationError."""
+    cleaned: dict = {}
+    if data.get("elements") is not None:
+        cleaned["elements"] = dump_elements(parse_elements(data["elements"]))
+    for key, choices in (("date_format", DATE_FORMATS), ("time_format", TIME_FORMATS), ("font", TICKET_FONTS)):
+        if data.get(key) is not None:
+            if data[key] not in choices:
+                raise ValidationError(f"Unknown {key.replace('_', ' ')}", details={"field": key})
+            cleaned[key] = data[key]
+    if data.get("qr_links") is not None:
+        links = [str(link).strip() for link in data["qr_links"] if str(link).strip()]
+        if len(links) > QR_LINKS_MAX or not all(link.startswith(("http://", "https://")) for link in links):
+            raise ValidationError(f"Up to {QR_LINKS_MAX} http(s) links", details={"field": "qr_links"})
+        cleaned["qr_links"] = links
     return cleaned
+
+
+def design_spec(design) -> dict:
+    """Everything rendering needs from a design: a TicketDesign, a draft dict of its fields, a bare element
+    list, or None (the built-in layout), with its elements typed. Missing or unknown values fall back to the
+    defaults."""
+    if design is None:
+        fields = {}
+    elif isinstance(design, list):
+        fields = {"elements": design}
+    elif isinstance(design, dict):
+        fields = design
+    else:
+        fields = {key: getattr(design, key) for key in ("elements", "date_format", "time_format", "qr_links", "font")}
+    links = fields.get("qr_links")
+    elements = fields.get("elements")
+    return {
+        "elements": parse_elements(DEFAULT_DESIGN_ELEMENTS if elements is None else elements),
+        "date_format": fields.get("date_format") if fields.get("date_format") in DATE_FORMATS else DATE_FORMATS[0],
+        "time_format": fields.get("time_format") if fields.get("time_format") in TIME_FORMATS else TIME_FORMATS[0],
+        "qr_links": list(DEFAULT_QR_LINKS) if links is None else [str(x).strip() for x in links if str(x).strip()],
+        "font": fields.get("font") if fields.get("font") in TICKET_FONTS else DEFAULT_FONT,
+    }
 
 
 def effective_certification(features) -> str | None:
@@ -234,13 +307,10 @@ def make_ticket_context(
     programme_name=None,
     features=None,
 ) -> dict:
-    """Build the token/render context. `scheduled` populates {showtime}; `features` drives {film_list}/{film}/rating."""
+    """Build the render context: what a ticket says, before a design formats it. `scheduled` populates
+    {showtime}; `features` drives {film_list}/{film}/rating."""
     when = when or timezone.localtime()
     when = timezone.localtime(when) if timezone.is_aware(when) else when
-    date_fmt = Settings.get("tickets.date_format", DATE_FORMATS[0])
-    time_fmt = Settings.get("tickets.time_format", TIME_FORMATS[0])
-    date_str = when.strftime(date_fmt if date_fmt in DATE_FORMATS else DATE_FORMATS[0])
-    time_str = when.strftime(time_fmt if time_fmt in TIME_FORMATS else TIME_FORMATS[0])
     features = features or []
     film = ""
     if len(features) == 1:
@@ -263,30 +333,21 @@ def make_ticket_context(
         "film_list": "\n".join(film_lines),
         "certification": effective_certification(features),
         "seat": seat or "",
-        "date": date_str,
-        "time": time_str,
-        "showtime": f"{date_str} {time_str}" if scheduled else "",
+        "when": when,
+        "scheduled": scheduled,
         "ticket_no": str(ticket_no) if ticket_no else "",
         "programme": programme_name or "",
         "features": features,
     }
 
 
-def _style_of(el: dict) -> dict:
+def _style_of(el) -> dict:
     return {
-        "align": el.get("align", "center"),
-        "size": el.get("size", "normal"),
-        "bold": bool(el.get("bold")),
-        "invert": bool(el.get("invert")),
+        "align": getattr(el, "align", "center"),
+        "size": getattr(el, "size", "normal"),
+        "bold": getattr(el, "bold", False),
+        "invert": getattr(el, "invert", False),
     }
-
-
-def _design_elements(design) -> list:
-    if design is None:
-        return DEFAULT_DESIGN_ELEMENTS
-    if isinstance(design, list):
-        return design
-    return design.elements or DEFAULT_DESIGN_ELEMENTS
 
 
 def resolve_ticket_design(programme=None):
@@ -315,50 +376,84 @@ def programme_features(programme) -> list[dict]:
     return feats
 
 
-def render_ticket_ops(elements, ctx: dict) -> list[dict]:
-    """Design elements + context -> the dict ops shared by print and preview. rule/spacer expand to text; blank text is skipped.
-    Each op carries `element` (its element's index) so the preview can map a line back to what made it."""
-    tokens = {k: (ctx.get(k) or "") for k in DESIGN_TOKENS}
+def design_tokens(ctx: dict, spec: dict) -> dict[str, str]:
+    """The {token} values for a ticket: the context's facts, with dates and times in the design's formats."""
+    when = ctx["when"]
+    date, time = when.strftime(spec["date_format"]), when.strftime(spec["time_format"])
+    values = {**ctx, "date": date, "time": time, "showtime": f"{date} {time}" if ctx.get("scheduled") else ""}
+    return {k: str(values.get(k) or "") for k in DESIGN_TOKENS}
+
+
+def _fun_qr_link(spec: dict) -> str | None:
+    return random.choice(spec["qr_links"]) if spec["qr_links"] else None
+
+
+def qr_data(el, tokens: dict, spec: dict) -> str | None:
+    """What a QR element encodes: one of the design's surprise links, or its content with tokens filled in."""
+    if el.mode == "fun":
+        return _fun_qr_link(spec)
+    return _substitute_tokens(el.content, tokens).strip() or None
+
+
+def render_ticket_ops(
+    design, ctx: dict, *, width: int | None = None, images: bool = True, preview: bool = False
+) -> list[dict]:
+    """A design (anything design_spec takes) + context -> the dict ops shared by print and preview.
+    rule/spacer expand to text; blank text is skipped. A columns row becomes one bitmap, or with `images`
+    off its text cells side by side. Each op carries `element` (its element's index) so the preview can
+    map a line back to what made it; with `preview`, an element that prints nothing gives an "empty" op."""
+    from cinefin.api.services import ticket_raster
+
+    spec = design_spec(design)
+    width = width if width in PRINTER_PROFILES else paper_width()
+    tokens = design_tokens(ctx, spec)
     ops: list[dict] = []
-    for index, el in enumerate(elements or []):
-        t = el.get("type")
+    for index, el in enumerate(spec["elements"]):
+        op = None
         style = {**_style_of(el), "element": index}
-        if t == "text":
-            value = _substitute_tokens(el.get("content", ""), tokens)
+        if el.type == "text":
+            value = _substitute_tokens(el.content, tokens)
             if value.strip():
-                ops.append({"op": "text", "value": value.rstrip("\n") + "\n", **style})
-        elif t == "rule":
-            ops.append({"op": "text", "value": RULE, **style})
-        elif t == "spacer":
-            ops.append({"op": "text", "value": "\n" * int(el.get("lines", 1) or 1), "element": index})
-        elif t == "image":
-            path = _ticket_image_path(el)
-            if path:
-                ops.append({"op": "image", "path": path, "file": el.get("file"), **style})
-        elif t == "rating":
-            path = _rating_image_path(ctx.get("certification"))
-            if path:
-                frac = RATING_SIZE_FRACTIONS.get(el.get("scale", "medium"), RATING_SIZE_FRACTIONS["medium"])
-                ops.append({"op": "rating", "path": path, "scale": frac, **style})
-        elif t == "qr":
-            data = (
-                _fun_qr_link() if el.get("mode") == "fun" else _substitute_tokens(el.get("content", ""), tokens).strip()
-            )
-            if data:
-                ops.append(
-                    {"op": "qr", "data": data, "size": int(el.get("size", DEFAULT_QR_SIZE) or DEFAULT_QR_SIZE), **style}
-                )
-        elif t == "barcode":
-            data = _substitute_tokens(el.get("content", ""), tokens).strip()
-            if data:
-                ops.append({"op": "barcode", "data": data, **style})
+                op = {"op": "text", "value": value.rstrip("\n") + "\n", **style}
+        elif el.type == "rule":
+            op = {"op": "text", "value": "=" * chars_per_line(width) + "\n", **style}
+        elif el.type == "spacer":
+            op = {"op": "text", "value": "\n" * el.lines, **style}
+        elif el.type == "columns":
+            if images:
+                image, regions = ticket_raster.render_row(el, tokens, spec, ctx, width, preview=preview)
+                op = {"op": "columns", "image": image, "regions": regions, "element": index}
+            elif text := ticket_raster.row_as_text(el, tokens, width):
+                op = {"op": "text", "value": text, **style, "align": "left"}
+        elif el.type in ("image", "rating"):
+            path = _ticket_image_path(el.file) if el.type == "image" else _rating_image_path(ctx.get("certification"))
+            if path and images:
+                op = {"op": el.type, "path": path, "width": el.width, **style}
+            elif path and preview:
+                op = {"op": "empty", "label": f"{el.type.title()}: images are off", "element": index}
+        elif el.type == "qr":
+            if data := qr_data(el, tokens, spec):
+                size = ticket_raster.qr_box(data, el.error, ticket_raster.share(width, el.width))
+                op = {"op": "qr", **style, "data": data, "size": size, "error": el.error, "render": el.render}
+        elif el.type == "barcode":
+            if data := _substitute_tokens(el.content, tokens).strip():
+                op = {"op": "barcode", "symbology": el.symbology, "data": data, **style}
+                try:
+                    op["data"] = barcode_data(el.symbology, data)
+                except ValueError as e:
+                    op["problem"] = str(e)  # previewed as a warning; printing skips it
+        if op is None and preview:
+            op = {"op": "empty", "label": ticket_raster.placeholder_label(el), "element": index}
+        if op is not None:
+            ops.append(op)
     return ops
 
 
-def _scaled_image_size(width: int, height: int, max_width: int) -> tuple[int, int]:
-    """Cap width at max_width dots, keep aspect."""
-    if width > max_width:
-        return max_width, max(1, round(height * max_width / width))
+def _scaled_image_size(width: int, height: int, max_width: int, percent: int | None = None) -> tuple[int, int]:
+    """Keep aspect: fill `percent` of max_width dots (up or down) when given, else just cap the width at it."""
+    target = max(1, max_width * percent // 100) if percent else min(width, max_width)
+    if target != width:
+        return target, max(1, round(height * target / width))
     return width, height
 
 
@@ -372,10 +467,11 @@ def flatten_transparency(img: Image.Image) -> Image.Image:
     return img
 
 
-def _prepare_image(path: str, max_width: int) -> Image.Image:
-    """Downscale to at most max_width dots (LANCZOS, keep aspect) and convert to 1-bit — unscaled images overflow the printer."""
+def _prepare_image(path: str, max_width: int, percent: int | None = None) -> Image.Image:
+    """Scale to fit max_width dots (LANCZOS, keep aspect; see _scaled_image_size) and convert to 1-bit — unscaled
+    images overflow the printer."""
     img = flatten_transparency(Image.open(path))
-    target = _scaled_image_size(img.width, img.height, max_width)
+    target = _scaled_image_size(img.width, img.height, max_width, percent)
     if target != img.size:
         img = img.resize(target, Image.Resampling.LANCZOS)
     return img.convert("1")
@@ -395,12 +491,74 @@ def probe_printer():
         raise RuntimeError(result["message"])
 
 
-def _print_barcode(printer, data: str) -> None:
-    """Native Code128 barcode; skipped (logged, not fatal) if it can't print."""
+def barcode_data(symbology: str, data: str) -> str:
+    """`data` as `symbology` can carry it (upper-cased, zero-padded, start/stop added); ValueError says why it can't."""
+    name = BARCODE_SYMBOLOGIES[symbology][0]
+    if symbology == "code128":
+        if not all(32 <= ord(c) < 127 for c in data):
+            raise ValueError(f"{name} takes plain letters, digits and punctuation")
+        return data
+    if symbology == "code39":
+        data = data.upper()
+        if not set(data) <= _CODE39_CHARS:
+            raise ValueError(f"{name} takes letters, digits, spaces and - . $ / + %")
+        return data
+    if symbology == "codabar":
+        if not set(data) <= _CODABAR_CHARS:
+            raise ValueError(f"{name} takes digits and - $ : / . +")
+        return f"A{data}A"
+    if not data.isdigit():
+        raise ValueError(f"{name} takes digits only")
+    if symbology == "itf":
+        return data.zfill(len(data) + len(data) % 2)  # pairs of digits
+    digits = _FIXED_DIGITS[symbology]
+    if len(data) > digits:
+        raise ValueError(f"{name} holds at most {digits} digits")
+    return data.zfill(digits)
+
+
+def _hw_barcode_code(symbology: str, data: str) -> str:
+    """The bytes the printer's own Code128 needs: Epson (and the GS k spec) want a code-set prefix, else print nothing."""
+    if symbology == "code128":
+        return "{B" + data.replace("{", "{{")
+    return data
+
+
+def _print_barcode(printer, op: dict) -> None:
+    """A barcode, drawn by the printer when its profile has a barcode engine, else as an image; skipped (logged) if it can't print."""
+    symbology = op["symbology"]
+    if op.get("problem"):
+        logger.warning("Skipping barcode %r: %s", op["data"], op["problem"])
+        return
+    bc = BARCODE_SYMBOLOGIES[symbology][1]
+    align_ct = op.get("align", "center") == "center"
     try:
-        printer.barcode(data, "CODE128", width=2, height=64, pos="BELOW", align_ct=True, check=False)
+        if printer.profile.supports("barcodeB") or printer.profile.supports("barcodeA"):
+            printer.barcode(
+                _hw_barcode_code(symbology, op["data"]),
+                bc,
+                width=2,
+                height=64,
+                pos="BELOW",
+                align_ct=align_ct,
+                function_type="B" if symbology == "code128" else None,
+                check=False,
+            )
+        else:
+            printer.barcode(op["data"], bc, width=2, height=64, align_ct=align_ct, force_software=True)
     except Exception as e:  # noqa: BLE001
-        logger.warning("Skipping unprintable barcode %r: %s", data, e)
+        logger.warning("Skipping unprintable barcode %r: %s", op["data"], e)
+
+
+def _print_qr(printer, op: dict) -> None:
+    """A QR code, drawn as an image here or by the printer's own QR engine (op['render'])."""
+    from escpos.constants import QR_ECLEVEL_H, QR_ECLEVEL_L, QR_ECLEVEL_M, QR_ECLEVEL_Q
+
+    ec = {"low": QR_ECLEVEL_L, "medium": QR_ECLEVEL_M, "quartile": QR_ECLEVEL_Q, "high": QR_ECLEVEL_H}[op["error"]]
+    if op.get("render") == "printer":
+        printer.qr(op["data"], ec=ec, size=op["size"], native=True)
+    else:
+        printer.qr(op["data"], ec=ec, size=op["size"])
 
 
 def _emit_op(printer, op: dict, width: int, impl: str | None) -> None:
@@ -413,23 +571,23 @@ def _emit_op(printer, op: dict, width: int, impl: str | None) -> None:
         printer.text(op["value"])
         printer.set(align="center", bold=False, invert=False, normal_textsize=True)
     elif kind in ("image", "rating"):
-        if not impl:  # images off
-            return
-        max_width = width if kind == "image" else int(width * op["scale"])
         printer.set(align=align)
-        printer.image(_prepare_image(op["path"], max_width), center=(align == "center"), impl=impl)
+        printer.image(_prepare_image(op["path"], width, op["width"]), center=(align == "center"), impl=impl)
     elif kind == "qr":
         printer.set(align=align)
-        printer.qr(op["data"], size=op["size"])
+        _print_qr(printer, op)
     elif kind == "barcode":
         printer.set(align=align)
-        _print_barcode(printer, op["data"])
+        _print_barcode(printer, op)
+    elif kind == "columns":
+        printer.set(align="center")
+        printer.image(op["image"], impl=impl)
 
 
 def print_ticket(design, ctx: dict):
-    """Render `design` (TicketDesign / elements list / None) for `ctx` and print; raises RuntimeError with a human reason."""
-    ops = render_ticket_ops(_design_elements(design), ctx)
+    """Render `design` (anything design_spec takes) for `ctx` and print; raises RuntimeError with a human reason."""
     width = paper_width()
+    ops = render_ticket_ops(design, ctx, width=width, images=image_impl() is not None)
     # Held across the whole open->write->close so no other job interleaves bytes (see _print_lock).
     with _print_lock:
         probe_printer()
@@ -451,6 +609,10 @@ def print_ticket(design, ctx: dict):
             pad = feed_lines()
             if pad:
                 printer.text("\n" * pad)
+            cut = cut_mode()
+            if cut != "off":
+                # Raw bytes, not printer.cut(): its feed=False path always sends a partial cut.
+                printer._raw(CUT_COMMANDS[cut])
             printer.close()
         except BrokenPipeError as e:
             # EPIPE: the other end stopped taking bytes mid-write — a transport-state problem, not a data problem.
@@ -539,51 +701,18 @@ def reprint_issue(issue) -> None:
     print_ticket(design, ctx)
 
 
-def preview_ticket(elements, ctx: dict) -> list[str]:
-    """Plain-text rendering of a design + context, for the UI text preview."""
-    lines: list[str] = []
-    for op in render_ticket_ops(elements, ctx):
-        kind = op["op"]
-        if kind == "text":
-            lines.extend(part for part in op["value"].split("\n") if part)
-        elif kind == "image":
-            lines.append(f"[ {op.get('file') or 'image'} ]")
-        elif kind == "rating":
-            lines.append(f"[ {os.path.basename(op['path'])} ]")
-        elif kind == "qr":
-            lines.append(f"[ QR → {op['data']} ]")
-        elif kind == "barcode":
-            lines.append(f"[ |||| {op['data']} ]")
-    return lines
+def preview_ticket(design, ctx: dict, *, width: int | None = None) -> dict:
+    """The designer's preview: the ticket drawn as it prints (lines that print nothing as grey placeholders),
+    as a PNG data URL, with where each line, cell and item sits on it, in printer dots."""
+    from cinefin.api.services import ticket_raster
 
-
-def preview_ticket_ops(elements, ctx: dict, *, width: int | None = None) -> tuple[list[dict], int]:
-    """JSON-safe styled-preview ops (+ printable width). Uses the print path's scaling math; images served via /tickets/preview/asset (bundled symbols aren't web-reachable)."""
-    if width not in PRINTER_PROFILES:
-        width = paper_width()
-    style_keys = ("align", "size", "bold", "invert", "element")
-    result: list[dict] = []
-    for op in render_ticket_ops(elements, ctx):
-        kind = op["op"]
-        style = {k: op[k] for k in style_keys if k in op}
-        if kind == "text":
-            result.append({"type": "text", "value": op["value"], **style})
-        elif kind in ("image", "rating"):
-            max_width = width if kind == "image" else int(width * op["scale"])
-            with Image.open(op["path"]) as img:
-                scaled_w, scaled_h = _scaled_image_size(img.width, img.height, max_width)
-            if kind == "rating":
-                url = f"/api/v2/tickets/preview/asset?kind=rating&cert={quote(ctx.get('certification') or '')}"
-            else:
-                url = f"/api/v2/tickets/preview/asset?kind=image&file={quote(op.get('file') or '')}"
-            result.append(
-                {"type": "image", "kind": kind, "width_px": scaled_w, "height_px": scaled_h, "url": url, **style}
-            )
-        elif kind == "qr":
-            result.append({"type": "qr", "url": op["data"], "size": op["size"], **style})
-        elif kind == "barcode":
-            result.append({"type": "barcode", "value": op["data"], **style})
-    return result, width
+    width = width if width in PRINTER_PROFILES else paper_width()
+    ops = render_ticket_ops(design, ctx, width=width, images=image_impl() is not None, preview=True)
+    image, lines = ticket_raster.render_preview(ops, width)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+    return {"url": url, "width": image.width, "height": image.height, "lines": lines}
 
 
 def next_available_seat(programme=None, schedule=None, exclude=()) -> str:
@@ -664,10 +793,6 @@ def print_run(
     return issues
 
 
-def preview_asset_path(kind: str, cert: str | None = None, file: str | None = None) -> str | None:
-    """Filesystem path of a ticket image for the styled preview, or None."""
-    if kind == "rating":
-        return _rating_image_path(cert)
-    if kind == "image":
-        return _ticket_image_path({"file": file})
-    return None
+def ticket_image_path(file: str | None) -> str | None:
+    """Filesystem path of a ticket-library image (for its thumbnail), or None."""
+    return _ticket_image_path(file)

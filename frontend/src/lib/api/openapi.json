@@ -677,6 +677,48 @@
         "title": "BackupInfoResponseSchema",
         "type": "object"
       },
+      "BarcodeElement": {
+        "properties": {
+          "align": {
+            "default": "center",
+            "enum": [
+              "left",
+              "center",
+              "right"
+            ],
+            "title": "Align",
+            "type": "string"
+          },
+          "content": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Content",
+            "type": "string"
+          },
+          "symbology": {
+            "default": "code128",
+            "enum": [
+              "code128",
+              "code39",
+              "ean13",
+              "ean8",
+              "upca",
+              "itf",
+              "codabar"
+            ],
+            "title": "Symbology",
+            "type": "string"
+          },
+          "type": {
+            "const": "barcode",
+            "default": "barcode",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "BarcodeElement",
+        "type": "object"
+      },
       "BlockTracksDataSchema": {
         "properties": {
           "audio_track_index": {
@@ -1409,6 +1451,66 @@
           "in_use"
         ],
         "title": "ClearLibrarySchema",
+        "type": "object"
+      },
+      "ColumnsElement": {
+        "properties": {
+          "cells": {
+            "items": {
+              "items": {
+                "discriminator": {
+                  "mapping": {
+                    "image": "#/components/schemas/ImageElement",
+                    "qr": "#/components/schemas/QrElement",
+                    "rating": "#/components/schemas/RatingElement",
+                    "rule": "#/components/schemas/RuleElement",
+                    "spacer": "#/components/schemas/SpacerElement",
+                    "text": "#/components/schemas/TextElement"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/TextElement"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ImageElement"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RatingElement"
+                  },
+                  {
+                    "$ref": "#/components/schemas/QrElement"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RuleElement"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SpacerElement"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "type": {
+            "const": "columns",
+            "default": "columns",
+            "title": "Type",
+            "type": "string"
+          },
+          "widths": {
+            "description": "Relative cell widths, 2 or 3 cells",
+            "items": {
+              "type": "integer"
+            },
+            "title": "Widths",
+            "type": "array"
+          }
+        },
+        "title": "ColumnsElement",
         "type": "object"
       },
       "CommandBasicSchema": {
@@ -2413,18 +2515,21 @@
       },
       "DesignCreateSchema": {
         "properties": {
-          "elements": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Elements",
-            "type": "array"
-          },
           "name": {
             "maxLength": 120,
             "minLength": 1,
             "title": "Name",
+            "type": "string"
+          },
+          "starter": {
+            "default": "standard",
+            "description": "The layout it starts from",
+            "enum": [
+              "standard",
+              "compact",
+              "blank"
+            ],
+            "title": "Starter",
             "type": "string"
           }
         },
@@ -2434,15 +2539,163 @@
         "title": "DesignCreateSchema",
         "type": "object"
       },
-      "DesignSchema": {
+      "DesignDraftSchema": {
+        "description": "A design's content as the designer holds it; anything left out takes the default.",
         "properties": {
+          "date_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "strftime preset (ticket_service.DATE_FORMATS)",
+            "title": "Date Format"
+          },
           "elements": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "discriminator": {
+                "mapping": {
+                  "barcode": "#/components/schemas/BarcodeElement",
+                  "columns": "#/components/schemas/ColumnsElement",
+                  "image": "#/components/schemas/ImageElement",
+                  "qr": "#/components/schemas/QrElement",
+                  "rating": "#/components/schemas/RatingElement",
+                  "rule": "#/components/schemas/RuleElement",
+                  "spacer": "#/components/schemas/SpacerElement",
+                  "text": "#/components/schemas/TextElement"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageElement"
+                },
+                {
+                  "$ref": "#/components/schemas/RatingElement"
+                },
+                {
+                  "$ref": "#/components/schemas/QrElement"
+                },
+                {
+                  "$ref": "#/components/schemas/BarcodeElement"
+                },
+                {
+                  "$ref": "#/components/schemas/RuleElement"
+                },
+                {
+                  "$ref": "#/components/schemas/SpacerElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ColumnsElement"
+                }
+              ]
             },
             "title": "Elements",
             "type": "array"
+          },
+          "font": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Font of the design's columns rows (ticket_service.TICKET_FONTS)",
+            "title": "Font"
+          },
+          "qr_links": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Links a surprise QR picks from (empty = no QR)",
+            "title": "Qr Links"
+          },
+          "time_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "strftime preset (ticket_service.TIME_FORMATS)",
+            "title": "Time Format"
+          }
+        },
+        "title": "DesignDraftSchema",
+        "type": "object"
+      },
+      "DesignSchema": {
+        "properties": {
+          "date_format": {
+            "title": "Date Format",
+            "type": "string"
+          },
+          "elements": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "barcode": "#/components/schemas/BarcodeElement",
+                  "columns": "#/components/schemas/ColumnsElement",
+                  "image": "#/components/schemas/ImageElement",
+                  "qr": "#/components/schemas/QrElement",
+                  "rating": "#/components/schemas/RatingElement",
+                  "rule": "#/components/schemas/RuleElement",
+                  "spacer": "#/components/schemas/SpacerElement",
+                  "text": "#/components/schemas/TextElement"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TextElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ImageElement"
+                },
+                {
+                  "$ref": "#/components/schemas/RatingElement"
+                },
+                {
+                  "$ref": "#/components/schemas/QrElement"
+                },
+                {
+                  "$ref": "#/components/schemas/BarcodeElement"
+                },
+                {
+                  "$ref": "#/components/schemas/RuleElement"
+                },
+                {
+                  "$ref": "#/components/schemas/SpacerElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ColumnsElement"
+                }
+              ]
+            },
+            "title": "Elements",
+            "type": "array"
+          },
+          "font": {
+            "title": "Font",
+            "type": "string"
           },
           "id": {
             "title": "Id",
@@ -2455,13 +2708,28 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "qr_links": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Qr Links",
+            "type": "array"
+          },
+          "time_format": {
+            "title": "Time Format",
+            "type": "string"
           }
         },
         "required": [
           "id",
           "name",
           "is_default",
-          "elements"
+          "elements",
+          "date_format",
+          "time_format",
+          "qr_links",
+          "font"
         ],
         "title": "DesignSchema",
         "type": "object"
@@ -2491,12 +2759,60 @@
       },
       "DesignUpdateSchema": {
         "properties": {
+          "date_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Format"
+          },
           "elements": {
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
-                  "type": "object"
+                  "discriminator": {
+                    "mapping": {
+                      "barcode": "#/components/schemas/BarcodeElement",
+                      "columns": "#/components/schemas/ColumnsElement",
+                      "image": "#/components/schemas/ImageElement",
+                      "qr": "#/components/schemas/QrElement",
+                      "rating": "#/components/schemas/RatingElement",
+                      "rule": "#/components/schemas/RuleElement",
+                      "spacer": "#/components/schemas/SpacerElement",
+                      "text": "#/components/schemas/TextElement"
+                    },
+                    "propertyName": "type"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TextElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ImageElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RatingElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/QrElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BarcodeElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RuleElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SpacerElement"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ColumnsElement"
+                    }
+                  ]
                 },
                 "type": "array"
               },
@@ -2505,6 +2821,17 @@
               }
             ],
             "title": "Elements"
+          },
+          "font": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Font"
           },
           "is_default": {
             "anyOf": [
@@ -2529,6 +2856,31 @@
               }
             ],
             "title": "Name"
+          },
+          "qr_links": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qr Links"
+          },
+          "time_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Format"
           }
         },
         "title": "DesignUpdateSchema",
@@ -3716,6 +4068,50 @@
           "index"
         ],
         "title": "HostScreenSchema",
+        "type": "object"
+      },
+      "ImageElement": {
+        "properties": {
+          "align": {
+            "default": "center",
+            "enum": [
+              "left",
+              "center",
+              "right"
+            ],
+            "title": "Align",
+            "type": "string"
+          },
+          "file": {
+            "default": "",
+            "description": "A ticket-library image",
+            "maxLength": 200,
+            "title": "File",
+            "type": "string"
+          },
+          "type": {
+            "const": "image",
+            "default": "image",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "anyOf": [
+              {
+                "description": "Share (%) of the paper, or of the cell, to fill",
+                "maximum": 100,
+                "minimum": 10,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unset: the image's own size, shrunk only if too wide",
+            "title": "Width"
+          }
+        },
+        "title": "ImageElement",
         "type": "object"
       },
       "ImageListResponseSchema": {
@@ -7435,6 +7831,96 @@
         "title": "PluginFailureSchema",
         "type": "object"
       },
+      "PreviewCellSchema": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewItemSchema"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "w": {
+            "title": "W",
+            "type": "integer"
+          },
+          "x": {
+            "title": "X",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "w",
+          "items"
+        ],
+        "title": "PreviewCellSchema",
+        "type": "object"
+      },
+      "PreviewItemSchema": {
+        "properties": {
+          "h": {
+            "description": "0 when the item prints nothing",
+            "title": "H",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "y",
+          "h"
+        ],
+        "title": "PreviewItemSchema",
+        "type": "object"
+      },
+      "PreviewLineSchema": {
+        "properties": {
+          "cells": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PreviewCellSchema"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A columns line's cells and their items",
+            "title": "Cells"
+          },
+          "element": {
+            "description": "Index of the design element this line is",
+            "title": "Element",
+            "type": "integer"
+          },
+          "empty": {
+            "default": false,
+            "description": "Prints nothing: a grey placeholder in the preview only",
+            "title": "Empty",
+            "type": "boolean"
+          },
+          "h": {
+            "title": "H",
+            "type": "integer"
+          },
+          "y": {
+            "title": "Y",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "element",
+          "y",
+          "h"
+        ],
+        "title": "PreviewLineSchema",
+        "type": "object"
+      },
       "PreviewTrailerItemSchema": {
         "properties": {
           "already_downloaded": {
@@ -8992,6 +9478,73 @@
         "title": "ProviderSettingsResponseSchema",
         "type": "object"
       },
+      "QrElement": {
+        "properties": {
+          "align": {
+            "default": "center",
+            "enum": [
+              "left",
+              "center",
+              "right"
+            ],
+            "title": "Align",
+            "type": "string"
+          },
+          "content": {
+            "default": "",
+            "maxLength": 500,
+            "title": "Content",
+            "type": "string"
+          },
+          "error": {
+            "default": "low",
+            "enum": [
+              "low",
+              "medium",
+              "quartile",
+              "high"
+            ],
+            "title": "Error",
+            "type": "string"
+          },
+          "mode": {
+            "default": "fun",
+            "description": "fun: one of the design's surprise links",
+            "enum": [
+              "fun",
+              "content"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "render": {
+            "default": "image",
+            "description": "Drawn here as an image, or by the printer",
+            "enum": [
+              "image",
+              "printer"
+            ],
+            "title": "Render",
+            "type": "string"
+          },
+          "type": {
+            "const": "qr",
+            "default": "qr",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "default": 50,
+            "description": "Share (%) of the paper, or of the cell, to fill",
+            "maximum": 100,
+            "minimum": 10,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "QrElement",
+        "type": "object"
+      },
       "RatingCardListResponseSchema": {
         "properties": {
           "data": {
@@ -9085,6 +9638,36 @@
           "generated_count"
         ],
         "title": "RatingCardSchema",
+        "type": "object"
+      },
+      "RatingElement": {
+        "properties": {
+          "align": {
+            "default": "center",
+            "enum": [
+              "left",
+              "center",
+              "right"
+            ],
+            "title": "Align",
+            "type": "string"
+          },
+          "type": {
+            "const": "rating",
+            "default": "rating",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "default": 25,
+            "description": "Share (%) of the paper, or of the cell, to fill",
+            "maximum": 100,
+            "minimum": 10,
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "title": "RatingElement",
         "type": "object"
       },
       "RatingsOptionsResponseSchema": {
@@ -9271,6 +9854,18 @@
           "data"
         ],
         "title": "RestoreResponseSchema",
+        "type": "object"
+      },
+      "RuleElement": {
+        "properties": {
+          "type": {
+            "const": "rule",
+            "default": "rule",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "RuleElement",
         "type": "object"
       },
       "RunResultDataSchema": {
@@ -10107,10 +10702,10 @@
             "title": "Subtitle Use Margins",
             "type": "boolean"
           },
-          "ticket_date_format": {
-            "default": "%d/%m/%Y",
-            "description": "Date format (preset strftime)",
-            "title": "Ticket Date Format",
+          "ticket_cut": {
+            "default": "off",
+            "description": "Paper cut after each ticket: off / partial / full",
+            "title": "Ticket Cut",
             "type": "string"
           },
           "ticket_feed_lines": {
@@ -10160,24 +10755,10 @@
             "title": "Ticket Printer Type",
             "type": "string"
           },
-          "ticket_qr_fun_links": {
-            "description": "Link pool for a fun-mode QR element (random pick per ticket)",
-            "items": {
-              "type": "string"
-            },
-            "title": "Ticket Qr Fun Links",
-            "type": "array"
-          },
           "ticket_seats_per_row": {
             "description": "Seats per row",
             "title": "Ticket Seats Per Row",
             "type": "integer"
-          },
-          "ticket_time_format": {
-            "default": "%H:%M",
-            "description": "Time format (preset strftime)",
-            "title": "Ticket Time Format",
-            "type": "string"
           },
           "ticket_total_rows": {
             "description": "Number of seat rows",
@@ -10421,6 +11002,25 @@
           }
         },
         "title": "SourceUpdateSchema",
+        "type": "object"
+      },
+      "SpacerElement": {
+        "properties": {
+          "lines": {
+            "default": 1,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Lines",
+            "type": "integer"
+          },
+          "type": {
+            "const": "spacer",
+            "default": "spacer",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "SpacerElement",
         "type": "object"
       },
       "SpeedControlSchema": {
@@ -11615,6 +12215,17 @@
       },
       "TestTicketRequestSchema": {
         "properties": {
+          "design": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DesignDraftSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Print this draft with the preview's sample details (else the default design)"
+          },
           "include_seat": {
             "default": true,
             "title": "Include Seat",
@@ -11622,6 +12233,56 @@
           }
         },
         "title": "TestTicketRequestSchema",
+        "type": "object"
+      },
+      "TextElement": {
+        "properties": {
+          "align": {
+            "default": "center",
+            "enum": [
+              "left",
+              "center",
+              "right"
+            ],
+            "title": "Align",
+            "type": "string"
+          },
+          "bold": {
+            "default": false,
+            "title": "Bold",
+            "type": "boolean"
+          },
+          "content": {
+            "default": "",
+            "description": "Text, with {tokens}",
+            "maxLength": 500,
+            "title": "Content",
+            "type": "string"
+          },
+          "invert": {
+            "default": false,
+            "title": "Invert",
+            "type": "boolean"
+          },
+          "size": {
+            "default": "normal",
+            "enum": [
+              "normal",
+              "wide",
+              "tall",
+              "large"
+            ],
+            "title": "Size",
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "default": "text",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "TextElement",
         "type": "object"
       },
       "TicketIssueSchema": {
@@ -11752,31 +12413,33 @@
       },
       "TicketPreviewDataSchema": {
         "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
           "lines": {
-            "description": "The ticket rendered line by line (images/QR as [ markers ])",
+            "description": "Where each line sits on the image, in dots",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/PreviewLineSchema"
             },
             "title": "Lines",
             "type": "array"
           },
-          "ops": {
-            "description": "Structured steps for the styled preview: {type:'text', value, size?}, {type:'image', kind:'rating', width_px, height_px, url} or {type:'qr', url, size}",
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Ops",
-            "type": "array"
+          "url": {
+            "description": "The ticket drawn as it prints, as a PNG data URL, 1 px per printer dot",
+            "title": "Url",
+            "type": "string"
           },
-          "paper_width": {
-            "default": 384,
-            "description": "Printable width in dots the preview was computed for",
-            "title": "Paper Width",
+          "width": {
+            "description": "Printable width in dots",
+            "title": "Width",
             "type": "integer"
           }
         },
         "required": [
+          "url",
+          "width",
+          "height",
           "lines"
         ],
         "title": "TicketPreviewDataSchema",
@@ -11784,6 +12447,17 @@
       },
       "TicketPreviewRequestSchema": {
         "properties": {
+          "design": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DesignDraftSchema"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A draft design to preview (else design_id, else default)"
+          },
           "design_id": {
             "anyOf": [
               {
@@ -11795,22 +12469,6 @@
             ],
             "description": "Preview a saved design",
             "title": "Design Id"
-          },
-          "elements": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Live design elements to preview (else design_id, else default)",
-            "title": "Elements"
           },
           "seat": {
             "anyOf": [
@@ -13695,7 +14353,7 @@
             "description": "Keep subtitles inside the video margins",
             "title": "Subtitle Use Margins"
           },
-          "ticket_date_format": {
+          "ticket_cut": {
             "anyOf": [
               {
                 "type": "string"
@@ -13704,8 +14362,8 @@
                 "type": "null"
               }
             ],
-            "description": "Date format (preset strftime)",
-            "title": "Ticket Date Format"
+            "description": "Paper cut after each ticket: off / partial / full",
+            "title": "Ticket Cut"
           },
           "ticket_feed_lines": {
             "anyOf": [
@@ -13809,21 +14467,6 @@
             "description": "Printer connection: file or network",
             "title": "Ticket Printer Type"
           },
-          "ticket_qr_fun_links": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Link pool for a fun-mode QR element (empty list = no QR)",
-            "title": "Ticket Qr Fun Links"
-          },
           "ticket_seats_per_row": {
             "anyOf": [
               {
@@ -13837,18 +14480,6 @@
             ],
             "description": "Seats per row",
             "title": "Ticket Seats Per Row"
-          },
-          "ticket_time_format": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Time format (preset strftime)",
-            "title": "Ticket Time Format"
           },
           "ticket_total_rows": {
             "anyOf": [
@@ -23421,26 +24052,6 @@
         ]
       }
     },
-    "/api/v2/tickets/designs/meta": {
-      "get": {
-        "operationId": "cinefin_api_ninja_views_ticket_ninja_design_meta",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        },
-        "security": [
-          {
-            "SessionAuthWhenEnabled": []
-          }
-        ],
-        "summary": "Design Meta",
-        "tags": [
-          "Tickets"
-        ]
-      }
-    },
     "/api/v2/tickets/designs/{design_id}": {
       "delete": {
         "operationId": "cinefin_api_ninja_views_ticket_ninja_delete_design",
@@ -23768,7 +24379,7 @@
     },
     "/api/v2/tickets/preview/asset": {
       "get": {
-        "description": "Stream a ticket image (rating symbol or library image) for previews \u2014 neither is web-served.",
+        "description": "Stream a ticket-library image, for the image library's thumbnails (the library isn't web-served).",
         "operationId": "cinefin_api_ninja_views_ticket_ninja_preview_asset",
         "parameters": [
           {
@@ -23778,22 +24389,6 @@
             "schema": {
               "title": "Kind",
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "cert",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cert"
             }
           },
           {

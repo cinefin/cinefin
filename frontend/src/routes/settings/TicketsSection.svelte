@@ -66,7 +66,8 @@
 				graphics: 'Graphics images',
 				off: 'No images'
 			}[store.main.ticket_image_mode as string] ?? 'Images',
-			`${store.main.ticket_feed_lines || 0} blank lines after each ticket`
+			`${store.main.ticket_feed_lines || 0} blank lines after each ticket`,
+			{ partial: 'Partial cut', full: 'Full cut' }[store.main.ticket_cut as string] ?? 'No cut'
 		].join(' · ')
 	);
 
@@ -281,6 +282,19 @@
 								placeholder="2"
 							/>
 						</Field>
+						<Field
+							label="Cut after each ticket"
+							forId="set-cut"
+							hint="Needs a printer with a cutter. Partial leaves a tab to tear."
+							dirty={store.isDirty('ticket_cut')}
+							error={store.errorFor('ticket_cut')}
+						>
+							<Select id="set-cut" bind:value={store.main.ticket_cut} class="w-full">
+								<option value="off">Off</option>
+								<option value="partial">Partial cut</option>
+								<option value="full">Full cut</option>
+							</Select>
+						</Field>
 						{#if isNetwork}
 							<Field
 								label="Timeout (s)"
@@ -316,7 +330,7 @@
 			<CheckResult result={resetResult} />
 		</div>
 	{:else}
-		<TicketDesigner {store} {confirm} />
+		<TicketDesigner {confirm} />
 	{/if}
 </div>
 

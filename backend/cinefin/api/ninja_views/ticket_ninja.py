@@ -1,6 +1,7 @@
 import datetime
 import logging
 import os
+from typing import Literal
 
 from django.http import FileResponse, HttpRequest
 from ninja import Field, Router, Schema, Status
@@ -8,6 +9,7 @@ from ninja import Field, Router, Schema, Status
 from cinefin.api.exceptions import NotFoundError, UnprocessableEntityError, ValidationError
 from cinefin.api.models import Programme, ProgrammeSchedule, Settings, TicketDesign, TicketIssue
 from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema, SuccessResponseSchema
+from cinefin.api.schemas.tickets import Element
 from cinefin.api.services import ticket_service
 
 logger = logging.getLogger(__name__)
@@ -55,8 +57,21 @@ class TicketSettingsUpdateSchema(Schema):
     ticket_seats_per_row: int | None = None
 
 
+class DesignDraftSchema(Schema):
+    """A design's content as the designer holds it; anything left out takes the default."""
+
+    elements: list[Element] = Field(default_factory=list)
+    date_format: str | None = Field(None, description="strftime preset (ticket_service.DATE_FORMATS)")
+    time_format: str | None = Field(None, description="strftime preset (ticket_service.TIME_FORMATS)")
+    qr_links: list[str] | None = Field(None, description="Links a surprise QR picks from (empty = no QR)")
+    font: str | None = Field(None, description="Font of the design's columns rows (ticket_service.TICKET_FONTS)")
+
+
 class TestTicketRequestSchema(Schema):
     include_seat: bool = True
+    design: DesignDraftSchema | None = Field(
+        None, description="Print this draft with the preview's sample details (else the default design)"
+    )
 
 
 class ProgrammeTicketRequestSchema(Schema):
@@ -67,23 +82,37 @@ class ProgrammeTicketRequestSchema(Schema):
 
 
 class TicketPreviewRequestSchema(Schema):
-    elements: list[dict] | None = Field(
-        None, description="Live design elements to preview (else design_id, else default)"
+    design: DesignDraftSchema | None = Field(
+        None, description="A draft design to preview (else design_id, else default)"
     )
     design_id: int | None = Field(None, description="Preview a saved design")
     seat: str | None = Field(None, description="Seat to show (sampled when omitted)")
 
 
+class PreviewItemSchema(Schema):
+    y: int
+    h: int = Field(..., description="0 when the item prints nothing")
+
+
+class PreviewCellSchema(Schema):
+    x: int
+    w: int
+    items: list[PreviewItemSchema]
+
+
+class PreviewLineSchema(Schema):
+    element: int = Field(..., description="Index of the design element this line is")
+    y: int
+    h: int
+    empty: bool = Field(False, description="Prints nothing: a grey placeholder in the preview only")
+    cells: list[PreviewCellSchema] | None = Field(None, description="A columns line's cells and their items")
+
+
 class TicketPreviewDataSchema(Schema):
-    lines: list[str] = Field(..., description="The ticket rendered line by line (images/QR as [ markers ])")
-    ops: list[dict] = Field(
-        default_factory=list,
-        description=(
-            "Structured steps for the styled preview: {type:'text', value, size?}, "
-            "{type:'image', kind:'rating', width_px, height_px, url} or {type:'qr', url, size}"
-        ),
-    )
-    paper_width: int = Field(384, description="Printable width in dots the preview was computed for")
+    url: str = Field(..., description="The ticket drawn as it prints, as a PNG data URL, 1 px per printer dot")
+    width: int = Field(..., description="Printable width in dots")
+    height: int
+    lines: list[PreviewLineSchema] = Field(..., description="Where each line sits on the image, in dots")
 
 
 class TicketPreviewResponseSchema(SuccessResponseSchema):
@@ -300,8 +329,14 @@ def update_ticket_settings(request: HttpRequest, data: TicketSettingsUpdateSchem
 def test_ticket_print(request: HttpRequest, data: TestTicketRequestSchema):
     seat = get_next_available_seat() if data.include_seat else None
 
-    ctx = ticket_service.make_ticket_context(features=[{"title": "Test Ticket"}], seat=seat, ticket_no=0)
-    _print_or_422(ticket_service.resolve_ticket_design(None), ctx)
+    if data.design is not None:
+        # The designer's test print: the design being edited, filled in as its preview is.
+        draft = ticket_service.validate_design(data.design.dict())
+        seat = seat or get_next_available_seat()
+        _print_or_422(draft, _sample_context(seat))
+    else:
+        ctx = ticket_service.make_ticket_context(features=[{"title": "Test Ticket"}], seat=seat, ticket_no=0)
+        _print_or_422(ticket_service.resolve_ticket_design(None), ctx)
 
     return TicketPrintResponseSchema(
         message="Test ticket printed successfully",
@@ -391,24 +426,11 @@ def get_seat_map(request: HttpRequest, programme_id: int, schedule_id: int | Non
     )
 
 
-@ticket_api.post(
-    "/preview", response={200: TicketPreviewResponseSchema, 400: ErrorResponseSchema, 404: ErrorResponseSchema}
-)
-def preview_ticket(request: HttpRequest, data: TicketPreviewRequestSchema):
-    if data.elements is not None:
-        elements = ticket_service.validate_elements(data.elements)
-    elif data.design_id:
-        try:
-            elements = TicketDesign.objects.get(pk=data.design_id).elements
-        except TicketDesign.DoesNotExist:
-            raise NotFoundError("Ticket design not found", error_code="DESIGN_NOT_FOUND") from None
-    else:
-        elements = ticket_service.resolve_ticket_design(None).elements
-
-    seat = data.seat or get_next_available_seat()
+def _sample_context(seat: str) -> dict:
+    """The made-up programme the designer previews and test-prints a design with."""
     year = datetime.datetime.now().year
     certs = ("PG", "15") if Settings.get_ratings_system() == "BBFC" else ("PG", "PG-13")
-    ctx = ticket_service.make_ticket_context(
+    return ticket_service.make_ticket_context(
         seat=seat,
         ticket_no=142,
         programme_name="Sample Programme",
@@ -418,22 +440,31 @@ def preview_ticket(request: HttpRequest, data: TicketPreviewRequestSchema):
         ],
     )
 
-    lines = ticket_service.preview_ticket(elements, ctx)
-    ops, width = ticket_service.preview_ticket_ops(elements, ctx)
-    return Status(
-        200,
-        TicketPreviewResponseSchema(
-            message="Ticket preview", data=TicketPreviewDataSchema(lines=lines, ops=ops, paper_width=width)
-        ),
-    )
+
+@ticket_api.post(
+    "/preview", response={200: TicketPreviewResponseSchema, 400: ErrorResponseSchema, 404: ErrorResponseSchema}
+)
+def preview_ticket(request: HttpRequest, data: TicketPreviewRequestSchema):
+    if data.design is not None:
+        design = ticket_service.validate_design(data.design.dict())
+    elif data.design_id:
+        try:
+            design = TicketDesign.objects.get(pk=data.design_id)
+        except TicketDesign.DoesNotExist:
+            raise NotFoundError("Ticket design not found", error_code="DESIGN_NOT_FOUND") from None
+    else:
+        design = ticket_service.resolve_ticket_design(None)
+
+    preview = ticket_service.preview_ticket(design, _sample_context(data.seat or get_next_available_seat()))
+    return Status(200, TicketPreviewResponseSchema(message="Ticket preview", data=TicketPreviewDataSchema(**preview)))
 
 
 @ticket_api.get("/preview/asset", response={404: ErrorResponseSchema})
-def preview_asset(request: HttpRequest, kind: str, cert: str | None = None, file: str | None = None):
-    """Stream a ticket image (rating symbol or library image) for previews — neither is web-served."""
-    if kind not in ("rating", "image"):
-        raise ValidationError("kind must be 'rating' or 'image'", error_code="INVALID_ASSET_KIND")
-    path = ticket_service.preview_asset_path(kind, cert, file)
+def preview_asset(request: HttpRequest, kind: str, file: str | None = None):
+    """Stream a ticket-library image, for the image library's thumbnails (the library isn't web-served)."""
+    if kind != "image":
+        raise ValidationError("kind must be 'image'", error_code="INVALID_ASSET_KIND")
+    path = ticket_service.ticket_image_path(file)
     if not path or not os.path.exists(path):
         raise NotFoundError("Ticket asset not found", error_code="TICKET_ASSET_NOT_FOUND")
     return FileResponse(open(path, "rb"))  # content type inferred from the filename
@@ -445,43 +476,43 @@ class DesignSummarySchema(Schema):
     is_default: bool
 
 
+DESIGN_FIELDS = ("elements", "date_format", "time_format", "qr_links", "font")
+
+
 class DesignSchema(Schema):
     id: int
     name: str
     is_default: bool
-    elements: list[dict]
+    elements: list[Element]
+    date_format: str
+    time_format: str
+    qr_links: list[str]
+    font: str
 
 
 class DesignCreateSchema(Schema):
     name: str = Field(..., min_length=1, max_length=120)
-    elements: list[dict] = Field(default_factory=list)
+    starter: Literal["standard", "compact", "blank"] = Field("standard", description="The layout it starts from")
 
 
 class DesignUpdateSchema(Schema):
     name: str | None = Field(None, min_length=1, max_length=120)
-    elements: list[dict] | None = None
+    elements: list[Element] | None = None
+    date_format: str | None = None
+    time_format: str | None = None
+    qr_links: list[str] | None = None
+    font: str | None = None
     is_default: bool | None = None
 
 
 def _design_out(d: TicketDesign) -> DesignSchema:
-    return DesignSchema(id=d.id, name=d.name, is_default=d.is_default, elements=d.elements)
+    return DesignSchema(id=d.id, name=d.name, is_default=d.is_default, **{k: getattr(d, k) for k in DESIGN_FIELDS})
 
 
 @ticket_api.get("/designs", response=list[DesignSummarySchema])
 def list_designs(request: HttpRequest):
     TicketDesign.get_default()
     return [DesignSummarySchema(id=d.id, name=d.name, is_default=d.is_default) for d in TicketDesign.objects.all()]
-
-
-@ticket_api.get("/designs/meta")
-def design_meta(request: HttpRequest):
-    return {
-        "element_types": list(ticket_service.ELEMENT_TYPES),
-        "tokens": list(ticket_service.DESIGN_TOKENS),
-        "alignments": list(ticket_service.ALIGNMENTS),
-        "sizes": list(ticket_service.ELEMENT_SIZES),
-        "rating_scales": list(ticket_service.RATING_SIZE_FRACTIONS.keys()),
-    }
 
 
 @ticket_api.get("/designs/{int:design_id}", response={200: DesignSchema, 404: ErrorResponseSchema})
@@ -494,7 +525,7 @@ def get_design(request: HttpRequest, design_id: int):
 
 @ticket_api.post("/designs", response={200: DesignSchema, 400: ErrorResponseSchema})
 def create_design(request: HttpRequest, data: DesignCreateSchema):
-    elements = ticket_service.validate_elements(data.elements)
+    elements = ticket_service.dump_elements(ticket_service.parse_elements(ticket_service.STARTER_DESIGNS[data.starter]))
     is_first = not TicketDesign.objects.exists()
     design = TicketDesign.objects.create(name=data.name.strip(), elements=elements, is_default=is_first)
     return _design_out(design)
@@ -510,8 +541,8 @@ def update_design(request: HttpRequest, design_id: int, data: DesignUpdateSchema
         raise NotFoundError("Ticket design not found", error_code="DESIGN_NOT_FOUND") from None
     if data.name is not None:
         design.name = data.name.strip()
-    if data.elements is not None:
-        design.elements = ticket_service.validate_elements(data.elements)
+    for key, value in ticket_service.validate_design(data.dict()).items():
+        setattr(design, key, value)
     if data.is_default:
         design.is_default = True  # save() demotes the others
     design.save()
@@ -524,7 +555,7 @@ def duplicate_design(request: HttpRequest, design_id: int):
         src = TicketDesign.objects.get(pk=design_id)
     except TicketDesign.DoesNotExist:
         raise NotFoundError("Ticket design not found", error_code="DESIGN_NOT_FOUND") from None
-    copy = TicketDesign.objects.create(name=f"{src.name} copy", elements=list(src.elements), is_default=False)
+    copy = TicketDesign.objects.create(name=f"{src.name} copy", **{k: getattr(src, k) for k in DESIGN_FIELDS})
     return _design_out(copy)
 
 

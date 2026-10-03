@@ -58,47 +58,12 @@ class Settings(models.Model):
             "printer_timeout": 30,
             # Blank lines fed past the tear bar / cutter. 0–20.
             "feed_lines": 2,
+            # Cut after each ticket: off / partial (leaves a tab) / full. Needs a printer with a cutter.
+            "cut": "off",
             # Image encoding (raster/column/graphics) or "off"; wrong choice prints garbage.
             "image_mode": "raster",
             # Dots: 384 (58mm) or 576 (80mm). Selects ESC/POS profile, caps image width.
             "paper_width": 384,
-            # QR "surprise link" pool — one picked at random per ticket. EMPTY
-            # list prints no QR; only a non-list falls back to ticket_service.FUN_QR_LINKS.
-            "qr_fun_links": [
-                "https://www.youtube.com/watch?v=V14PfDDwxlE",
-                "https://www.youtube.com/watch?v=8wI4jMxveyI",
-                "https://www.youtube.com/watch?v=qPGYBLaF15M",
-                "https://www.youtube.com/watch?v=21h0G_gU9Tw",
-                "https://www.youtube.com/watch?v=k8V9vgqeUPM",
-                "https://www.youtube.com/watch?v=7bXjWRXDFV8",
-                "https://www.youtube.com/watch?v=ZqZdfxc-fq0",
-            ],
-            # Ordered {"key", "enabled"} sections; "rule" (divider) may repeat.
-            # Section vocabulary lives in services/ticket_service.SECTION_KEYS.
-            "layout": [
-                {"key": "rule", "enabled": True},
-                {"key": "logo", "enabled": True},
-                {"key": "rule", "enabled": True},
-                {"key": "cinema_name", "enabled": True},
-                {"key": "header_text", "enabled": True},
-                {"key": "admit", "enabled": True},
-                {"key": "title", "enabled": True},
-                {"key": "rating", "enabled": True},
-                {"key": "rule", "enabled": True},
-                {"key": "qr", "enabled": True},
-                {"key": "footer_text", "enabled": True},
-            ],
-            # title via ESC/POS double width/height; rating as fraction of width; QR 1-16.
-            "title_size": "normal",
-            "rating_size": "medium",
-            "qr_size": 6,
-            # strftime formats validated against preset lists in ticket_service.
-            "admit_text": "ADMIT ONE",
-            "date_format": "%d/%m/%Y",
-            "time_format": "%H:%M",
-            # Tokens: {film} {seat} {date} {time} {cinema}.
-            "header_text": "",
-            "footer_text": "",
         },
         "playout": {
             # Base URL the playout host uses to fetch streamed media from Cinefin;

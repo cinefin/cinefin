@@ -3,11 +3,11 @@
     "align": "center",
     "bold": false,
     "element": 0,
-    "file": "logo.png",
     "invert": false,
     "op": "image",
     "path": "<MEDIA>/ticket_images/logo.png",
-    "size": "normal"
+    "size": "normal",
+    "width": null
   },
   {
     "align": "center",
@@ -25,7 +25,7 @@
     "invert": false,
     "op": "text",
     "size": "normal",
-    "value": "=============================\n"
+    "value": "================================\n"
   },
   {
     "align": "center",
@@ -70,8 +70,8 @@
     "invert": false,
     "op": "rating",
     "path": "<ASSETS>/ratings/BBFC/pos/PG.png",
-    "scale": 0.35,
-    "size": "normal"
+    "size": "normal",
+    "width": 35
   },
   {
     "align": "right",
@@ -101,8 +101,12 @@
     "value": "Show: 14/03/2026 19:30\n"
   },
   {
+    "align": "center",
+    "bold": false,
     "element": 11,
+    "invert": false,
     "op": "text",
+    "size": "normal",
     "value": "\n\n"
   },
   {
@@ -112,15 +116,18 @@
     "element": 12,
     "invert": false,
     "op": "barcode",
-    "size": "normal"
+    "size": "normal",
+    "symbology": "code128"
   },
   {
     "align": "center",
     "bold": false,
     "data": "https://tickets.example/check/101",
     "element": 13,
+    "error": "low",
     "invert": false,
     "op": "qr",
+    "render": "image",
     "size": 4
   },
   {
@@ -128,8 +135,10 @@
     "bold": false,
     "data": "https://cinefin.example/fun",
     "element": 14,
+    "error": "low",
     "invert": false,
     "op": "qr",
+    "render": "image",
     "size": 6
   },
   {
@@ -142,12 +151,12 @@
     "value": "Ticket #101\n"
   },
   {
-    "align": "left",
+    "align": "center",
     "bold": false,
     "element": 16,
     "invert": false,
     "op": "text",
     "size": "normal",
-    "value": "=============================\n"
+    "value": "================================\n"
   }
 ]

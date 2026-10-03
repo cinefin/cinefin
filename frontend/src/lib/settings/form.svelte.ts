@@ -33,11 +33,9 @@ export interface MainDraft {
 	ticket_printer_port: string;
 	ticket_printer_timeout: string;
 	ticket_feed_lines: string;
+	ticket_cut: string;
 	ticket_image_mode: string;
-	ticket_qr_fun_links: string[];
 	ticket_paper_width: string;
-	ticket_date_format: string;
-	ticket_time_format: string;
 	subtitle_font_size: string;
 	subtitle_color: string;
 	subtitle_border_style: string;
@@ -100,11 +98,9 @@ function emptyMain(): MainDraft {
 		ticket_printer_port: '9100',
 		ticket_printer_timeout: '30',
 		ticket_feed_lines: '2',
+		ticket_cut: 'off',
 		ticket_image_mode: 'raster',
-		ticket_qr_fun_links: [],
 		ticket_paper_width: '384',
-		ticket_date_format: '%d/%m/%Y',
-		ticket_time_format: '%H:%M',
 		subtitle_font_size: '55',
 		subtitle_color: '#FFFFFF',
 		subtitle_border_style: 'outline-and-shadow',
@@ -241,11 +237,9 @@ export class SettingsStore {
 				ticket_printer_port: String(s.ticket_printer_port ?? 9100),
 				ticket_printer_timeout: String(s.ticket_printer_timeout ?? 30),
 				ticket_feed_lines: String(s.ticket_feed_lines ?? 2),
+				ticket_cut: s.ticket_cut || 'off',
 				ticket_image_mode: s.ticket_image_mode || 'raster',
-				ticket_qr_fun_links: (s.ticket_qr_fun_links ?? []).slice(),
 				ticket_paper_width: s.ticket_paper_width === 576 ? '576' : '384',
-				ticket_date_format: s.ticket_date_format ?? '%d/%m/%Y',
-				ticket_time_format: s.ticket_time_format ?? '%H:%M',
 				subtitle_font_size: String(s.subtitle_font_size ?? 55),
 				subtitle_color: s.subtitle_color || '#FFFFFF',
 				subtitle_border_style: s.subtitle_border_style || 'outline-and-shadow',
@@ -314,11 +308,9 @@ export class SettingsStore {
 						ticket_printer_port: int(m.ticket_printer_port, 9100),
 						ticket_printer_timeout: int(m.ticket_printer_timeout, 30),
 						ticket_feed_lines: clamp(int(m.ticket_feed_lines, 0), 0, 20),
+						ticket_cut: m.ticket_cut,
 						ticket_image_mode: m.ticket_image_mode,
-						ticket_qr_fun_links: m.ticket_qr_fun_links.map((l) => l.trim()).filter(Boolean),
 						ticket_paper_width: int(m.ticket_paper_width, 384),
-						ticket_date_format: m.ticket_date_format,
-						ticket_time_format: m.ticket_time_format,
 						subtitle_font_size: int(m.subtitle_font_size, 55),
 						subtitle_color: m.subtitle_color,
 						subtitle_border_style: m.subtitle_border_style,

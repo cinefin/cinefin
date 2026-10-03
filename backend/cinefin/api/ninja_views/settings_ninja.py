@@ -43,13 +43,9 @@ class SettingsDataSchema(Schema):
     ticket_printer_port: int = Field(default=9100, description="Network printer port")
     ticket_printer_timeout: int = Field(default=30, description="Network print socket timeout (seconds)")
     ticket_feed_lines: int = Field(default=2, description="Blank lines fed after each ticket (0-20)")
+    ticket_cut: str = Field(default="off", description="Paper cut after each ticket: off / partial / full")
     ticket_image_mode: str = Field(default="raster", description="Image encoding: raster / column / graphics / off")
-    ticket_qr_fun_links: list[str] = Field(
-        default_factory=list, description="Link pool for a fun-mode QR element (random pick per ticket)"
-    )
     ticket_paper_width: int = Field(default=384, description="Printable width in dots: 384 (58mm) or 576 (80mm)")
-    ticket_date_format: str = Field(default="%d/%m/%Y", description="Date format (preset strftime)")
-    ticket_time_format: str = Field(default="%H:%M", description="Time format (preset strftime)")
 
     subtitle_font_size: int = Field(default=55, description="Subtitle font size (mpv sub-font-size)")
     subtitle_color: str = Field(default="#FFFFFF", description="Subtitle text colour #rrggbb")
@@ -114,15 +110,11 @@ class UpdateSettingsSchema(Schema):
         default=None, ge=1, le=600, description="Network print socket timeout (seconds)"
     )
     ticket_feed_lines: int | None = Field(default=None, ge=0, le=20, description="Blank lines fed after each ticket")
+    ticket_cut: str | None = Field(default=None, description="Paper cut after each ticket: off / partial / full")
     ticket_image_mode: str | None = Field(default=None, description="Image encoding: raster / column / graphics / off")
-    ticket_qr_fun_links: list[str] | None = Field(
-        default=None, description="Link pool for a fun-mode QR element (empty list = no QR)"
-    )
     ticket_paper_width: int | None = Field(
         default=None, description="Printable width in dots: 384 (58mm) or 576 (80mm)"
     )
-    ticket_date_format: str | None = Field(default=None, description="Date format (preset strftime)")
-    ticket_time_format: str | None = Field(default=None, description="Time format (preset strftime)")
 
     subtitle_font_size: int | None = Field(default=None, ge=8, le=200, description="Subtitle font size")
     subtitle_color: str | None = Field(default=None, description="Subtitle text colour #rrggbb")
@@ -214,13 +206,9 @@ def _build_settings_response(all_settings: dict, updated_at: str) -> SettingsDat
         ticket_printer_port=all_settings.get("tickets", {}).get("printer_port", 9100),
         ticket_printer_timeout=all_settings.get("tickets", {}).get("printer_timeout", 30),
         ticket_feed_lines=all_settings.get("tickets", {}).get("feed_lines", 2),
+        ticket_cut=all_settings.get("tickets", {}).get("cut", "off"),
         ticket_image_mode=all_settings.get("tickets", {}).get("image_mode", "raster"),
-        ticket_qr_fun_links=[
-            link for link in all_settings.get("tickets", {}).get("qr_fun_links", []) if isinstance(link, str)
-        ],
         ticket_paper_width=all_settings.get("tickets", {}).get("paper_width", 384),
-        ticket_date_format=all_settings.get("tickets", {}).get("date_format", "%d/%m/%Y"),
-        ticket_time_format=all_settings.get("tickets", {}).get("time_format", "%H:%M"),
         subtitle_font_size=int(subtitles.get("font_size", 55)),
         subtitle_color=subtitles.get("color", "#FFFFFF"),
         subtitle_border_style=subtitles.get("border_style", "outline-and-shadow"),
@@ -286,11 +274,9 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         "ticket_printer_port": "tickets.printer_port",
         "ticket_printer_timeout": "tickets.printer_timeout",
         "ticket_feed_lines": "tickets.feed_lines",
+        "ticket_cut": "tickets.cut",
         "ticket_image_mode": "tickets.image_mode",
-        "ticket_qr_fun_links": "tickets.qr_fun_links",
         "ticket_paper_width": "tickets.paper_width",
-        "ticket_date_format": "tickets.date_format",
-        "ticket_time_format": "tickets.time_format",
         "subtitle_font_size": "playout.subtitles.font_size",
         "subtitle_color": "playout.subtitles.color",
         "subtitle_border_style": "playout.subtitles.border_style",
@@ -326,6 +312,9 @@ def update_settings(request: HttpRequest, data: UpdateSettingsSchema):
         raise ValidationError(
             "Image mode must be raster, column, graphics or off", details={"field": "ticket_image_mode"}
         )
+
+    if data.ticket_cut is not None and data.ticket_cut not in ("off", "partial", "full"):
+        raise ValidationError("Cut must be off, partial or full", details={"field": "ticket_cut"})
 
     if data.ticket_paper_width is not None and data.ticket_paper_width not in (384, 576):
         raise ValidationError("Paper width must be 384 or 576 dots", details={"field": "ticket_paper_width"})

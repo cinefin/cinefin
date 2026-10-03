@@ -43,17 +43,23 @@ FULL_DESIGN = [
     {"type": "text", "content": "{programme}", "size": "wide", "bold": True},
     {"type": "text", "content": "{film}"},
     {"type": "text", "content": "{film_list}", "align": "left"},
-    {"type": "rating", "scale": "large"},
+    {"type": "rating", "width": 35},
     {"type": "text", "content": "Seat {seat}", "size": "tall", "align": "right"},
     {"type": "text", "content": "{date} {time}"},
     {"type": "text", "content": "Show: {showtime}"},
     {"type": "spacer", "lines": 2},
     {"type": "barcode", "content": "T{ticket_no}"},
-    {"type": "qr", "mode": "content", "content": "https://tickets.example/check/{ticket_no}", "size": 4},
-    {"type": "qr", "mode": "fun", "size": 6},
+    {"type": "qr", "mode": "content", "content": "https://tickets.example/check/{ticket_no}", "width": 33},
+    {"type": "qr", "mode": "fun", "width": 43},
     {"type": "text", "content": "Ticket #{ticket_no}"},
     {"type": "rule", "align": "left"},
 ]
+
+
+def _design(elements):
+    # One surprise link -> a deterministic choice.
+    return {"elements": elements, "qr_links": ["https://cinefin.example/fun"], "date_format": "%d/%m/%Y"}
+
 
 # 14 March 2026 is outside BST, so Europe/London localtime == the naive value.
 FIXED_WHEN = dt.datetime(2026, 3, 14, 19, 30)
@@ -69,9 +75,6 @@ TRIPLE_FEATURE = [
 @pytest.fixture
 def pinned_settings():
     Settings.set("cinema.name", "The Regal")
-    Settings.set("tickets.qr_fun_links", ["https://cinefin.example/fun"])  # one link -> deterministic choice
-    Settings.set("tickets.date_format", "%d/%m/%Y")
-    Settings.set("tickets.time_format", "%H:%M")
     Settings.set("tickets.paper_width", 384)
     Settings.set("tickets.image_mode", "raster")
     Settings.set("tickets.feed_lines", 2)
@@ -113,14 +116,14 @@ class TestRenderOpsGolden:
 
     def test_single_feature_scheduled(self):
         ctx = _ctx(SINGLE_FEATURE, scheduled=True, programme_name="Noir Night", ticket_no=101, seat="C4")
-        elements = ticket_service.validate_elements(FULL_DESIGN)
-        ops = ticket_service.render_ticket_ops(elements, ctx)
+        elements = ticket_service.dump_elements(ticket_service.parse_elements(FULL_DESIGN))
+        ops = ticket_service.render_ticket_ops(_design(elements), ctx)
         assert_matches_golden("ops_full_design_single_feature.json", _normalised_ops_json(ops))
 
     def test_triple_feature_unscheduled(self):
         ctx = _ctx(TRIPLE_FEATURE, scheduled=False, programme_name="Brit Grit Triple", ticket_no=202, seat="J12")
-        elements = ticket_service.validate_elements(FULL_DESIGN)
-        ops = ticket_service.render_ticket_ops(elements, ctx)
+        elements = ticket_service.dump_elements(ticket_service.parse_elements(FULL_DESIGN))
+        ops = ticket_service.render_ticket_ops(_design(elements), ctx)
         assert_matches_golden("ops_full_design_triple_feature.json", _normalised_ops_json(ops))
 
 
@@ -156,7 +159,7 @@ class TestEscposByteGolden:
         monkeypatch.setattr(ticket_service, "open_printer", lambda: dummy)
 
         ctx = _ctx(SINGLE_FEATURE, scheduled=True, programme_name="Noir Night", ticket_no=101, seat="C4")
-        ticket_service.print_ticket(FULL_DESIGN, ctx)
+        ticket_service.print_ticket(_design(FULL_DESIGN), ctx)
 
         stream = dummy.output
         assert stream.startswith(b"\x1b@"), "every ticket must start with ESC @ (hw INIT)"
