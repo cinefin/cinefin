@@ -432,12 +432,9 @@
 				<p class="text-sm leading-relaxed">{m.description || 'No synopsis available.'}</p>
 
 				<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-					{#if m.has_trailer}
-						{@const trailerHref = m.trailer_id
-							? `${base}/trailers?trailer=${m.trailer_id}`
-							: `${base}/trailers?q=${encodeURIComponent(m.title)}`}
+					{#if m.trailer_id}
 						<a
-							href={trailerHref}
+							href="{base}/trailers?trailer={m.trailer_id}"
 							class="inline-flex items-center gap-1.5 hover:text-accent"
 							title="Open this film's entry in the trailer library"
 						>

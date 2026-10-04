@@ -348,6 +348,8 @@ def playout_status() -> PlayoutStatusDataSchema:
         status.label = f"Cued · {programme.name}"
     elif phase == PRESHOW:
         status.screen, status.label = "Title card", "Pre-show · Title card"
+    elif phase == PAUSED and order is None:
+        status.screen, status.label = "Title card", "Pre-show · paused"
     elif phase == HOLD:
         status.screen, status.label = "Black", f"Hold · {title}"
     elif phase == PAUSED:

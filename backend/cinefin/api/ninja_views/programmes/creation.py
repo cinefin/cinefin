@@ -27,7 +27,7 @@ class CreateFromTemplateSchema(Schema):
 class ProgrammeBlockDetailSchema(Schema):
     order: int
     type: str
-    runtime: float
+    duration_seconds: float = Field(..., description="Seconds (an estimate for blocks resolved at generation)")
     title: str
     details: dict[str, Any]
 
@@ -35,7 +35,7 @@ class ProgrammeBlockDetailSchema(Schema):
 class ProgrammePreviewSchema(Schema):
     name: str
     description: str
-    total_runtime: float
+    total_runtime: float = Field(..., description="Minutes")
     total_blocks: int
     blocks: list[ProgrammeBlockDetailSchema]
     preview: bool

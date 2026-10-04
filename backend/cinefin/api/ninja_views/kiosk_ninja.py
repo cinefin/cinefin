@@ -24,6 +24,7 @@ class KioskFilmSchema(Schema):
 class KioskScreeningSchema(Schema):
     id: int = Field(..., description="Schedule ID")
     programme: str = Field(..., description="Programme name")
+    programme_id: int
     start: str = Field(..., description="Start time (ISO)")
     end: str = Field(..., description="End time (ISO)")
     runtime: int = Field(..., description="Minutes")

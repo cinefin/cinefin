@@ -1,5 +1,7 @@
 """PlaylistService: block resolution and the save round-trip (a trailing "system" black item ends every playlist)."""
 
+import importlib
+
 import pytest
 
 from cinefin.api.models import AudioTrack, MoviePlayback, TrailerRule
@@ -95,6 +97,32 @@ def test_audio_bumper_follows_its_bound_feature():
 
     (bump,) = build(programme, "bumper")
     assert (bump["title"], bump["metadata"]["feature"]) == ("DD intro", "DD Feature")
+
+
+def test_unbound_audio_bumper_plays_nothing():
+    programme = ProgrammeFactory()
+    movie = MovieFactory()
+    AudioTrack.objects.create(movie=movie, language="en", codec="ac3", channels=6, index=0)
+    BumperFactory(audio_format="dolby_digital")
+    block_for(programme, 0, "audio_bumper", None)
+    block_for(programme, 1, "movie", movie)
+
+    assert build(programme, "bumper") == []
+
+
+def test_backfill_binds_unbound_audio_bumpers_to_the_next_feature():
+    from django.apps import apps
+
+    backfill = importlib.import_module("cinefin.api.migrations.0057_backfill_audio_bumper_feature").forwards
+    programme = ProgrammeFactory()
+    first, second = MovieFactory(), MovieFactory()
+    bound = block_for(programme, 0, "audio_bumper", None, movie=second)
+    unbound = block_for(programme, 1, "audio_bumper", None)
+    block_for(programme, 2, "movie", first)
+    trailing = block_for(programme, 3, "audio_bumper", None)
+
+    backfill(apps, None)
+    assert [b.movie for b in (bound, unbound, trailing) if not b.refresh_from_db()] == [second, first, None]
 
 
 class TestSavePlaylist:

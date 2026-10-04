@@ -26,12 +26,13 @@ export interface PreviewBlockDetails {
 export interface PreviewBlock {
 	order: number;
 	type: string;
-	runtime: number;
+	duration_seconds: number;
 	title: string;
 	details: PreviewBlockDetails;
 }
 
 export interface ProgrammePreview {
+	/** Minutes. */
 	total_runtime: number;
 	total_blocks: number;
 	blocks: PreviewBlock[];
@@ -41,7 +42,7 @@ interface RowBase {
 	key: string;
 	order: number;
 	number: number;
-	runtime: number | null;
+	seconds: number | null;
 	estimated: boolean;
 }
 
@@ -144,7 +145,9 @@ function supportText(
 			return { title: item.trailer?.title ?? block?.title ?? 'Trailer', note: '' };
 		case 'audio_bumper':
 			return {
-				title: 'Audio intro',
+				title: block?.details.reference_movie_title
+					? `Audio intro for ${block.details.reference_movie_title}`
+					: 'Audio intro',
 				note: `matched to feature ${item.bound_to_feature ?? '?'}`
 			};
 		default:
@@ -180,7 +183,9 @@ export function buildRundown(
 				featureNumber: numbers[index] ?? index + 1,
 				slotIndex: index,
 				item: slotted,
-				runtime: block?.runtime ?? (slotted?.kind === 'movie' ? slotted.runtime : null),
+				seconds:
+					block?.duration_seconds ??
+					(slotted?.kind === 'movie' && slotted.runtime !== null ? slotted.runtime * 60 : null),
 				estimated: slotted?.kind === 'random' || !!block?.details.estimated
 			});
 			continue;
@@ -197,7 +202,7 @@ export function buildRundown(
 			note,
 			cue: item.item_type === 'command' && !item.hold_black,
 			included,
-			runtime: block?.runtime ?? null,
+			seconds: block?.duration_seconds ?? null,
 			estimated: ESTIMATED_TYPES.has(item.item_type) || !!block?.details.estimated
 		});
 	}
@@ -212,10 +217,10 @@ export const rowCols = {
 } as const;
 
 // Seconds for sub-minute rows so idents/cards don't round to "0 min"; "≈" marks projections.
-export function rowRuntime(minutes: number, estimated = false): string {
+export function rowRuntime(secs: number, estimated = false): string {
 	const prefix = estimated ? '≈ ' : '';
-	if (minutes < 1) return `${prefix}${Math.max(1, Math.round(minutes * 60))} s`;
-	return `${prefix}${formatRuntime(minutes)}`;
+	if (secs < 60) return `${prefix}${Math.max(1, Math.round(secs))} s`;
+	return `${prefix}${formatRuntime(secs / 60)}`;
 }
 
 export function slotMeta(item: SelectedItem): string {

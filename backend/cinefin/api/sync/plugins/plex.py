@@ -120,7 +120,7 @@ class PlexSource(SyncSourcePlugin):
 
             # Tracks OUTSIDE the transaction; reload first so media data is complete.
             plex_movie.reload()
-            mediapart = plex_movie.media[0].parts[0]
+            mediapart = _best_media(plex_movie).parts[0]
             if video_streams := mediapart.videoStreams():
                 v = video_streams[0]
                 apply_video_attrs(
@@ -150,7 +150,7 @@ class PlexSource(SyncSourcePlugin):
                         "forced": getattr(t, "forced", False),
                         "sdh": getattr(t, "hearingImpaired", False),
                     }
-                    for t in plex_movie.subtitleStreams()
+                    for t in mediapart.subtitleStreams()
                 ],
             )
             return "updated" if existing else "added"

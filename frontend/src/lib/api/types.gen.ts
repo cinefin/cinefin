@@ -4731,6 +4731,8 @@ export interface components {
              * @description Programme name
              */
             programme: string;
+            /** Programme Id */
+            programme_id: number;
             /**
              * Runtime
              * @description Minutes
@@ -6036,10 +6038,13 @@ export interface components {
             details: {
                 [key: string]: unknown;
             };
+            /**
+             * Duration Seconds
+             * @description Seconds (an estimate for blocks resolved at generation)
+             */
+            duration_seconds: number;
             /** Order */
             order: number;
-            /** Runtime */
-            runtime: number;
             /** Title */
             title: string;
             /** Type */
@@ -6159,7 +6164,10 @@ export interface components {
             title_template_id?: number | null;
             /** Total Blocks */
             total_blocks: number;
-            /** Total Runtime */
+            /**
+             * Total Runtime
+             * @description Minutes
+             */
             total_runtime: number;
             /** Updated At */
             updated_at: string;
@@ -6231,7 +6239,10 @@ export interface components {
             details: {
                 [key: string]: unknown;
             };
-            /** Duration Seconds */
+            /**
+             * Duration Seconds
+             * @description Seconds (an estimate for blocks resolved at generation)
+             */
             duration_seconds: number;
             /** Id */
             id: number;
@@ -6283,7 +6294,10 @@ export interface components {
             template_name?: string | null;
             /** Total Blocks */
             total_blocks: number;
-            /** Total Runtime */
+            /**
+             * Total Runtime
+             * @description Minutes
+             */
             total_runtime: number;
         };
         /** ProgrammeListResponseDataSchema */
@@ -6335,7 +6349,10 @@ export interface components {
             template_name?: string | null;
             /** Total Blocks */
             total_blocks: number;
-            /** Total Runtime */
+            /**
+             * Total Runtime
+             * @description Minutes
+             */
             total_runtime: number;
         };
         /** ProgrammeTicketRequestSchema */
@@ -6780,7 +6797,7 @@ export interface components {
             id: number;
             /**
              * Last Error
-             * @description Reason the run failed, if any
+             * @description Why it didn't play (missed or failed), if known
              */
             last_error?: string | null;
             /**
@@ -13735,6 +13752,7 @@ export interface operations {
         parameters: {
             query?: {
                 programme_id?: number | null;
+                schedule_id?: number | null;
             };
             header?: never;
             path?: never;

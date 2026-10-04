@@ -66,6 +66,7 @@ def build_kiosk_content() -> tuple[list[dict], list[dict]]:
             {
                 "id": schedule.id,
                 "programme": schedule.programme.name,
+                "programme_id": schedule.programme_id,
                 "start": schedule.play_time().isoformat(),  # the showtime, not the lead-in
                 "end": end_time.isoformat(),
                 "runtime": schedule.runtime,

@@ -251,10 +251,12 @@ def reprint_ticket(request: HttpRequest, issue_id: int):
 
 
 @ticket_api.get("/issued", response={200: TicketIssuedResponseSchema, **E404})
-def list_issued_tickets(request: HttpRequest, programme_id: int | None = None):
+def list_issued_tickets(request: HttpRequest, programme_id: int | None = None, schedule_id: int | None = None):
     issues = TicketIssue.objects.all()
     if programme_id is not None:
         issues = issues.filter(programme=_get_programme(programme_id))
+    if schedule_id is not None:
+        issues = issues.filter(schedule_id=schedule_id)
     tickets = list(issues)
     return {
         "message": "Issued tickets retrieved successfully",
@@ -266,15 +268,12 @@ def list_issued_tickets(request: HttpRequest, programme_id: int | None = None):
 def get_seat_map(request: HttpRequest, programme_id: int, schedule_id: int | None = None):
     programme = _get_programme(programme_id)
     schedule = _resolve_schedule(schedule_id, programme)
-    issues = TicketIssue.objects.filter(programme=programme).exclude(seat="")
-    if schedule is not None:
-        issues = issues.filter(schedule=schedule)
     return {
         "message": "Seat map retrieved successfully",
         "data": {
             "rows": Settings.get("tickets.total_rows", 10),
             "seats_per_row": Settings.get("tickets.seats_per_row", 20),
-            "occupied": sorted(set(issues.values_list("seat", flat=True))),
+            "occupied": sorted(ticket_service.occupied_seats(programme, schedule)),
         },
     }
 

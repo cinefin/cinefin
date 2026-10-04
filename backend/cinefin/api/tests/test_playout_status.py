@@ -96,6 +96,12 @@ class TestPhase:
                 ("preshow", "Title card", "Pre-show · Title card", ["pause", "next", "seek", "jump", "end"]),
             ),
             (
+                {"offset": 2, "state": RUNNING},
+                None,
+                {"pause": True, "pos": 1},
+                ("paused", "Title card", "Pre-show · paused", ["resume", *TRANSPORT]),
+            ),
+            (
                 {"state": RUNNING},
                 None,
                 {"pos": 1},

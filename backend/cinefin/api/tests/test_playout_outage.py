@@ -226,6 +226,25 @@ class TestScheduleRecovery:
         assert schedule_runner._mpv_busy() is True
 
 
+class TestScreeningEndsWithItsProgramme:
+    def test_standby_on_air_completes_the_screening_and_frees_its_slot(self):
+        from cinefin.api.ninja_views.schedules_ninja import _reject_overlap
+
+        playlist = _programme()
+        screening = _running_screening(playlist.programme)
+        _service(playlist).standby()
+        screening.refresh_from_db()
+        assert screening.status == "completed"
+        _reject_overlap(ProgrammeSchedule(programme=playlist.programme, start_time=timezone.now(), runtime=60))
+
+    def test_a_cued_programme_in_its_lead_in_stays_running(self):
+        playlist = _programme()
+        screening = _running_screening(playlist.programme)
+        _service(playlist, state=ProgrammeState.LOADED).standby()
+        screening.refresh_from_db()
+        assert screening.status == "running"
+
+
 class TestResumeInterrupted:
     def _lost(self, screening=True):
         playlist = _programme(("bumper", "movie", "system"))

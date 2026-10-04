@@ -338,9 +338,10 @@ def list_movies(request: HttpRequest, filters: MovieListFilters = Query(...)):
     elif filters.tmdb == "present":
         queryset = queryset.filter(tmdbid__gt=0)
 
-    trailer_tmdbids = set(Trailer.objects.exclude(tmdbid=0).values_list("tmdbid", flat=True))
+    with_file = Trailer.objects.exclude(file_path="")
+    trailer_tmdbids = set(with_file.exclude(tmdbid=0).values_list("tmdbid", flat=True))
     trailer_movie_ids = set(
-        Trailer.objects.filter(associated_movie__isnull=False).values_list("associated_movie_id", flat=True)
+        with_file.filter(associated_movie__isnull=False).values_list("associated_movie_id", flat=True)
     )
     if filters.has_trailer is not None:
         with_trailer_q = Q(tmdbid__in=trailer_tmdbids) | Q(id__in=trailer_movie_ids)
@@ -549,8 +550,7 @@ def get_movie_detail(request: HttpRequest, movie_id: int):
             "bitrate": movie.video_bitrate or None,
         }
 
-    # has_trailer = any covering row; trailer_id is set only when one has a
-    # file on disk. A linked trailer wins over a tmdbid-only match.
+    # A linked trailer wins over a tmdbid-only match.
     trailer_q = Q(associated_movie_id=movie.id)
     if movie.tmdbid:
         trailer_q |= Q(tmdbid=movie.tmdbid)
@@ -579,7 +579,7 @@ def get_movie_detail(request: HttpRequest, movie_id: int):
                 for t in movie.subtitle_tracks.all()
             ],
             "video_info": video_info,
-            "has_trailer": bool(covering),
+            "has_trailer": playable is not None,
             "trailer_id": playable.id if playable else None,
         },
     }

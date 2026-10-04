@@ -16,6 +16,7 @@ from cinefin.api.schemas.base import ErrorResponseSchema, MessageResponseSchema,
 from cinefin.api.schemas.movies import MovieInfoSchema
 from cinefin.api.services import ProgrammeService
 from cinefin.api.services.certification_service import CertificationService
+from cinefin.api.services.programme_service import AUDIO_BUMPER_SECONDS
 from cinefin.api.services.titlegen_service import title_length
 from cinefin.api.utils.programme_utils import build_filter_description_from_block, build_random_movie_query
 
@@ -27,7 +28,7 @@ class ProgrammeItemDetailSchema(Schema):
     order: int
     type: str
     title: str
-    duration_seconds: float
+    duration_seconds: float = Field(..., description="Seconds (an estimate for blocks resolved at generation)")
     details: dict[str, Any] = Field(..., description="Item-specific details")
 
 
@@ -39,7 +40,7 @@ class ProgrammeDetailSchema(Schema):
     id: int
     name: str
     description: str
-    total_runtime: float
+    total_runtime: float = Field(..., description="Minutes")
     created_at: str
     updated_at: str
     template_id: int | None = Field(None, description="Template ID if created from template")
@@ -66,7 +67,7 @@ class ProgrammeListItemSchema(Schema):
     id: int
     name: str
     description: str
-    total_runtime: float
+    total_runtime: float = Field(..., description="Minutes")
     total_blocks: int
     created_at: str
     last_played_at: str | None = Field(None, description="When playback last started, ISO format (null = never)")
@@ -347,7 +348,7 @@ def get_programme_detail(request: HttpRequest, programme_id: int):
                 "hold_black": block.hold_black,
             }
         elif block.content_type == "audio_bumper":
-            block_runtime = 0.25
+            block_runtime = AUDIO_BUMPER_SECONDS
             if block.bumper:
                 block_title = f"Audio intro: {block.bumper.title}"
             elif block.movie:

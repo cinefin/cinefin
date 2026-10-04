@@ -369,13 +369,13 @@ class MPVService:
                 if self.running
                 else None
             )
+            # Missed, not completed: abandon it before standby() would complete it.
+            schedule_id = programme_id and self._abandon_screening(programme_id, "The player restarted while it was on")
             # An agent is on standby already; a restarted local mpv sits idle on black.
             if not self.standby():
                 self._clear()
-            if programme_id:
-                schedule_id = self._abandon_screening(programme_id, "The player restarted while it was on")
-                if lost:
-                    self._remember_interrupted(programme_id, *lost, schedule_id)
+            if programme_id and lost:
+                self._remember_interrupted(programme_id, *lost, schedule_id)
         finally:
             self._playout_lock.release()
 
@@ -524,6 +524,10 @@ class MPVService:
         if not self._ensure_connected():
             return False
         with self._playout_lock:
+            if self.running:
+                from .services import schedule_runner
+
+                schedule_runner.complete_running(self.current_programme.id)
             self._clear()
             host = self._host
             if host is not None:

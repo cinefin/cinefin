@@ -280,7 +280,7 @@ class PlaylistService:
 
     @staticmethod
     def _process_audio_bumper_block(block: ProgrammeBlock) -> list[dict[str, Any]]:
-        """Audio-format intro: explicit override, else a random bumper matching the bound (or next) feature's format."""
+        """Audio-format intro: explicit override, else a random bumper matching the bound feature's format."""
         if block.bumper is not None:
             bumper = block.bumper
             if not bumper.file_path:
@@ -289,18 +289,15 @@ class PlaylistService:
             logger.info(f"Audio bumper: {bumper.title} (explicit override)")
             return [_item("bumper", bumper, block, {"bumper_title": bumper.title, "override": True})]
 
-        features = ProgrammeBlock.objects.filter(programme=block.programme, content_type="movie").order_by("order")
-        if block.movie is not None:
-            # The bound feature's own block carries the audio-track choice.
-            movie = block.movie
-            movie_block = features.filter(movie=movie).first()
-        else:
-            movie_block = features.filter(order__gt=block.order).first()
-            movie = movie_block.movie if movie_block else None
-        track_index = movie_block.audio_track_index if movie_block else None
+        movie = block.movie
         if movie is None:
-            logger.info(f"Audio bumper block {block.id}: no feature to match, skipping")
+            logger.info(f"Audio bumper block {block.id}: not bound to a feature, skipping")
             return []
+        # The bound feature's own block carries the audio-track choice.
+        movie_block = ProgrammeBlock.objects.filter(
+            programme=block.programme, content_type="movie", movie=movie
+        ).first()
+        track_index = movie_block.audio_track_index if movie_block else None
         fmt = PlaylistService._detect_audio_format(movie, track_index)
         if not fmt:
             logger.info(f"Audio bumper block {block.id}: no audio format for {movie.title}, skipping")

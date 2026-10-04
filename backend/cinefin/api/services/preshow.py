@@ -75,13 +75,19 @@ def _cue(programme) -> None:
         from cinefin.api.services import ProgrammeService
 
         if ProgrammeService.refresh_playlist(programme) is None:
-            raise RuntimeError("Failed to generate playlist — check the application logs")
+            raise RuntimeError("Its playlist couldn't be built")
 
     deadline = time.monotonic() + CUE_WAIT_SECONDS
     while not _load(programme):
         if time.monotonic() >= deadline:
-            raise RuntimeError("Failed to load programme into playout system")
+            raise RuntimeError("The player wasn't connected" if not _connected() else "The player couldn't cue it")
         time.sleep(2)
+
+
+def _connected() -> bool:
+    from cinefin.api.mpv_service import mpv_service
+
+    return bool(getattr(mpv_service.controller, "_connected", False))
 
 
 def _load(programme) -> bool:

@@ -105,8 +105,8 @@
 	{/if}
 
 	<span class={rowCols.runtime}>
-		{#if row.runtime !== null}
-			{rowRuntime(row.runtime, row.estimated)}
+		{#if row.seconds !== null}
+			{rowRuntime(row.seconds, row.estimated)}
 		{:else if !item}
 			<Badge variant="outline">Empty</Badge>
 		{:else}

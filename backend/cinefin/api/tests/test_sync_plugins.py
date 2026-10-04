@@ -1,5 +1,6 @@
 """Native sync-plugin (Plex / Jellyfin) and trailer-service tests."""
 
+import os
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -18,6 +19,7 @@ from cinefin.api.sync.plugins.jellyfin import _PRESENCE_FIELDS, JellyfinSource
 from cinefin.api.sync.plugins.plex import PlexSource
 from cinefin.api.sync.service import SyncManager
 from cinefin.api.tests.factories import MovieFactory, TrailerFactory
+from cinefin.api.utils.media_paths import usermedia_abs_path
 
 pytestmark = pytest.mark.django_db
 
@@ -54,13 +56,17 @@ def sync(plugin, **params):
     return plugin.apply(RecordingCtx(), "sync", params)
 
 
-def fake_plex_movie(title, tmdbid, with_marker=True):
-    audio = [SimpleNamespace(title="Main", language="eng", codec="ac3", channels=6)]
-    subs = [SimpleNamespace(language="eng", forced=False, hearingImpaired=True)]
-    video = [SimpleNamespace(codec="hevc", width=1920, height=1080, frameRate=23.976, bitrate=8000)]
-    part = SimpleNamespace(
-        size=1_000_000, file=f"/films/{title}.mkv", audioStreams=lambda: audio, videoStreams=lambda: video
+def fake_plex_part(file, channels=6, width=1920, sdh=True):
+    audio = [SimpleNamespace(title="Main", language="eng", codec="ac3", channels=channels)]
+    subs = [SimpleNamespace(language="eng", forced=False, hearingImpaired=sdh)]
+    video = [SimpleNamespace(codec="hevc", width=width, height=1080, frameRate=23.976, bitrate=8000)]
+    return SimpleNamespace(
+        size=1_000_000, file=file, audioStreams=lambda: audio, videoStreams=lambda: video, subtitleStreams=lambda: subs
     )
+
+
+def fake_plex_movie(title, tmdbid, with_marker=True):
+    part = fake_plex_part(f"/films/{title}.mkv")
     return SimpleNamespace(
         title=title,
         year=2023,
@@ -76,7 +82,6 @@ def fake_plex_movie(title, tmdbid, with_marker=True):
         markers=[SimpleNamespace(type="credits", start=5_400_000)] if with_marker else [],
         addedAt=datetime(2026, 4, 5, 21, 38, 27),  # naive, as plexapi gives it
         genres=[SimpleNamespace(tag="Action"), SimpleNamespace(tag="Drama")],
-        subtitleStreams=lambda: subs,
         reload=lambda: None,
     )
 
@@ -174,6 +179,16 @@ class TestPlexPlugin:
         plex_plugin.fake_movies[0].media[0].parts[0].file = "/new/Alpha.mkv"
         assert sync(plex_plugin)["skipped"] == 2
         assert Movie.objects.get(tmdbid=501).file_path == "/new/Alpha.mkv"
+
+    def test_tracks_come_from_the_best_version(self, plex_plugin):
+        sd = SimpleNamespace(parts=[fake_plex_part("/films/Alpha-sd.mkv", 2, 720, False)], videoResolution="sd")
+        uhd = SimpleNamespace(parts=[fake_plex_part("/films/Alpha-4k.mkv", 8, 3840)], videoResolution="4k")
+        plex_plugin.fake_movies[0].media = [sd, uhd]
+        sync(plex_plugin)
+        alpha = Movie.objects.get(tmdbid=501)
+        assert (alpha.file_path, alpha.video_width) == ("/films/Alpha-4k.mkv", 3840)
+        assert alpha.audio_tracks.get().channels == 8
+        assert alpha.subtitle_tracks.get().sdh is True
 
 
 class TestProbe:
@@ -482,6 +497,27 @@ class TestTrailerService:
         assert (trailer.year, trailer.month, trailer.duration) == (2026, 10, 90)
         assert trailer.file_path.startswith("trailers/")
         assert Trailer.objects.filter(tmdbid=904).count() == 1
+
+    def test_single_fetch_refills_a_row_without_its_file(self, trailer_settings, monkeypatch):
+        row = TrailerFactory(tmdbid=905, title="Lost File", file_path=str(trailer_settings / "gone.mp4"))
+        details = {
+            "title": "Lost File",
+            "release_date": "2025-03-01",
+            "genres": [],
+            "videos": {"results": [{"type": "Trailer", "site": "YouTube", "key": "k905"}]},
+            "release_dates": {"results": []},
+            "credits": {"crew": []},
+        }
+        service = TrailerService()
+        monkeypatch.setattr(service, "_get_video_duration", lambda path: 95)
+        monkeypatch.setattr(service.tmdb_movie, "details", lambda tmdbid, **kw: details)
+        monkeypatch.setattr(service, "_ytdlp_fetch", lambda key, dest: open(dest, "wb").write(b"video"))
+
+        assert service.fetch_single_trailer(905) is True
+        row.refresh_from_db()
+        assert Trailer.objects.filter(tmdbid=905).count() == 1
+        assert os.path.exists(usermedia_abs_path(row.file_path)) and row.duration == 95
+        assert service.sync_counts == {"updated": 1}
 
     def test_ratings_update_and_repair(self, trailer_settings, monkeypatch):
         trailer = TrailerFactory(title="Unrated Film", content_rating="")

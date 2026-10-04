@@ -24,6 +24,10 @@ _started = False
 _lock = threading.Lock()
 _stop = threading.Event()
 
+# Why a screening didn't play, as its last_error.
+BUSY = "Something else was playing"
+NOT_RUNNING = "Cinefin wasn't running at play time"
+
 
 def start():
     """Start the runner once per process (idempotent). Atomic claims make it safe across processes."""
@@ -127,7 +131,7 @@ def execute_schedule(schedule):
         return
     if mpv_service.programme_state != ProgrammeState.RUNNING:
         if not mpv_service.start_programme():
-            raise RuntimeError("Failed to start playback")
+            raise RuntimeError("The player didn't start it")
     mark_programme_played(programme.id)
     logger.info("Schedule %s started successfully", schedule.id)
 
@@ -154,7 +158,8 @@ def _spawn(schedule):
 
 def _claim(schedule_id):
     """Atomically move scheduled -> running. True if this caller claimed it."""
-    return ProgrammeSchedule.objects.filter(id=schedule_id, status="scheduled").update(status="running") == 1
+    rows = ProgrammeSchedule.objects.filter(id=schedule_id, status="scheduled")
+    return rows.update(status="running", last_error="") == 1
 
 
 def _on_air_programme_id():
@@ -192,6 +197,11 @@ def abandon_running(programme_id, reason):
     return ids[0] if ids else None
 
 
+def complete_running(programme_id):
+    """Its programme left the air (it ended, or was stopped early): the screening is over and its slot free."""
+    ProgrammeSchedule.objects.filter(status="running", programme_id=programme_id).update(status="completed")
+
+
 def resume_abandoned(schedule_id):
     """The operator resumed a screening abandoned by abandon_running: it is on air again."""
     if schedule_id:
@@ -218,7 +228,7 @@ def recover_orphans():
             continue  # still on air — let it finish
         if (
             ProgrammeSchedule.objects.filter(id=s.id, status="running").update(
-                status="missed", last_error="Interrupted by a restart before it finished"
+                status="missed", last_error="Cinefin restarted while it was on"
             )
             == 1
         ):
@@ -248,9 +258,10 @@ def tick():
     )
 
     for s in due:
-        # Too late to play sensibly (e.g. the box was off) -> missed
+        # Too late to play sensibly -> missed; a row never deferred went unseen: Cinefin was down.
         if s.play_time() < now - grace:
-            if ProgrammeSchedule.objects.filter(id=s.id, status="scheduled").update(status="missed") == 1:
+            reason = s.last_error or NOT_RUNNING
+            if ProgrammeSchedule.objects.filter(id=s.id, status="scheduled").update(status="missed", last_error=reason):
                 missed += 1
                 logger.warning("Schedule %s missed (was due %s)", s.id, s.play_time().isoformat())
             continue
@@ -260,6 +271,9 @@ def tick():
         # time), or ages to 'missed' above.
         if _mpv_busy() or not preshow.lock.acquire(blocking=False):
             logger.info("Schedule %s deferred: player busy", s.id)
+            ProgrammeSchedule.objects.filter(id=s.id, status="scheduled").exclude(last_error=BUSY).update(
+                last_error=BUSY
+            )
             continue
 
         if not _claim(s.id):

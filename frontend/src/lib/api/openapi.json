@@ -4185,6 +4185,10 @@
             "title": "Programme",
             "type": "string"
           },
+          "programme_id": {
+            "title": "Programme Id",
+            "type": "integer"
+          },
           "runtime": {
             "description": "Minutes",
             "title": "Runtime",
@@ -4204,6 +4208,7 @@
         "required": [
           "id",
           "programme",
+          "programme_id",
           "start",
           "end",
           "runtime",
@@ -7570,13 +7575,14 @@
             "title": "Details",
             "type": "object"
           },
+          "duration_seconds": {
+            "description": "Seconds (an estimate for blocks resolved at generation)",
+            "title": "Duration Seconds",
+            "type": "number"
+          },
           "order": {
             "title": "Order",
             "type": "integer"
-          },
-          "runtime": {
-            "title": "Runtime",
-            "type": "number"
           },
           "title": {
             "title": "Title",
@@ -7590,7 +7596,7 @@
         "required": [
           "order",
           "type",
-          "runtime",
+          "duration_seconds",
           "title",
           "details"
         ],
@@ -7848,6 +7854,7 @@
             "type": "integer"
           },
           "total_runtime": {
+            "description": "Minutes",
             "title": "Total Runtime",
             "type": "number"
           },
@@ -8051,6 +8058,7 @@
             "type": "object"
           },
           "duration_seconds": {
+            "description": "Seconds (an estimate for blocks resolved at generation)",
             "title": "Duration Seconds",
             "type": "number"
           },
@@ -8166,6 +8174,7 @@
             "type": "integer"
           },
           "total_runtime": {
+            "description": "Minutes",
             "title": "Total Runtime",
             "type": "number"
           }
@@ -8315,6 +8324,7 @@
             "type": "integer"
           },
           "total_runtime": {
+            "description": "Minutes",
             "title": "Total Runtime",
             "type": "number"
           }
@@ -9336,7 +9346,7 @@
                 "type": "null"
               }
             ],
-            "description": "Reason the run failed, if any",
+            "description": "Why it didn't play (missed or failed), if known",
             "title": "Last Error"
           },
           "lead_in": {
@@ -21177,6 +21187,22 @@
                 }
               ],
               "title": "Programme Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "schedule_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Schedule Id"
             }
           }
         ],

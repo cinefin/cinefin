@@ -7,11 +7,12 @@
 	import {
 		Calendar,
 		CalendarPlus,
+		Check,
 		ChevronLeft,
 		ChevronRight,
 		Clock,
-		Eye,
 		List,
+		MonitorPlay,
 		Pencil,
 		Plus,
 		Trash2,
@@ -25,7 +26,6 @@
 	import type { components } from '$lib/api/types.gen';
 	import { formatClock } from '$lib/format';
 	import ActionNotice from '$lib/components/ActionNotice.svelte';
-	import Badge from '$lib/components/ui/Badge.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import FeatureStack from '$lib/components/FeatureStack.svelte';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
@@ -35,13 +35,15 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import Toggle from '$lib/components/ui/Toggle.svelte';
 	import Spinner from '$lib/components/ui/Spinner.svelte';
+	import Tabs from '$lib/components/ui/Tabs.svelte';
+	import StatusLamp from '$lib/components/StatusLamp.svelte';
 
 	type Schedule = components['schemas']['ScheduleSchema'];
 	type ProgrammeListItem = components['schemas']['ProgrammeListItemSchema'];
 
 	const notice = new NoticeState();
 
-	// One fetch with show_past=true; the status chips and "Show past" toggle filter client-side.
+	// One fetch with show_past=true; the tabs split it client-side.
 	const schedules = query(() =>
 		unwrap(api.GET('/api/v2/schedules/list', { params: { query: { show_past: true } } }))
 	);
@@ -58,23 +60,19 @@
 		Object.fromEntries(progList.map((p) => [p.id, Math.round(p.total_runtime)]))
 	);
 
-	type Variant = 'default' | 'accent' | 'success' | 'warning' | 'danger';
-	// status: [label, badge variant, calendar chip classes]
-	const STATUS: Record<string, [string, Variant, string]> = {
-		scheduled: ['Scheduled', 'default', 'bg-surface-3 text-text'],
-		running: ['Running', 'accent', 'bg-accent/20 text-accent'],
-		completed: ['Completed', 'success', 'bg-success/15 text-success'],
-		cancelled: ['Cancelled', 'warning', 'bg-warning/15 text-warning'],
-		failed: ['Failed', 'danger', 'bg-danger/15 text-danger'],
-		missed: ['Missed', 'warning', 'bg-warning/15 text-warning']
+	// status: [what people call it, calendar chip classes]
+	const STATUS: Record<string, [string, string]> = {
+		scheduled: ['Scheduled', 'bg-surface-3 text-text'],
+		running: ['On now', 'bg-danger/15 text-danger'],
+		completed: ['Played', 'bg-success/15 text-success'],
+		failed: ["Didn't play", 'bg-warning/15 text-warning'],
+		missed: ["Didn't play", 'bg-warning/15 text-warning']
 	};
-	const STATUSES = [
-		{ value: '', label: 'All' },
-		...Object.entries(STATUS).map(([value, [label]]) => ({ value, label }))
-	];
+	const UPCOMING = ['scheduled', 'running'];
+	const didntPlay = (s: Schedule) => s.status === 'missed' || s.status === 'failed';
 
-	let statusFilter = $state('');
-	let showPast = $state(false);
+	let tab = $state<'upcoming' | 'past'>('upcoming');
+	let onlyDidntPlay = $state(false);
 	let view = $state<'list' | 'calendar'>(
 		localStorage.getItem('sched.view') === 'calendar' ? 'calendar' : 'list'
 	);
@@ -83,15 +81,12 @@
 		{ v: 'calendar', label: 'Calendar view', Icon: Calendar }
 	] as const;
 
-	const statusCounts = $derived.by(() => {
-		const c: Record<string, number> = {};
-		for (const s of all) c[s.status] = (c[s.status] ?? 0) + 1;
-		return c;
-	});
-	const activeCount = $derived((statusCounts.scheduled ?? 0) + (statusCounts.running ?? 0));
+	const shown = $derived(all.filter((s) => s.status in STATUS)); // nothing sets 'cancelled'
+	const upcoming = $derived(shown.filter((s) => UPCOMING.includes(s.status)));
+	const past = $derived(shown.filter((s) => !UPCOMING.includes(s.status)).toReversed());
 	const todayCount = $derived.by(() => {
 		const today = new Date().toDateString();
-		return all.filter((s) => new Date(s.start_time).toDateString() === today).length;
+		return shown.filter((s) => new Date(s.start_time).toDateString() === today).length;
 	});
 
 	function endMs(s: Schedule): number {
@@ -99,11 +94,9 @@
 		return new Date(s.play_time).getTime() + (s.runtime || 0) * 60000;
 	}
 
-	const filtered = $derived(all.filter((s) => !statusFilter || s.status === statusFilter));
-	const visible = $derived.by(() => {
-		const now = Date.now();
-		return filtered.filter((s) => showPast || endMs(s) >= now);
-	});
+	const visible = $derived(
+		tab === 'upcoming' ? upcoming : onlyDidntPlay ? past.filter(didntPlay) : past
+	);
 
 	function groupByDay(list: Schedule[]): Map<string, Schedule[]> {
 		const byDay = new Map<string, Schedule[]>();
@@ -115,8 +108,6 @@
 	}
 	const dayGroups = $derived(groupByDay(visible));
 
-	const filtersActive = $derived(Boolean(statusFilter) || showPast);
-
 	const MAX_CHIPS = 3;
 	function firstOfMonth(d: Date): Date {
 		return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -126,9 +117,9 @@
 		calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + delta, 1);
 	}
 
-	// 6-week Monday-first grid; the status filter applies, "Show past" does not.
+	// 6-week Monday-first grid of every screening.
 	const calCells = $derived.by(() => {
-		const byDay = groupByDay(filtered);
+		const byDay = groupByDay(shown);
 		const firstWeekday = (calMonth.getDay() + 6) % 7; // Monday = 0
 		const todayKey = new Date().toDateString();
 		return Array.from({ length: 42 }, (_, i) => {
@@ -161,9 +152,6 @@
 	}
 
 	function relTime(s: Schedule): string {
-		if (s.status === 'running') return 'On now';
-		if (s.status === 'completed') return 'Finished';
-		if (s.status === 'cancelled') return '';
 		const ms = new Date(s.start_time).getTime() - Date.now();
 		if (ms < 0) return '';
 		const mins = Math.round(ms / 60000);
@@ -173,9 +161,11 @@
 		return `in ${Math.round(hrs / 24)} d`;
 	}
 
-	function cancelTitle(s: Schedule): string {
-		if (s.status === 'running') return 'Remove schedule (does not stop playback)';
-		return s.status === 'scheduled' ? 'Cancel schedule' : 'Remove from list';
+	function leadInLine(s: Schedule): string {
+		const n = (s.preshow ?? []).filter((step) => !step.cue).length;
+		if (!s.lead_in && !n) return '';
+		const from = `lead-in from ${formatClock(new Date(s.start_time))}`;
+		return n ? `${from} · ${n} command${n === 1 ? '' : 's'}` : from;
 	}
 
 	// "YYYY-MM-DDTHH:MM" (datetime-local) -> ms treating the value as wall-clock
@@ -278,16 +268,22 @@
 	let saving = $state(false);
 	let modalError = $state<string | null>(null);
 
-	// s = the screening to reschedule, or null to create one (optionally preselecting a programme).
-	function openDialog(s: Schedule | null, preselect: { id: number; name: string } | null = null) {
+	// s = the screening to reschedule, or null to create one (optionally preselecting a
+	// programme); `copy` is a past screening to schedule again: its programme and lead-in.
+	function openDialog(
+		s: Schedule | null,
+		preselect: { id: number; name: string } | null = null,
+		copy: Schedule | null = null
+	) {
+		const from = s ?? copy;
 		editing = s;
-		selectedProgramme = s ? { id: s.programme.id, name: s.programme.name } : preselect;
+		selectedProgramme = from ? { id: from.programme.id, name: from.programme.name } : preselect;
 		pickerSearch = '';
-		dtValue = s ? toLocalInput(new Date(s.start_time)) : defaultDateTime();
+		dtValue = s ? toLocalInput(new Date(s.start_time)) : copy ? '' : defaultDateTime();
 		dtMin = toLocalInput(new Date());
-		leadInValue = s ? Math.round(s.lead_in / 60) : 0;
-		leadInSteps = (s?.preshow ?? []).map((step) => ({ ...step }));
-		leadInOn = !!s && (s.lead_in > 0 || leadInSteps.some((step) => !step.cue));
+		leadInValue = from ? Math.round(from.lead_in / 60) : 0;
+		leadInSteps = (from?.preshow ?? []).map((step) => ({ ...step }));
+		leadInOn = !!from && (from.lead_in > 0 || leadInSteps.some((step) => !step.cue));
 		modalError = null;
 		tzValue = browserZone;
 		modalOpen = true;
@@ -378,11 +374,11 @@
 				const programme_id = selectedProgramme!.id;
 				await unwrap(api.POST('/api/v2/schedules/create', { body: { programme_id, ...body } }));
 			}
-			notice.show('success', editing ? 'Schedule updated' : 'Schedule created');
+			notice.show('success', editing ? 'Screening updated' : 'Screening scheduled');
 			modalOpen = false;
 			invalidate('schedules');
 		} catch (e) {
-			modalError = toApiError(e).message || 'Failed to save schedule';
+			modalError = toApiError(e).message || 'Failed to save the screening';
 		} finally {
 			saving = false;
 		}
@@ -391,6 +387,7 @@
 	let confirmOpen = $state(false);
 	let confirmTarget = $state<Schedule | null>(null);
 	let removing = $state(false);
+	const upcomingTarget = $derived(confirmTarget?.status === 'scheduled');
 
 	async function confirmRemove() {
 		const target = confirmTarget;
@@ -402,10 +399,10 @@
 					params: { path: { schedule_id: target.id } }
 				})
 			);
-			notice.show('success', 'Schedule removed');
+			notice.show('success', 'Screening removed');
 			invalidate('schedules');
 		} catch (e) {
-			notice.show('error', toApiError(e).message || 'Failed to remove schedule');
+			notice.show('error', toApiError(e).message || 'Failed to remove the screening');
 		} finally {
 			confirmOpen = false;
 			removing = false;
@@ -423,42 +420,33 @@
 	});
 </script>
 
-<PageHeader title="Schedules" count="{activeCount} active · {todayCount} today" {actions} />
+<PageHeader title="Schedules" count="{upcoming.length} upcoming · {todayCount} today" {actions} />
 {#snippet actions()}
 	<Button variant="primary" onclick={() => openDialog(null)}>
-		<Plus size={14} /> New schedule
+		<Plus size={14} /> New screening
 	</Button>
 {/snippet}
 
 <ActionNotice {notice} class="mb-4" />
 
-<div class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
-	<div class="flex flex-wrap gap-1.5" role="group" aria-label="Filter schedules by status">
-		{#each STATUSES as st (st.value)}
-			{@const active = statusFilter === st.value}
-			<button
-				type="button"
-				aria-pressed={active}
-				onclick={() => (statusFilter = st.value)}
-				class="inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium
-					transition-colors
-					{active
-					? 'border-accent-dim bg-accent/15 text-accent'
-					: 'border-border-strong bg-surface-2 text-muted hover:bg-surface-3 hover:text-text'}"
-			>
-				{st.label}
-				<span class="font-mono text-[0.65rem] opacity-70">
-					{st.value === '' ? all.length : (statusCounts[st.value] ?? 0)}
-				</span>
-			</button>
-		{/each}
-	</div>
+<div class="mb-4 flex flex-wrap items-end gap-x-3 gap-y-2">
+	{#if view === 'list'}
+		<Tabs
+			tabs={[
+				{ id: 'upcoming', label: 'Upcoming', count: upcoming.length },
+				{ id: 'past', label: 'Past', count: past.length }
+			]}
+			value={tab}
+			onselect={(id) => (tab = id as typeof tab)}
+			label="Screenings"
+		/>
+	{/if}
 
-	<div class="ml-auto flex items-center gap-3">
-		{#if view === 'list'}
+	<div class="ml-auto flex items-center gap-3 pb-1.5">
+		{#if view === 'list' && tab === 'past'}
 			<label class="flex cursor-pointer items-center gap-1.5 text-sm text-muted select-none">
-				<input type="checkbox" bind:checked={showPast} class="accent-accent" />
-				Show past
+				<input type="checkbox" bind:checked={onlyDidntPlay} class="accent-accent" />
+				Only ones that didn't play
 			</label>
 		{/if}
 		<div
@@ -540,10 +528,10 @@
 								href="{base}/programmes/{s.programme.id}"
 								target="_blank"
 								rel="noopener"
-								title="{t} · {s.programme.name} ({s.status})"
+								title="{t} · {s.programme.name} ({STATUS[s.status][0]})"
 								class="flex items-baseline gap-1 truncate rounded-xs px-1 py-0.5 text-[0.65rem] leading-tight {STATUS[
 									s.status
-								]?.[2] ?? 'bg-surface-3 text-text'}"
+								][1]}"
 							>
 								<span class="shrink-0 font-mono">{t}</span>
 								<span class="truncate">{s.programme.name}</span>
@@ -558,18 +546,17 @@
 		</div>
 	</div>
 {:else if visible.length === 0}
-	{#if filtersActive}
+	{#if tab === 'upcoming'}
 		<EmptyState
 			icon={CalendarPlus}
-			title="No screenings match your filters"
-			message="Try a different status filter, or toggle Show past."
+			title="Nothing scheduled"
+			message="Use New screening to line one up."
+			action={actions}
 		/>
 	{:else}
 		<EmptyState
 			icon={CalendarPlus}
-			title="Nothing scheduled"
-			message="Use New schedule to line up a screening."
-			action={actions}
+			title={onlyDidntPlay ? 'Every past screening played' : 'No past screenings yet'}
 		/>
 	{/if}
 {:else}
@@ -584,15 +571,19 @@
 				</div>
 				<div class="space-y-2">
 					{#each items as s (s.id)}
-						{@const start = new Date(s.start_time)}
-						{@const end = new Date(endMs(s))}
-						{@const rel = relTime(s)}
+						{@const live = s.status === 'running'}
+						{@const leadIn = tab === 'upcoming' ? leadInLine(s) : ''}
+						{@const rel = s.status === 'scheduled' ? relTime(s) : ''}
 						<article
-							class="flex items-center gap-4 rounded-lg border border-border bg-surface-1 p-3"
+							class="flex items-center gap-4 rounded-lg border p-3 {live
+								? 'border-danger/40 bg-danger/5'
+								: 'border-border bg-surface-1'}"
 						>
 							<div class="w-16 shrink-0 text-right">
-								<div class="font-mono text-sm font-semibold">{formatClock(start)}</div>
-								<div class="font-mono text-xs text-faint">→ {formatClock(end)}</div>
+								<div class="font-mono text-sm font-semibold">
+									{formatClock(new Date(s.play_time))}
+								</div>
+								<div class="font-mono text-xs text-faint">→ {formatClock(new Date(endMs(s)))}</div>
 							</div>
 							<FeatureStack films={features[s.programme.id] ?? []} class="w-[4.75rem] shrink-0" />
 							<div class="min-w-0 flex-1">
@@ -603,57 +594,56 @@
 								>
 									{s.programme.name}
 								</a>
-								<div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-									<Badge variant={STATUS[s.status]?.[1] ?? 'default'}>{s.status}</Badge>
+								<div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+									{#if live}
+										<StatusLamp colour="red">On now</StatusLamp>
+									{:else if s.status === 'completed'}
+										<span class="inline-flex items-center gap-1 font-medium text-success">
+											<Check size={12} /> Played
+										</span>
+									{:else if didntPlay(s)}
+										<span class="inline-flex min-w-0 items-center gap-1 text-warning">
+											<TriangleAlert size={12} class="shrink-0" />
+											<span class="font-medium">Didn't play</span>
+											<span>· {s.last_error || 'No reason recorded'}</span>
+										</span>
+									{/if}
 									<span class="inline-flex items-center gap-1">
 										<Clock size={12} />
 										{s.runtime} min
 									</span>
-									{#if s.play_time !== s.start_time}
-										<span class="font-mono text-faint"
-											>plays {formatClock(new Date(s.play_time))}</span
-										>
-									{/if}
+									{#if leadIn}<span class="font-mono text-faint">{leadIn}</span>{/if}
 									{#if rel}<span class="text-faint">{rel}</span>{/if}
 								</div>
-								{#if s.status === 'failed' && s.last_error}
-									<p class="mt-1 flex items-center gap-1.5 text-xs text-danger">
-										<TriangleAlert size={12} />
-										{s.last_error}
-									</p>
-								{/if}
 							</div>
 							<div class="flex shrink-0 items-center gap-1">
-								<Button
-									size="sm"
-									variant="ghost"
-									title="View programme"
-									href="{base}/programmes/{s.programme.id}"
-								>
-									<Eye size={14} />
-								</Button>
-								{#if s.status === 'scheduled'}
+								{#if live}
+									<Button size="sm" href="{base}/remote">
+										<MonitorPlay size={14} /> Open remote
+									</Button>
+								{:else}
+									{#if s.status === 'scheduled'}
+										<Button size="sm" variant="ghost" title="Edit" onclick={() => openDialog(s)}>
+											<Pencil size={14} />
+										</Button>
+									{:else}
+										<Button size="sm" onclick={() => openDialog(null, null, s)}>
+											<CalendarPlus size={14} /> Schedule again
+										</Button>
+									{/if}
 									<Button
 										size="sm"
 										variant="ghost"
-										title="Reschedule"
-										onclick={() => openDialog(s)}
+										class="hover:bg-danger/15 hover:text-danger"
+										title={s.status === 'scheduled' ? 'Delete' : 'Remove from the list'}
+										onclick={() => {
+											confirmTarget = s;
+											confirmOpen = true;
+										}}
 									>
-										<Pencil size={14} />
+										<Trash2 size={14} />
 									</Button>
 								{/if}
-								<Button
-									size="sm"
-									variant="ghost"
-									class="hover:bg-danger/15 hover:text-danger"
-									title={cancelTitle(s)}
-									onclick={() => {
-										confirmTarget = s;
-										confirmOpen = true;
-									}}
-								>
-									<Trash2 size={14} />
-								</Button>
 							</div>
 						</article>
 					{/each}
@@ -663,7 +653,7 @@
 	</div>
 {/if}
 
-<Dialog bind:open={modalOpen} title={editing ? 'Reschedule' : 'New schedule'}>
+<Dialog bind:open={modalOpen} title={editing ? 'Edit screening' : 'New screening'}>
 	<div class="space-y-4">
 		{#if !editing}
 			<div>
@@ -794,19 +784,20 @@
 	{/snippet}
 </Dialog>
 
-<Dialog bind:open={confirmOpen} title="Cancel schedule" size="md">
+<Dialog
+	bind:open={confirmOpen}
+	title={upcomingTarget ? 'Delete screening' : 'Remove screening'}
+	size="md"
+>
 	<p class="text-sm">
-		Cancel the scheduled screening of
-		<strong>“{confirmTarget?.programme.name ?? 'this schedule'}”</strong>?
+		{upcomingTarget ? 'Delete the screening of' : 'Remove the past screening of'}
+		<strong>“{confirmTarget?.programme.name ?? 'this screening'}”</strong>?
 	</p>
-	{#if confirmTarget?.status === 'running'}
-		<p class="mt-2 text-xs text-muted">Removing the schedule does not stop playback.</p>
-	{/if}
 
 	{#snippet footer()}
 		<Button onclick={() => (confirmOpen = false)}>Keep it</Button>
 		<Button variant="danger" disabled={removing} onclick={() => void confirmRemove()}>
-			{removing ? 'Removing…' : 'Cancel schedule'}
+			{removing ? 'Removing…' : upcomingTarget ? 'Delete' : 'Remove'}
 		</Button>
 	{/snippet}
 </Dialog>

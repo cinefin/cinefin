@@ -415,8 +415,10 @@
 	let detail = $state<Trailer | null>(null);
 	let detailLoading = $state(false);
 	let detailError = $state<string | null>(null);
+	let autoplay = $state(false);
 
-	async function openDetail(id: number) {
+	async function openDetail(id: number, play = false) {
+		autoplay = play;
 		selectedId = id;
 		detail = null;
 		detailError = null;
@@ -508,18 +510,6 @@
 			void refreshLibrary();
 		});
 	}
-
-	let playOpen = $state(false);
-	let playing = $state<Trailer | null>(null);
-
-	function playTrailer(t: Trailer | undefined | null) {
-		if (!t || !t.file_exists) return showToast('File is missing on disk', 'error');
-		playing = t;
-		playOpen = true;
-	}
-	$effect(() => {
-		if (!playOpen) playing = null;
-	});
 
 	async function deleteTrailer(t: Trailer, fromDetail = false) {
 		const ok = await confirmDialog.confirm(
@@ -926,7 +916,7 @@
 		class="{cls} text-muted hover:text-accent disabled:opacity-40"
 		title="Play"
 		disabled={!t.file_exists}
-		onclick={stop(() => playTrailer(t))}
+		onclick={stop(() => openDetail(t.id, true))}
 	>
 		<Play size={13} />
 	</button>
@@ -1237,6 +1227,23 @@
 			{#if detail}
 				{@const t = detail}
 				<h2 class="text-xl leading-tight font-semibold">{t.title}</h2>
+				{#if t.file_exists}
+					<!-- svelte-ignore a11y_media_has_caption -->
+					<video
+						src={t.stream_url}
+						controls
+						{autoplay}
+						onplay={() => (autoplay = false)}
+						preload="metadata"
+						class="mt-3 max-h-[52vh] w-full bg-black"
+					></video>
+				{:else}
+					<p
+						class="mt-3 flex items-center gap-2 border border-warning/40 bg-surface-2 px-3 py-2 text-sm text-warning"
+					>
+						<TriangleAlert size={15} /> The file is missing on disk - it can't be played.
+					</p>
+				{/if}
 				<dl class="mt-4 space-y-2 text-sm">
 					{#if t.year || t.month}
 						<div class="flex justify-between gap-2">
@@ -1359,14 +1366,6 @@
 			{#snippet actions()}
 				{#if detail}
 					{@const t = detail}
-					<Button
-						size="sm"
-						variant="primary"
-						disabled={!t.file_exists}
-						onclick={() => playTrailer(t)}
-					>
-						<Play size={13} /> Play
-					</Button>
 					{#if t.tmdbid}
 						<Button
 							size="sm"
@@ -1383,17 +1382,6 @@
 		</DetailPanel>
 	{/if}
 </div>
-
-<Dialog
-	bind:open={playOpen}
-	title={playing ? `${playing.title}${playing.year ? ` (${playing.year})` : ''}` : 'Play'}
-	class="max-w-3xl"
->
-	{#if playing}
-		<!-- svelte-ignore a11y_media_has_caption -->
-		<video controls autoplay src={playing.stream_url} class="max-h-[70vh] w-full bg-black"></video>
-	{/if}
-</Dialog>
 
 <Dialog bind:open={fetchOpen} title="Get trailers" size="2xl">
 	<Tabs

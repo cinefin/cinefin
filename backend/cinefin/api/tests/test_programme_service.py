@@ -93,6 +93,18 @@ class TestCreateFromTemplate:
         )
         assert [b.content_type for b in programme.blocks.order_by("order")] == ["bumper"]
 
+    def test_audio_bumper_binds_its_feature(self):
+        template = ProgrammeTemplateFactory(number_of_features=2)
+        ProgrammeTemplateItemFactory(template=template, order=0, item_type="audio_bumper", bound_to_feature=2)
+        ProgrammeTemplateItemFactory(template=template, order=1, item_type="feature", feature_number=1)
+        ProgrammeTemplateItemFactory(template=template, order=2, item_type="feature", feature_number=2)
+        first, second = MovieFactory(), MovieFactory()
+        programme, preview = ProgrammeService.create_programme_from_template(
+            name="Double", template_id=template.id, movies={"1": {"id": first.id}, "2": {"id": second.id}}
+        )
+        assert programme.blocks.get(content_type="audio_bumper").movie == second
+        assert preview["blocks"][0]["details"]["reference_movie_id"] == second.id
+
 
 class TestUpdateAndDelete:
     def test_update_items_replaces_blocks_and_refreshes_playlist(self):
@@ -165,3 +177,22 @@ def test_duplicate_copies_blocks_and_all_config():
     assert (random_movie.trailer_match_genres, random_movie.trailer_year_delta) == (False, 7)
     assert list(random_movie.random_movie_genres.all()) == [genre]
     assert programme.blocks.count() == 4
+
+
+def test_block_durations_are_seconds_in_preview_and_detail(client):
+    movie = MovieFactory(duration=7200, runtime=120)
+    MovieFactory(duration=6000, runtime=100)
+    command = CommandFactory(duration=8)
+    items = (
+        {"type": "audio_bumper", "reference_movie_id": movie.id},
+        {"type": "command", "command_id": command.id, "hold_black": True},
+        {"type": "movie", "movie_id": movie.id},
+        {"type": "random_movie", "runtime_from": 100, "runtime_to": 100},
+    )
+    _, preview = _create(*items, preview=True)
+    assert [b["duration_seconds"] for b in preview["blocks"]] == [15.0, 8, 7200, 6000]
+    assert preview["total_runtime"] == (15 + 8 + 7200 + 6000) / 60
+
+    programme, _ = _create(*items[:3])
+    blocks = client.get(f"/api/v2/programmes/{programme.id}").json()["data"]["programme"]["items"]
+    assert [b["duration_seconds"] for b in blocks] == [15.0, 8, 7200]

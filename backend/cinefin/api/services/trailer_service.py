@@ -359,7 +359,11 @@ class TrailerService:
             return False
 
         # Replacing vs adding is decided by what exists NOW, so counts stay honest when replace meets an empty slot.
-        had_row = Trailer.objects.filter(tmdbid=int(tmdbid)).exists()
+        row = Trailer.objects.filter(tmdbid=int(tmdbid)).first()
+        had_row = row is not None
+        # A row whose file is gone is downloaded into, not skipped.
+        if row and not (row.file_path and os.path.exists(usermedia_abs_path(row.file_path))):
+            replace = True
 
         title = details.get("title") or f"Unknown ({tmdbid})"
         self.update_progress(0, 1, f"Downloading trailer: {title}")

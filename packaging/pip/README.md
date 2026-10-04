@@ -20,6 +20,20 @@ process**: the schedule runner and playout state are per-process.
 To run it on boot, `packaging/systemd/cinefin.service.example` is a system unit
 that runs `cinefin serve --data-dir /var/lib/cinefin`.
 
+## Upgrading from a `cinefin3` wheel
+
+Wheels up to 0.2.x were published as `cinefin3`; from 0.3 the package is
+`cinefin`. `pipx upgrade` can't cross a rename, so swap the package once:
+
+```bash
+pipx uninstall cinefin3
+pipx install ./cinefin-<version>-py3-none-any.whl
+```
+
+Your data stays where it was (the data folder doesn't depend on the package
+name), and `cinefin serve` applies the new migrations on its first start. If
+you run it under systemd, restart the unit afterwards.
+
 ## Building the wheel
 
 ```bash

@@ -38,7 +38,7 @@ class ScheduleSchema(Schema):
     )
     runtime: int
     status: str = Field(..., description="Schedule status (scheduled, running, completed, cancelled, failed, missed)")
-    last_error: str | None = Field(None, description="Reason the run failed, if any")
+    last_error: str | None = Field(None, description="Why it didn't play (missed or failed), if known")
     created_at: str
     end_time: str | None = Field(None, description="When the screening ends: play_time + runtime (ISO)")
 
@@ -259,6 +259,7 @@ def update_schedule(request: HttpRequest, schedule_id: int, data: UpdateSchedule
     schedule.runtime = schedule.programme.get_runtime()
     schedule.lead_in = data.lead_in
     schedule.preshow = preshow.clean([step.dict() for step in data.preshow])
+    schedule.last_error = ""
     _reject_overlap(schedule)
-    schedule.save(update_fields=["start_time", "runtime", "lead_in", "preshow"])
+    schedule.save(update_fields=["start_time", "runtime", "lead_in", "preshow", "last_error"])
     return _saved(200, "Schedule updated successfully", schedule)

@@ -27,6 +27,7 @@ from cinefin.api.utils.media_paths import to_usermedia_relative
 from cinefin.api.utils.programme_utils import build_filter_description
 
 from .block_types import fetch_block_entity
+from .certification_service import CertificationService
 from .playlist_service import PlaylistService
 from .trailer_matching import Criteria, match_stats
 
@@ -35,15 +36,22 @@ logger = logging.getLogger(__name__)
 RANDOM_FILTER_KEYS = ("certification", "year_from", "year_to", "runtime_from", "runtime_to")
 
 
-def _block(order, type_, runtime, title, **details):
-    return {"order": order, "type": type_, "runtime": runtime, "title": title, "details": details}
+AUDIO_BUMPER_SECONDS = 15.0
+
+
+def _block(order, type_, seconds, title, **details):
+    return {"order": order, "type": type_, "duration_seconds": seconds, "title": title, "details": details}
+
+
+def _total_minutes(blocks):
+    return sum(b["duration_seconds"] for b in blocks) / 60.0
 
 
 def _movie_block(order, movie, audio_track, subtitle_track, credits_command_id, **extra):
     return _block(
         order,
         "movie",
-        (movie.duration or 0) / 60.0,
+        movie.duration or 0,
         movie.title,
         movie_id=movie.id,
         movie_title=movie.title,
@@ -60,7 +68,7 @@ def _clip_block(order, kind, clip):
     return _block(
         order,
         kind,
-        (clip.duration or 0) / 60.0,
+        clip.duration or 0,
         clip.title,
         **{f"{kind}_id": clip.id, f"{kind}_title": clip.title, "duration": clip.duration},
     )
@@ -71,7 +79,7 @@ def _random_bumper_block(order, tag, count):
     return _block(
         order,
         "bumper",
-        avg * count / 60.0,
+        avg * count,
         f"Random user media ({tag.name})",
         tag_id=tag.id,
         tag_name=tag.name,
@@ -85,7 +93,7 @@ def _command_block(order, command, hold_black):
         order,
         "command",
         # Instant cues take no screen time; hold blocks occupy the command's duration.
-        (command.duration or 0) / 60.0 if hold_black else 0.0,
+        (command.duration or 0) if hold_black else 0.0,
         command.name,
         command_id=command.id,
         command_name=command.name,
@@ -174,17 +182,17 @@ class ProgrammeService:
                 if filters[key]:
                     movies = movies.filter(**{lookup: filters[key]})
 
-            avg_runtime = movies.aggregate(avg=Avg("runtime"))["avg"] or 120.0
+            avg_seconds = (movies.aggregate(avg=Avg("runtime"))["avg"] or 120.0) * 60
             return _block(
                 order,
                 "random_movie",
-                avg_runtime * count / 60.0,
+                avg_seconds * count,
                 f"Random movie ({filter_text})",
                 genre_ids=genre_ids,
                 genre_names=[g.name for g in genres],
                 **filters,
                 count=count,
-                estimated_duration=avg_runtime * count,
+                estimated_duration=avg_seconds * count,
                 matching_movies=movies.count(),
             )
 
@@ -204,7 +212,7 @@ class ProgrammeService:
             return _block(
                 order,
                 "trailer_rule",
-                avg * count / 60.0,
+                avg * count,
                 f"Trailers for {ref_movie.title if ref_movie else 'criteria'}" + _tag_suffix(trailer_tag),
                 reference_movie_id=ref_movie.id if ref_movie else None,
                 reference_movie_title=ref_movie.title if ref_movie else None,
@@ -229,7 +237,7 @@ class ProgrammeService:
             return _block(
                 order,
                 "certification",
-                0.5,
+                CertificationService.CARD_SECONDS,
                 f"Certification for {movie.title}",
                 movie_id=movie.id,
                 movie_title=movie.title,
@@ -247,7 +255,7 @@ class ProgrammeService:
                 bumper = fetch_block_entity("bumper", item_data["bumper_id"])
                 details.update(bumper_id=bumper.id, bumper_title=bumper.title)
                 title = bumper.title
-            return _block(order, "audio_bumper", 0.25, title, **details)
+            return _block(order, "audio_bumper", AUDIO_BUMPER_SECONDS, title, **details)
 
         raise ValidationError(f"Unknown item type: {item_type}", error_code="UNKNOWN_ITEM_TYPE")
 
@@ -275,7 +283,7 @@ class ProgrammeService:
             preview_data = {
                 "name": name.strip(),
                 "description": description or "",
-                "total_runtime": sum(b["runtime"] for b in blocks),
+                "total_runtime": _total_minutes(blocks),
                 "total_blocks": len(blocks),
                 "blocks": blocks,
                 "preview": preview,
@@ -328,7 +336,7 @@ class ProgrammeService:
             preview_data = {
                 "name": name.strip(),
                 "description": description or "",
-                "total_runtime": sum(b["runtime"] for b in blocks),
+                "total_runtime": _total_minutes(blocks),
                 "total_blocks": len(blocks),
                 "blocks": blocks,
                 "preview": preview,
@@ -360,7 +368,7 @@ class ProgrammeService:
         return _block(
             item.order,
             "random_movie",
-            avg_duration / 60.0,
+            avg_duration,
             f"Random movie ({filter_text})",
             genre_ids=genre_ids,
             **filters,
@@ -379,7 +387,7 @@ class ProgrammeService:
             return _block(
                 item.order,
                 "trailer_rule",
-                avg * count / 60.0,
+                avg * count,
                 "Trailers for random movie" + _tag_suffix(tag),
                 reference_movie_id=None,
                 # Resolved from the template items (not the partly built list) so a
@@ -418,7 +426,7 @@ class ProgrammeService:
         return _block(
             item.order,
             "trailer_rule",
-            avg * count / 60.0,
+            avg * count,
             f"Trailers for {movie.title}" + _tag_suffix(tag),
             reference_movie_id=movie.id,
             reference_movie_title=movie.title,
@@ -439,7 +447,7 @@ class ProgrammeService:
             return _block(
                 item.order,
                 "certification",
-                0.5,
+                CertificationService.CARD_SECONDS,
                 f"Certification for random movie (feature {cert_feature})",
                 movie_id=None,
                 movie_title=None,
@@ -470,7 +478,7 @@ class ProgrammeService:
         return _block(
             item.order,
             "certification",
-            0.5,
+            CertificationService.CARD_SECONDS,
             f"Certification for {movie.title}",
             movie_id=movie.id,
             movie_title=movie.title,
@@ -478,6 +486,20 @@ class ProgrammeService:
             ratings_system=system,
             card_status=card_status,
             certification_feature=cert_feature,
+        )
+
+    @staticmethod
+    def _template_audio_bumper_block(item, feature):
+        movie = feature.get("movie")
+        if movie is None:
+            return _block(item.order, "audio_bumper", AUDIO_BUMPER_SECONDS, "Audio bumper")
+        return _block(
+            item.order,
+            "audio_bumper",
+            AUDIO_BUMPER_SECONDS,
+            f"Audio intro for {movie.title}",
+            reference_movie_id=movie.id,
+            reference_movie_title=movie.title,
         )
 
     @classmethod
@@ -520,7 +542,9 @@ class ProgrammeService:
                     if cert_feature in feature_movies:
                         block = cls._template_certification_block(item, cert_feature, feature_movies[cert_feature])
                 elif kind == "audio_bumper":
-                    block = _block(item.order, "audio_bumper", 0.25, "Audio bumper")
+                    feature = feature_movies.get(item.bound_to_feature or 1)
+                    if feature:
+                        block = cls._template_audio_bumper_block(item, feature)
                 if block:
                     blocks.append(block)
             except Exception as e:
@@ -604,7 +628,7 @@ class ProgrammeService:
                 block.random_count = details.get("count", default_count)
 
         elif block_type == "audio_bumper":
-            # Both lenient: a dangling id falls back to auto behaviour at playlist build.
+            # Both lenient: a dangling id leaves the block unbound (it then plays nothing).
             if details.get("reference_movie_id"):
                 block.movie = Movie.objects.filter(pk=details["reference_movie_id"]).first()
             if details.get("bumper_id"):
@@ -614,8 +638,6 @@ class ProgrammeService:
             movie_id = details.get("movie_id")
             if movie_id:
                 # Generate a specific film's card now (a random feature's is made at playlist build).
-                from .certification_service import CertificationService
-
                 block.movie = Movie.objects.get(pk=movie_id)
                 if not CertificationService.get_or_create_certification(block.movie):
                     logger.warning(f"Could not create certification for movie {block.movie.title} - skipping block")

@@ -43,8 +43,8 @@
 	<span class={rowCols.runtime}>
 		{#if row.cue}
 			—
-		{:else if row.runtime !== null && row.runtime > 0}
-			{rowRuntime(row.runtime, row.estimated)}
+		{:else if row.seconds !== null && row.seconds > 0}
+			{rowRuntime(row.seconds, row.estimated)}
 		{/if}
 	</span>
 </div>

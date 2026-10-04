@@ -4,6 +4,7 @@
 	import Films from '$lib/kiosk/Films.svelte';
 	import { Kiosk } from '$lib/kiosk/kiosk.svelte';
 	import OnAir from '$lib/kiosk/OnAir.svelte';
+	import PosterWall from '$lib/kiosk/PosterWall.svelte';
 	import Quiet from '$lib/kiosk/Quiet.svelte';
 	import Screenings from '$lib/kiosk/Screenings.svelte';
 	import Week from '$lib/kiosk/Week.svelte';
@@ -12,6 +13,8 @@
 
 	const kiosk = new Kiosk();
 	$effect(() => kiosk.start());
+
+	const posters = new URLSearchParams(location.search).get('mode') === 'posters';
 
 	let w = $state(1920);
 	let h = $state(1080);
@@ -40,7 +43,9 @@
 </svelte:head>
 
 <div class="kiosk" bind:clientWidth={w} bind:clientHeight={h}>
-	{#if kiosk.data}
+	{#if posters}
+		<PosterWall {kiosk} />
+	{:else if kiosk.data}
 		<div class="stage" style="transform: translate(-50%, -50%) scale({scale})">
 			{#key key}
 				<div class="fill" in:fade={{ duration: 600, delay: 200 }} out:fade={{ duration: 600 }}>

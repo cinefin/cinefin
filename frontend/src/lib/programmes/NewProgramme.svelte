@@ -310,7 +310,7 @@
 
 	const rows = $derived(buildRundown(detail, features, preview));
 	const warnings = $derived(previewWarnings(preview));
-	const estimated = $derived(rows.some((r) => r.estimated && r.runtime !== null));
+	const estimated = $derived(rows.some((r) => r.estimated && r.seconds !== null));
 
 	let creating = $state(false);
 

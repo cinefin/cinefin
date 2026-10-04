@@ -7,6 +7,11 @@ test('kiosk shows each between-screenings option', async ({ page }) => {
 	}
 });
 
+test('kiosk poster mode shows a full-screen poster', async ({ page }) => {
+	await page.goto('/app/kiosk?mode=posters');
+	await expect(page.locator('.kiosk img').first()).toBeVisible({ timeout: 15_000 });
+});
+
 test('remote renders the agent-down state honestly', async ({ page }) => {
 	await page.goto('/app/remote');
 	// No playout host is configured in the smoke environment — the console

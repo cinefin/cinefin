@@ -663,17 +663,20 @@ def preview_ticket(design, ctx: dict, *, width: int | None = None) -> dict:
     return {"url": url, "width": image.width, "height": image.height, "lines": lines}
 
 
+def occupied_seats(programme, schedule=None) -> set[str]:
+    """Seats taken for one screening; with no screening, only the programme's unscheduled tickets count."""
+    issues = TicketIssue.objects.filter(programme=programme, schedule=schedule).exclude(seat="")
+    return set(issues.values_list("seat", flat=True))
+
+
 def next_available_seat(programme=None, schedule=None, exclude=()) -> str:
-    """Pick a random free seat. Occupied = programme's TicketIssue seats (narrowed to schedule if given) plus `exclude`; raises when full."""
+    """Pick a random free seat, skipping `occupied_seats` and `exclude`; raises when full."""
     total_rows = Settings.get("tickets.total_rows", 10)
     seats_per_row = Settings.get("tickets.seats_per_row", 20)
 
     occupied = set(exclude)
     if programme is not None:
-        issues = TicketIssue.objects.filter(programme=programme).exclude(seat="")
-        if schedule is not None:
-            issues = issues.filter(schedule=schedule)
-        occupied.update(issues.values_list("seat", flat=True))
+        occupied |= occupied_seats(programme, schedule)
 
     available = [
         seat
@@ -683,7 +686,7 @@ def next_available_seat(programme=None, schedule=None, exclude=()) -> str:
     ]
     if not available:
         raise ValidationError(
-            "Auditorium is full — every seat already has a ticket for this programme",
+            "Auditorium is full — every seat already has a ticket for this screening",
             error_code="AUDITORIUM_FULL",
         )
     return random.choice(available)

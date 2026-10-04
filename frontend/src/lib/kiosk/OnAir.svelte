@@ -25,13 +25,16 @@
 	);
 	const bill = $derived(screeningTitle(name, films as (Partial<KioskFilm> & { title: string })[]));
 	const screening = $derived(
-		kiosk.upcoming.find((s) => s.status === 'running' && s.programme === name)
+		kiosk.upcoming.find((s) => s.status === 'running' && s.programme_id === status.programme?.id)
 	);
+	// Before the programme's first item: the title card, playing or paused.
+	const preshow = $derived(status.playlist?.current_position == null);
+	const paused = $derived(status.phase === 'paused' && !preshow);
 	// The screening's own times, else worked out from how far the programme has run.
 	const times = $derived.by(() => {
 		if (screening) return { started: Date.parse(screening.start), ends: Date.parse(screening.end) };
 		const p = status.playlist;
-		if (!p) return null;
+		if (!p || preshow) return null;
 		const started = Date.now() - p.programme_elapsed_time * 1000;
 		return { started, ends: started + p.programme_total_duration * 1000 };
 	});
@@ -47,7 +50,9 @@
 		<Header {kiosk} quiet />
 		<div class="main">
 			<div>
-				<div class="muted label">Now showing</div>
+				<div class="muted label">
+					{preshow ? 'Starting soon' : paused ? 'Paused' : 'Now showing'}
+				</div>
 				<div class="name title" style="font-size: {fit(bill.title, 150)}px">{bill.title}</div>
 				{#if bill.film}
 					<div class="mono muted facts">{facts(bill.film)}</div>
@@ -56,9 +61,13 @@
 						<div class="film">{film.title} <span class="mono muted">{facts(film)}</span></div>
 					{/each}
 				{/if}
-				{#if times}
+				{#if paused}
+					<div class="soft when">Back shortly</div>
+				{:else if times}
 					<div class="soft when">
-						Started at <span class="mono">{kiosk.time(times.started)}</span> · ends about
+						{preshow ? 'Starting at' : 'Started at'}
+						<span class="mono">{kiosk.time(times.started)}</span>
+						· ends about
 						<span class="mono">{kiosk.time(times.ends)}</span>
 					</div>
 				{/if}

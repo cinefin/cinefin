@@ -3,6 +3,7 @@
 	interface Tab {
 		id: string;
 		label: string;
+		count?: number;
 	}
 
 	interface Props {
@@ -75,6 +76,9 @@
 			onclick={() => onselect(tab.id)}
 		>
 			{tab.label}
+			{#if tab.count != null}
+				<span class="ml-1 font-mono text-[0.7rem] text-faint">{tab.count}</span>
+			{/if}
 		</button>
 	{/each}
 </div>
