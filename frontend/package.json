@@ -18,23 +18,23 @@
 		"render:ident": "node tools/system-ident/render.mjs"
 	},
 	"dependencies": {
-		"@lucide/svelte": "1.48.0",
-		"konva": "^10.7.0",
+		"@lucide/svelte": "1.56.0",
+		"konva": "^10.8.0",
 		"openapi-fetch": "0.17.0"
 	},
 	"devDependencies": {
-		"@playwright/test": "1.63.0",
+		"@playwright/test": "1.64.0",
 		"@sveltejs/adapter-static": "3.0.10",
 		"@sveltejs/kit": "2.70.3",
 		"@sveltejs/vite-plugin-svelte": "7.3.1",
 		"@tailwindcss/vite": "4.3.3",
 		"openapi-typescript": "7.13.0",
-		"prettier": "3.9.9",
+		"prettier": "3.9.10",
 		"prettier-plugin-svelte": "4.1.1",
-		"svelte": "5.57.1",
+		"svelte": "5.57.2",
 		"svelte-check": "4.7.6",
 		"tailwindcss": "4.3.3",
 		"typescript": "5.9.3",
-		"vite": "8.3.1"
+		"vite": "8.3.4"
 	}
 }
