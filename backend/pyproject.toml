@@ -47,9 +47,9 @@ pymediainfo = "^7.0"
 # v3 dropped the runtime pkg_resources/setuptools dependency
 python-escpos = "^3.1"
 requests = "^2.32.3"
-zeroconf = "^0.151.0"
+zeroconf = ">=0.151,<0.154"
 ruff = "^0.16.1"
-uvicorn = {version = "^0.53", extras = ["standard"]}
+uvicorn = {version = ">=0.53,<0.55", extras = ["standard"]}
 tzdata = "^2026.4"
 
 [tool.poetry.scripts]
